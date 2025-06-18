@@ -501,154 +501,193 @@ if selected_symbols and connector:
             st.warning("No Greeks data available. This may be due to:")
             st.info("• Insufficient options data\n• API limitations\n• Data processing issues")
     
+    # Complete fix for the Enhanced Volatility Surface section in app.py
+    # FIND the section starting with "# Enhanced Volatility Surface" (around line 300)
+    # REPLACE the entire volatility surface section with this fixed version:
+
     # Enhanced Volatility Surface
     st.markdown('<div class="section-header">🌊 Volatility Surface Analysis</div>', unsafe_allow_html=True)
-    
+
     # Symbol selector for surface
     surface_symbol = st.selectbox("Select symbol for volatility surface:", selected_symbols)
-    
+
     # Live price display
-    current_data = connector.get_current_data(surface_symbol)
-    current_price = current_data['price']
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Current Price", f"${current_price:.2f}")
-    with col2:
-        st.metric("Last Update", datetime.now().strftime('%H:%M:%S'))
-    with col3:
-        if st.button("🔄 Force Refresh"):
-            st.rerun()
-    
     try:
-        strikes, expiries, vol_surface = connector.get_vol_surface_data(surface_symbol)
+        current_data = connector.get_current_data(surface_symbol)
+        current_price = current_data['price']
         
-        # Convert strike ratios to actual strike prices if needed
-        if np.max(strikes) <= 2.0:  # These are ratios (moneyness)
-            actual_strikes = strikes * current_price
-        else:  # These are already actual prices
-            actual_strikes = strikes
-        
-        if show_3d_surface:
-            # Clean 3D Surface Plot
-            fig_3d = go.Figure()
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current Price", f"${current_price:.2f}")
+        with col2:
+            st.metric("Last Update", datetime.now().strftime('%H:%M:%S'))
+        with col3:
+            if st.button("🔄 Force Refresh"):
+                st.rerun()
+
+        try:
+            strikes, expiries, vol_surface = connector.get_vol_surface_data(surface_symbol)
             
-            # Create meshgrid for surface if needed
-            if len(actual_strikes.shape) == 1:
-                Strike_mesh, Time_mesh = np.meshgrid(actual_strikes, expiries)
+            # FIXED: Ensure strikes are actual prices, not ratios
+            if hasattr(strikes, 'shape') and len(strikes.shape) > 1:
+                # Already a 2D array
+                actual_strikes = strikes
             else:
-                Strike_mesh, Time_mesh = actual_strikes, expiries
+                # 1D array - check if these are ratios or actual prices
+                if np.max(strikes) <= 2.0:  # These are ratios (moneyness)
+                    actual_strikes = strikes * current_price
+                else:  # These are already actual prices
+                    actual_strikes = strikes
             
-            # Add main surface only
-            fig_3d.add_trace(go.Surface(
+            # FIXED: Handle expiries properly
+            if hasattr(expiries, 'shape') and len(expiries.shape) > 1:
+                time_values = expiries
+            else:
+                time_values = expiries
+            
+            if show_3d_surface:
+                # FIXED: Clean 3D Surface Plot without formatting errors
+                fig_3d = go.Figure()
+                
+                # Create meshgrid for surface if needed
+                if len(actual_strikes.shape) == 1 and len(time_values.shape) == 1:
+                    Strike_mesh, Time_mesh = np.meshgrid(actual_strikes, time_values)
+                else:
+                    Strike_mesh = actual_strikes
+                    Time_mesh = time_values
+                
+                # Add main surface only
+                fig_3d.add_trace(go.Surface(
+                    z=vol_surface,
+                    x=Strike_mesh,
+                    y=Time_mesh,
+                    colorscale='Viridis',
+                    showscale=True,
+                    name='Volatility Surface',
+                    hovertemplate='Strike: $%{x:.0f}<br>Days: %{y:.0f}<br>IV: %{z:.2%}<extra></extra>',
+                    showlegend=False
+                ))
+                
+                # FIXED: Update layout without problematic formatting
+                fig_3d.update_layout(
+                    title=f'{surface_symbol} Implied Volatility Surface (Current Price: ${current_price:.2f})',
+                    scene=dict(
+                        xaxis_title='Strike Price ($)',
+                        yaxis_title='Days to Expiry', 
+                        zaxis_title='Implied Volatility',
+                        camera=dict(eye=dict(x=1.5, y=1.5, z=1.5))
+                    ),
+                    height=700,
+                    showlegend=False
+                )
+                
+                # FIXED: Add clean annotation
+                current_time = datetime.now().strftime('%H:%M:%S')
+                fig_3d.add_annotation(
+                    x=0.02,
+                    y=0.98,
+                    xref="paper",
+                    yref="paper",
+                    text=f"Live Price: ${current_price:.2f}<br>Updated: {current_time}",
+                    showarrow=False,
+                    font=dict(size=12, color="white"),
+                    bgcolor="rgba(0,0,0,0.8)",
+                    bordercolor="lime",
+                    borderwidth=2
+                )
+                
+                st.plotly_chart(fig_3d, use_container_width=True)
+            
+            # FIXED: Enhanced 2D Heatmap
+            fig_heatmap = go.Figure()
+            
+            # Ensure we have proper 2D arrays for heatmap
+            if len(actual_strikes.shape) == 1 and len(time_values.shape) == 1:
+                x_vals = actual_strikes
+                y_vals = time_values
+            else:
+                x_vals = actual_strikes[0, :] if len(actual_strikes.shape) > 1 else actual_strikes
+                y_vals = time_values[:, 0] if len(time_values.shape) > 1 else time_values
+            
+            fig_heatmap.add_trace(go.Heatmap(
                 z=vol_surface,
-                x=Strike_mesh,
-                y=Time_mesh,
-                colorscale='Viridis',
-                showscale=True,
+                x=x_vals,
+                y=y_vals,
+                colorscale='RdYlBu_r',
+                colorbar=dict(title="Implied Vol"),
                 hovertemplate='Strike: $%{x:.0f}<br>Days: %{y:.0f}<br>IV: %{z:.2%}<extra></extra>',
                 showlegend=False
             ))
             
-            # Update layout
-            fig_3d.update_layout(
-                title=f'{surface_symbol} Implied Volatility Surface (Current Price: ${current_price:.2f})',
-                scene=dict(
-                    xaxis_title='Strike Price ($)',
-                    yaxis_title='Days to Expiry', 
-                    zaxis_title='Implied Volatility',
-                    camera=dict(eye=dict(x=1.5, y=1.5, z=1.5)),
-                    xaxis=dict(tickformat='$,.0f'),
-                    zaxis=dict(tickformat='.1%')
-                ),
-                height=700,
+            fig_heatmap.update_layout(
+                title=f'{surface_symbol} Volatility Heatmap',
+                xaxis_title='Strike Price ($)',
+                yaxis_title='Days to Expiry',
+                height=500,
                 showlegend=False
             )
+            st.plotly_chart(fig_heatmap, use_container_width=True)
             
-            # Add clean annotation showing current price
-            fig_3d.add_annotation(
-                x=0.02,
-                y=0.98,
-                xref="paper",
-                yref="paper",
-                text=f"Live Price: ${current_price:.2f}<br>Updated: {datetime.now().strftime('%H:%M:%S')}",
-                showarrow=False,
-                font=dict(size=12, color="white"),
-                bgcolor="rgba(0,0,0,0.8)",
-                bordercolor="lime",
-                borderwidth=2
-            )
+            # FIXED: Volatility smile for shortest expiration
+            try:
+                shortest_exp_idx = 0
+                if len(vol_surface.shape) > 1:
+                    if len(actual_strikes.shape) > 1:
+                        smile_strikes = actual_strikes[shortest_exp_idx, :]
+                    else:
+                        smile_strikes = actual_strikes
+                        
+                    if len(vol_surface.shape) > 1:
+                        smile_vols = vol_surface[shortest_exp_idx, :]
+                    else:
+                        smile_vols = vol_surface
+                        
+                    if len(time_values.shape) > 1:
+                        smile_days = time_values[shortest_exp_idx, 0]
+                    else:
+                        smile_days = time_values[shortest_exp_idx] if len(time_values) > 0 else 30
+                else:
+                    smile_strikes = actual_strikes
+                    smile_vols = vol_surface
+                    smile_days = time_values[0] if hasattr(time_values, '__len__') and len(time_values) > 0 else 30
+                
+                fig_smile = go.Figure()
+                fig_smile.add_trace(go.Scatter(
+                    x=smile_strikes,
+                    y=smile_vols,
+                    mode='lines+markers',
+                    name=f'{smile_days:.0f} Day Smile',
+                    line=dict(color='blue', width=3),
+                    marker=dict(size=6),
+                    hovertemplate='Strike: $%{x:.0f}<br>IV: %{y:.2%}<extra></extra>'
+                ))
+                
+                fig_smile.update_layout(
+                    title=f'{surface_symbol} Volatility Smile - {smile_days:.0f} Days to Expiry',
+                    xaxis_title='Strike Price ($)',
+                    yaxis_title='Implied Volatility',
+                    height=400,
+                    showlegend=False
+                )
+                st.plotly_chart(fig_smile, use_container_width=True)
+                
+            except Exception as e:
+                st.warning(f"Could not generate volatility smile: {e}")
             
-            st.plotly_chart(fig_3d, use_container_width=True)
-        
-        # Enhanced 2D Heatmap with clean ATM line
-        fig_heatmap = go.Figure(data=go.Heatmap(
-            z=vol_surface,
-            x=actual_strikes[0, :] if len(actual_strikes.shape) > 1 else actual_strikes,
-            y=expiries[:, 0] if len(expiries.shape) > 1 else expiries,
-            colorscale='RdYlBu_r',
-            colorbar=dict(title="Implied Vol", tickformat='.1%'),
-            hovertemplate='Strike: $%{x:.0f}<br>Days: %{y:.0f}<br>IV: %{z:.2%}<extra></extra>',
-            showlegend=False
-        ))
-        
-        # Clean heatmap without ATM line
-        
-        fig_heatmap.update_layout(
-            title=f'{surface_symbol} Volatility Heatmap',
-            xaxis_title='Strike Price ($)',
-            yaxis_title='Days to Expiry',
-            xaxis=dict(tickformat='$,.0f'),
-            height=500,
-            showlegend=False
-        )
-        st.plotly_chart(fig_heatmap, use_container_width=True)
-        
-        # Volatility smile for shortest expiration
-        shortest_exp_idx = 0
-        if len(vol_surface.shape) > 1:
-            smile_strikes = actual_strikes[shortest_exp_idx, :] if len(actual_strikes.shape) > 1 else actual_strikes
-            smile_vols = vol_surface[shortest_exp_idx, :]
-            smile_days = expiries[shortest_exp_idx] if len(expiries.shape) > 1 else expiries[shortest_exp_idx]
-        else:
-            smile_strikes = actual_strikes
-            smile_vols = vol_surface
-            smile_days = expiries[0] if hasattr(expiries, '__len__') else expiries
-        
-        fig_smile = go.Figure()
-        fig_smile.add_trace(go.Scatter(
-            x=smile_strikes,
-            y=smile_vols,
-            mode='lines+markers',
-            name=f'{smile_days:.0f} Day Smile',
-            line=dict(color='blue', width=3),
-            marker=dict(size=6),
-            hovertemplate='Strike: $%{x:.0f}<br>IV: %{y:.2%}<extra></extra>'
-        ))
-        
-        # Clean volatility smile without ATM line
-        
-        fig_smile.update_layout(
-            title=f'{surface_symbol} Volatility Smile - {smile_days:.0f} Days to Expiry',
-            xaxis_title='Strike Price ($)',
-            yaxis_title='Implied Volatility',
-            xaxis=dict(tickformat='$,.0f'),
-            yaxis=dict(tickformat='.1%'),
-            height=400,
-            showlegend=False
-        )
-        st.plotly_chart(fig_smile, use_container_width=True)
-        
+        except Exception as e:
+            st.error(f"Error generating volatility surface for {surface_symbol}: {e}")
+            st.info("This could be due to insufficient data or processing issues.")
+            
+            # Show fallback information
+            st.markdown("**Fallback Surface Analysis:**")
+            st.write(f"Current Price: ${current_data.get('price', 0):.2f}")
+            st.write(f"30D IV: {current_data.get('iv_30d', 0):.1%}")
+            st.write(f"60D IV: {current_data.get('iv_60d', 0):.1%}")
+            st.write(f"90D IV: {current_data.get('iv_90d', 0):.1%}")
+
     except Exception as e:
-        st.error(f"Error generating volatility surface for {surface_symbol}: {e}")
-        st.info("This could be due to insufficient data or processing issues.")
-        
-        # Show fallback information
-        st.markdown("**Fallback Surface Analysis:**")
-        st.write(f"Current Price: ${current_data.get('price', 0):.2f}")
-        st.write(f"30D IV: {current_data.get('iv_30d', 0):.1%}")
-        st.write(f"60D IV: {current_data.get('iv_60d', 0):.1%}")
-        st.write(f"90D IV: {current_data.get('iv_90d', 0):.1%}")
+        st.error(f"Error getting current data for {surface_symbol}: {e}")
+        st.write("Please try refreshing or selecting a different symbol.")
     
     # Correlation Analysis
     if show_correlations and len(selected_symbols) > 1:

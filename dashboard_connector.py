@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Complete Working Dashboard Connector - Final Version
+Complete Working Dashboard Connector - Final Fixed Version
 All fixes applied: Real prices, YOUR models, correct skew, realistic volatilities
 """
 
@@ -30,16 +30,116 @@ except ImportError:
     YFINANCE_AVAILABLE = False
     logger.warning("⚠️ yfinance not installed. Run: pip install yfinance")
 
-# Import YOUR working pricing models
+# FIXED IMPORTS: Import YOUR working pricing models with better error handling
 try:
     from src.pricing.black_scholes import BlackScholesModel, OptionGreeks
     from src.pricing.implied_vol import ImpliedVolatilityCalculator
     from src.analysis.vol_surface import VolatilitySurface
     PRICING_MODELS_AVAILABLE = True
-    logger.info("✅ YOUR pricing models available and working!")
+    logger.info("✅ YOUR pricing models imported successfully!")
 except ImportError as e:
     PRICING_MODELS_AVAILABLE = False
     logger.warning(f"⚠️ YOUR pricing models not available: {e}")
+    
+    # Create placeholder classes
+    class BlackScholesModel:
+        @staticmethod
+        def call_price(S, K, T, r, sigma):
+            # Fallback Black-Scholes
+            try:
+                from scipy.stats import norm
+                import numpy as np
+                if T <= 0: return max(0, S - K)
+                if sigma <= 0: return max(0, S - K*np.exp(-r*T))
+                d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+                d2 = d1 - sigma*np.sqrt(T)
+                return S*norm.cdf(d1) - K*np.exp(-r*T)*norm.cdf(d2)
+            except:
+                return max(0.01, S - K)
+        
+        @staticmethod
+        def put_price(S, K, T, r, sigma):
+            # Put-call parity
+            try:
+                call = BlackScholesModel.call_price(S, K, T, r, sigma)
+                return call - S + K*np.exp(-r*T)
+            except:
+                return max(0.01, K - S)
+    
+    class OptionGreeks:
+        @staticmethod
+        def delta(S, K, T, r, sigma, option_type):
+            try:
+                from scipy.stats import norm
+                import numpy as np
+                if T <= 0: return 1.0 if option_type == 'call' and S > K else 0.0
+                d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+                if option_type == 'call':
+                    return norm.cdf(d1)
+                else:
+                    return -norm.cdf(-d1)
+            except:
+                return 0.5 if option_type == 'call' else -0.5
+        
+        @staticmethod
+        def gamma(S, K, T, r, sigma):
+            try:
+                from scipy.stats import norm
+                import numpy as np
+                if T <= 0 or sigma <= 0: return 0.0
+                d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+                return norm.pdf(d1) / (S * sigma * np.sqrt(T))
+            except:
+                return 0.02
+        
+        @staticmethod
+        def theta(S, K, T, r, sigma, option_type):
+            try:
+                from scipy.stats import norm
+                import numpy as np
+                if T <= 0: return 0.0
+                d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+                d2 = d1 - sigma*np.sqrt(T)
+                
+                term1 = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
+                term2 = r * K * np.exp(-r*T)
+                
+                if option_type == 'call':
+                    return (term1 - term2 * norm.cdf(d2)) / 365
+                else:
+                    return (term1 + term2 * norm.cdf(-d2)) / 365
+            except:
+                return -0.05
+        
+        @staticmethod
+        def vega(S, K, T, r, sigma):
+            try:
+                from scipy.stats import norm
+                import numpy as np
+                if T <= 0: return 0.0
+                d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+                return S * norm.pdf(d1) * np.sqrt(T) / 100
+            except:
+                return 0.2
+    
+    class ImpliedVolatilityCalculator:
+        def calculate_implied_vol(self, market_price, S, K, T, r, option_type, method='newton'):
+            # Simple IV calculation fallback
+            try:
+                import numpy as np
+                from scipy.optimize import brentq
+                
+                def price_diff(vol):
+                    if option_type == 'call':
+                        return BlackScholesModel.call_price(S, K, T, r, vol) - market_price
+                    else:
+                        return BlackScholesModel.put_price(S, K, T, r, vol) - market_price
+                
+                iv = brentq(price_diff, 0.01, 3.0, xtol=1e-6)
+                return iv, 'brent'
+            except:
+                return None, 'failed'
+
 
 class RealTimePriceProvider:
     """Provides real-time stock prices with yfinance + current fallbacks"""
@@ -276,118 +376,315 @@ class RealisticOptionsDataGenerator:
             self.iv_calculator = ImpliedVolatilityCalculator()
             self.logger.info("✅ Initialized YOUR working Black-Scholes and IV models")
         else:
-            self.bs_model = None
-            self.iv_calculator = None
+            self.bs_model = BlackScholesModel()  # Use fallback
+            self.iv_calculator = ImpliedVolatilityCalculator()  # Use fallback
     
     def create_realistic_options_data(self, symbol: str) -> pd.DataFrame:
-        """Create realistic options data using market-based volatility patterns"""
+        """
+        Create enhanced synthetic options data based on REAL current stock price
+        FIXED: Proper IV-Price consistency
+        """
         
-        spot_price = self.price_provider.get_live_price(symbol)
+        # Get REAL current stock price
+        stock_price = self.price_provider.get_live_price(symbol)
         
-        # Generate strikes and expiries (similar to your working diagnostic)
-        num_strikes = 20
-        strikes = np.linspace(spot_price * 0.7, spot_price * 1.3, num_strikes)
-        expiry_days = [3, 7, 14, 21, 30, 45, 60, 90, 120, 180, 365]
+        self.logger.info(f"📊 Creating synthetic options for {symbol} at REAL price ${stock_price:.2f}")
+        
+        # Generate strikes around REAL current price
+        strikes = []
+        
+        # Calculate appropriate strike spacing based on stock price
+        if stock_price < 20:
+            strike_spacing = 1  # $1 spacing for cheap stocks
+        elif stock_price < 100:
+            strike_spacing = 2.5  # $2.50 spacing
+        elif stock_price < 200:
+            strike_spacing = 5  # $5 spacing
+        else:
+            strike_spacing = 10  # $10 spacing for expensive stocks
+        
+        # Generate strikes from 70% to 130% of current price
+        num_strikes = 25
+        for i in range(-num_strikes//2, num_strikes//2 + 1):
+            strike = stock_price + (i * strike_spacing)
+            if strike > 0:
+                strikes.append(strike)
+        
+        # Generate realistic expiration dates
+        today = datetime.now()
+        expirations = []
+        
+        # Weekly options (next 4 weeks)
+        for i in range(1, 5):
+            exp_date = today + timedelta(weeks=i)
+            # Adjust to Friday
+            days_ahead = 4 - exp_date.weekday()
+            if days_ahead < 0:
+                days_ahead += 7
+            exp_date += timedelta(days=days_ahead)
+            expirations.append(exp_date)
+        
+        # Monthly options (next 6 months)
+        for i in range(1, 7):
+            exp_date = today + timedelta(days=30*i)
+            # Third Friday of the month
+            exp_date = exp_date.replace(day=15)
+            days_ahead = 4 - exp_date.weekday()
+            if days_ahead < 0:
+                days_ahead += 7
+            exp_date += timedelta(days=days_ahead)
+            expirations.append(exp_date)
+        
+        # Symbol-specific parameters for IV surface
+        symbol_params = {
+            'AAPL': {'base_vol': 0.25, 'volume_mult': 800, 'skew': -0.08, 'smile': 0.03},
+            'MSFT': {'base_vol': 0.22, 'volume_mult': 600, 'skew': -0.06, 'smile': 0.02},
+            'GOOGL': {'base_vol': 0.28, 'volume_mult': 400, 'skew': -0.07, 'smile': 0.025},
+            'NVDA': {'base_vol': 0.40, 'volume_mult': 1000, 'skew': -0.10, 'smile': 0.04},
+            'TSLA': {'base_vol': 0.50, 'volume_mult': 1200, 'skew': -0.12, 'smile': 0.05},
+            'SPY': {'base_vol': 0.15, 'volume_mult': 2000, 'skew': -0.05, 'smile': 0.02},
+            'QQQ': {'base_vol': 0.20, 'volume_mult': 1500, 'skew': -0.06, 'smile': 0.025},
+            'META': {'base_vol': 0.35, 'volume_mult': 700, 'skew': -0.09, 'smile': 0.035},
+            'AMZN': {'base_vol': 0.30, 'volume_mult': 600, 'skew': -0.08, 'smile': 0.03},
+            'PLTR': {'base_vol': 0.75, 'volume_mult': 500, 'skew': -0.15, 'smile': 0.06}  # High vol stock
+        }
+        
+        params = symbol_params.get(symbol, {'base_vol': 0.25, 'volume_mult': 200, 'skew': -0.08, 'smile': 0.03})
+        base_vol = params['base_vol']
+        volume_mult = params['volume_mult']
+        skew_strength = params['skew']
+        smile_strength = params['smile']
         
         options_data = []
         risk_free_rate = 0.05
         
-        # Get base volatility characteristics for this symbol
-        vol_characteristics = self._get_symbol_vol_characteristics(symbol.upper())
-        
-        for days_to_exp in expiry_days:
+        for exp_date in expirations:
+            days_to_exp = (exp_date - today).days
             time_to_exp = days_to_exp / 365.0
             
             for strike in strikes:
-                moneyness = strike / spot_price
+                moneyness = stock_price / strike  # S/K moneyness
                 log_moneyness = np.log(moneyness)
                 
-                # Build realistic implied volatility
-                iv = self._calculate_realistic_iv(
-                    symbol, moneyness, log_moneyness, time_to_exp, vol_characteristics
-                )
+                # FIXED: Build realistic implied volatility surface first
+                # Term structure: vol increases slightly with time
+                vol = base_vol * (1.0 + 0.1 * np.sqrt(time_to_exp))
                 
-                # Calculate option prices using YOUR working Black-Scholes model
-                if PRICING_MODELS_AVAILABLE and self.bs_model:
-                    try:
-                        call_price = self.bs_model.call_price(
-                            S=spot_price, K=strike, T=time_to_exp,
-                            r=risk_free_rate, sigma=iv
-                        )
-                        put_price = self.bs_model.put_price(
-                            S=spot_price, K=strike, T=time_to_exp,
-                            r=risk_free_rate, sigma=iv
-                        )
-                        
-                        # Validate prices
-                        if call_price <= 0 or put_price <= 0 or not np.isfinite(call_price) or not np.isfinite(put_price):
-                            self.logger.debug(f"Invalid prices for {symbol} K={strike:.0f}: call={call_price:.3f}, put={put_price:.3f}")
-                            continue
-                        
-                    except Exception as e:
-                        self.logger.debug(f"Black-Scholes calculation failed for {symbol}: {e}")
-                        continue
-                else:
-                    # Simple fallback pricing
+                # Volatility skew: OTM puts (low strikes) have higher vol
+                vol += skew_strength * log_moneyness  # Negative skew for equity options
+                
+                # Volatility smile: Far OTM options have higher vol
+                vol += smile_strength * (log_moneyness ** 2)
+                
+                # Add some realistic noise
+                vol += np.random.normal(0, 0.01)
+                
+                # Ensure reasonable bounds
+                vol = max(0.05, min(vol, 2.5))  # Between 5% and 250%
+                
+                # NOW calculate option prices using Black-Scholes with this IV
+                try:
+                    call_price = self.bs_model.call_price(
+                        S=stock_price, K=strike, T=time_to_exp,
+                        r=risk_free_rate, sigma=vol
+                    )
+                    put_price = self.bs_model.put_price(
+                        S=stock_price, K=strike, T=time_to_exp,
+                        r=risk_free_rate, sigma=vol
+                    )
+                    
+                    # Ensure prices are reasonable
+                    call_price = max(0.01, call_price)
+                    put_price = max(0.01, put_price)
+                    
+                except Exception as e:
+                    self.logger.debug(f"Black-Scholes calculation failed: {e}")
+                    # Fallback pricing
                     discount = np.exp(-risk_free_rate * time_to_exp)
-                    call_price = max(0.01, spot_price - strike * discount)
-                    put_price = max(0.01, strike * discount - spot_price)
+                    call_price = max(0.01, stock_price - strike * discount)
+                    put_price = max(0.01, strike * discount - stock_price)
                 
-                # Volume modeling (higher volume near ATM)
-                volume_factor = 1.5 - abs(1 - moneyness)
-                volume_factor = max(0.1, volume_factor)
-                base_volume = int(200 * volume_factor * np.exp(-time_to_exp * 1.5))
-                base_volume = max(5, base_volume)
+                # Volume based on moneyness and popularity
+                volume_factor = max(0.1, 1.5 - abs(1 - moneyness))  # Higher volume near ATM
+                base_volume = int(volume_mult * volume_factor * np.exp(-time_to_exp * 1.2))
+                base_volume = max(1, base_volume)
                 
-                # Add call option
+                # Create call option
+                call_bid = call_price * 0.995
+                call_ask = call_price * 1.005
+                
                 options_data.append({
                     'symbol': symbol,
+                    'contractSymbol': f"{symbol}{exp_date.strftime('%y%m%d')}C{int(strike*1000):08d}",
                     'strike': strike,
-                    'expiration': datetime.now() + timedelta(days=days_to_exp),
-                    'daysToExpiration': days_to_exp,
+                    'expiration': exp_date,
                     'type': 'call',
-                    'last_price': call_price,
-                    'bid': call_price * 0.98,
-                    'ask': call_price * 1.02,
-                    'volume': base_volume,
-                    'openInterest': base_volume * 8,
-                    'impliedVolatility': iv,
-                    'time_to_expiry': time_to_exp,
-                    'moneyness': moneyness
+                    'bid': round(call_bid, 2),
+                    'ask': round(call_ask, 2),
+                    'last': round(call_price, 2),
+                    'volume': int(base_volume),
+                    'openInterest': int(base_volume * 5),
+                    'impliedVolatility': round(vol, 4),  # This IV matches the price!
+                    'timestamp': today.strftime('%Y-%m-%d'),
+                    'moneyness': moneyness,
+                    'time_to_expiry': time_to_exp
                 })
                 
-                # Add put option
+                # Create put option
+                put_bid = put_price * 0.995
+                put_ask = put_price * 1.005
+                
                 options_data.append({
                     'symbol': symbol,
+                    'contractSymbol': f"{symbol}{exp_date.strftime('%y%m%d')}P{int(strike*1000):08d}",
                     'strike': strike,
-                    'expiration': datetime.now() + timedelta(days=days_to_exp),
-                    'daysToExpiration': days_to_exp,
+                    'expiration': exp_date,
                     'type': 'put',
-                    'last_price': put_price,
-                    'bid': put_price * 0.98,
-                    'ask': put_price * 1.02,
+                    'bid': round(put_bid, 2),
+                    'ask': round(put_ask, 2),
+                    'last': round(put_price, 2),
                     'volume': int(base_volume * 0.8),
-                    'openInterest': base_volume * 6,
-                    'impliedVolatility': iv,
-                    'time_to_expiry': time_to_exp,
-                    'moneyness': moneyness
+                    'openInterest': int(base_volume * 4),
+                    'impliedVolatility': round(vol, 4),  # This IV matches the price!
+                    'timestamp': today.strftime('%Y-%m-%d'),
+                    'moneyness': moneyness,
+                    'time_to_expiry': time_to_exp
                 })
         
         df = pd.DataFrame(options_data)
         
-        if not df.empty:
-            avg_iv = df['impliedVolatility'].mean()
-            min_iv = df['impliedVolatility'].min()
-            max_iv = df['impliedVolatility'].max()
-            
-            self.logger.info(f"✅ Created {len(df)} options for {symbol}")
-            self.logger.info(f"   IV range: {min_iv:.1%} to {max_iv:.1%} (avg: {avg_iv:.1%})")
-            
-            # Log specific verification for high-vol stocks
-            if symbol.upper() in ['PLTR', 'TSLA', 'GME'] and avg_iv > 0.5:
-                self.logger.info(f"   ✅ {symbol} IV looks realistic for high-vol stock: {avg_iv:.1%}")
+        # Add additional calculated fields
+        df['expiration'] = pd.to_datetime(df['expiration'])
+        today_date = datetime.now().date()
+        df['daysToExpiration'] = df['expiration'].apply(lambda x: (x.date() - today_date).days)
+        df['bidAskSpread'] = df['ask'] - df['bid']
+        df['bidAskSpreadPct'] = df['bidAskSpread'] / ((df['bid'] + df['ask']) / 2)
+        
+        self.logger.info(f"✅ Created {len(df)} synthetic options contracts for {symbol}")
+        self.logger.info(f"   IV range: {df['impliedVolatility'].min():.1%} to {df['impliedVolatility'].max():.1%}")
         
         return df
+    
+    def calculate_realistic_greeks(self, symbol: str, spot_price: float) -> Dict[str, float]:
+        """Calculate Greeks using YOUR working models with realistic and consistent parameters"""
+        
+        if not PRICING_MODELS_AVAILABLE:
+            return self._fallback_greeks(symbol)
+        
+        try:
+            # Get realistic volatility characteristics for this symbol
+            vol_characteristics = self._get_symbol_vol_characteristics(symbol.upper())
+            
+            # FIXED: Calculate term structure IVs more realistically
+            # Use 30-day as base, then build term structure
+            base_iv_30d = vol_characteristics['base_vol']
+            
+            # More realistic term structure: typically upward sloping for equity options
+            iv_60d = base_iv_30d * (1.0 + 0.05 * np.sqrt(60/30))   # ~5% increase per sqrt(time)
+            iv_90d = base_iv_30d * (1.0 + 0.08 * np.sqrt(90/30))   # ~8% increase per sqrt(time)
+            
+            # Use 30-day IV for Greeks calculation (most liquid)
+            atm_iv = base_iv_30d
+            time_to_exp = 30/365  # 30-day option
+            risk_free_rate = 0.05
+            
+            # FIXED: Calculate Greeks using YOUR working models with proper validation
+            try:
+                # Calculate all Greeks for ATM call option
+                delta_call = OptionGreeks.delta(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv, 'call')
+                delta_put = OptionGreeks.delta(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv, 'put')
+                gamma = OptionGreeks.gamma(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv)
+                theta_call = OptionGreeks.theta(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv, 'call')
+                theta_put = OptionGreeks.theta(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv, 'put')
+                vega = OptionGreeks.vega(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv)
+                
+                # Validate Greeks are within reasonable ranges
+                if not (0.3 <= delta_call <= 0.7):
+                    self.logger.warning(f"Unusual delta for {symbol}: {delta_call:.3f}")
+                
+                if not (0.001 <= gamma <= 0.1):
+                    self.logger.warning(f"Unusual gamma for {symbol}: {gamma:.4f}")
+                
+                # FIXED: Vega scaling - ensure it's in the right units
+                # Your vega should be sensitivity to 1% vol change (already scaled in your implementation)
+                if vega < 0.01 or vega > 100:
+                    self.logger.warning(f"Unusual vega for {symbol}: {vega:.3f}")
+                    # If vega seems wrong, recalculate with manual check
+                    manual_vega = self._calculate_vega_manually(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv)
+                    if 0.01 <= manual_vega <= 100:
+                        vega = manual_vega
+                        self.logger.info(f"Used manual vega calculation: {vega:.3f}")
+                
+                # Use average theta (since dashboard typically shows portfolio theta)
+                theta = (theta_call + theta_put) / 2
+                
+                # Use call delta for display (more intuitive for most users)
+                delta = delta_call
+                
+                self.logger.debug(f"✅ Greeks for {symbol}: Δ={delta:.3f}, Γ={gamma:.4f}, θ={theta:.3f}, ν={vega:.3f}")
+                
+                return {
+                    'iv_30d': atm_iv,
+                    'iv_60d': iv_60d,
+                    'iv_90d': iv_90d,
+                    'delta': delta,
+                    'gamma': gamma,
+                    'theta': theta,
+                    'vega': vega
+                }
+                
+            except Exception as e:
+                self.logger.warning(f"Greeks calculation failed for {symbol}: {e}")
+                return self._fallback_greeks_with_iv(symbol, atm_iv, iv_60d, iv_90d)
+                
+        except Exception as e:
+            self.logger.warning(f"Realistic Greeks calculation failed for {symbol}: {e}")
+            return self._fallback_greeks(symbol)
+
+    def _calculate_vega_manually(self, S: float, K: float, T: float, r: float, sigma: float) -> float:
+        """Manual vega calculation as backup"""
+        try:
+            from scipy.stats import norm
+            import numpy as np
+            
+            if T <= 0 or sigma <= 0:
+                return 0.0
+            
+            d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
+            vega = S * norm.pdf(d1) * np.sqrt(T) / 100  # Per 1% vol change
+            
+            return max(0.0, vega)
+            
+        except Exception:
+            return 0.15  # Reasonable fallback
+
+    def _fallback_greeks_with_iv(self, symbol: str, iv_30d: float, iv_60d: float, iv_90d: float) -> Dict[str, float]:
+        """Fallback Greeks when calculation fails but we have good IVs"""
+        vol_characteristics = self._get_symbol_vol_characteristics(symbol.upper())
+        
+        # Use volatility-adjusted Greeks estimates
+        vol_factor = iv_30d / 0.25  # Scale relative to 25% base vol
+        
+        if symbol.upper() in ['PLTR', 'GME', 'TSLA']:
+            return {
+                'iv_30d': iv_30d,
+                'iv_60d': iv_60d,
+                'iv_90d': iv_90d,
+                'delta': np.random.uniform(0.45, 0.65),
+                'gamma': np.random.uniform(0.015, 0.030) * vol_factor,
+                'theta': -np.random.uniform(0.15, 0.30) * vol_factor,
+                'vega': np.random.uniform(0.30, 0.60) * np.sqrt(vol_factor)
+            }
+        else:
+            return {
+                'iv_30d': iv_30d,
+                'iv_60d': iv_60d,
+                'iv_90d': iv_90d,
+                'delta': np.random.uniform(0.40, 0.60),
+                'gamma': np.random.uniform(0.010, 0.020) * vol_factor,
+                'theta': -np.random.uniform(0.05, 0.15) * vol_factor,
+                'vega': np.random.uniform(0.15, 0.35) * np.sqrt(vol_factor)
+            }
     
     def _get_symbol_vol_characteristics(self, symbol: str) -> Dict[str, float]:
         """Get volatility characteristics based on symbol classification"""
@@ -447,93 +744,7 @@ class RealisticOptionsDataGenerator:
                 'term_structure': 0.08,
                 'vol_clustering': 0.08
             }
-    
-    def _calculate_realistic_iv(self, symbol: str, moneyness: float, log_moneyness: float,
-                               time_to_exp: float, vol_characteristics: Dict[str, float]) -> float:
-        """Calculate realistic implied volatility using financial theory"""
-        
-        # Base volatility
-        base_vol = vol_characteristics['base_vol']
-        
-        # Term structure effect (volatility changes with time)
-        if time_to_exp < 0.08:  # Less than 1 month
-            # Short-term options often have higher volatility due to event risk
-            term_effect = 1.0 + vol_characteristics['term_structure'] * np.exp(-time_to_exp * 12)
-        else:
-            # Longer-term: volatility increases gradually with time
-            term_effect = 1.0 + vol_characteristics['term_structure'] * 0.5 * np.sqrt(time_to_exp)
-        
-        iv = base_vol * term_effect
-        
-        # Volatility skew (equity options characteristic)
-        # Lower strikes (OTM puts) have higher volatility due to crash protection demand
-        skew_effect = vol_characteristics['skew_strength'] * log_moneyness
-        iv += skew_effect
-        
-        # Volatility smile (far OTM options have higher volatility)
-        smile_effect = vol_characteristics['smile_curvature'] * (log_moneyness ** 2)
-        iv += smile_effect
-        
-        # Time-dependent skew/smile effects (stronger for shorter expirations)
-        time_factor = np.exp(-time_to_exp * 2.0)
-        iv += (skew_effect + smile_effect) * 0.3 * time_factor
-        
-        # Volatility clustering (realistic market noise)
-        vol_noise = np.random.normal(0, vol_characteristics['vol_clustering'] * 0.05)
-        iv += vol_noise
-        
-        # Ensure reasonable bounds
-        return np.clip(iv, 0.05, 2.5)  # Between 5% and 250%
-    
-    def calculate_realistic_greeks(self, symbol: str, spot_price: float) -> Dict[str, float]:
-        """Calculate Greeks using YOUR working models with realistic parameters"""
-        
-        if not PRICING_MODELS_AVAILABLE:
-            return self._fallback_greeks(symbol)
-        
-        try:
-            # Get realistic volatility for ATM 30-day option
-            vol_characteristics = self._get_symbol_vol_characteristics(symbol.upper())
-            atm_iv = vol_characteristics['base_vol'] * 1.05  # Slight term structure adjustment
-            
-            # Greeks calculation parameters
-            time_to_exp = 30/365  # 30-day option
-            risk_free_rate = 0.05
-            
-            # Calculate Greeks using YOUR working models
-            delta = OptionGreeks.delta(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv, 'call')
-            gamma = OptionGreeks.gamma(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv)
-            theta = OptionGreeks.theta(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv, 'call')
-            vega = OptionGreeks.vega(spot_price, spot_price, time_to_exp, risk_free_rate, atm_iv)
-            
-            # Fix Vega scaling issue identified in diagnostic
-            # Your vega might be per 1% vol change, but dashboard expects per 100%
-            if vega < 1.0:  # Vega seems too small
-                vega_scaled = vega * 100  # Scale up
-                if 0.05 < vega_scaled < 50:  # Check if scaled value is reasonable
-                    vega = vega_scaled
-                    self.logger.debug(f"Scaled vega for {symbol}: {vega:.3f}")
-            
-            # Term structure IVs
-            iv_60d = atm_iv * 1.08
-            iv_90d = atm_iv * 1.12
-            
-            self.logger.debug(f"✅ Greeks for {symbol}: Δ={delta:.3f}, Γ={gamma:.4f}, θ={theta:.3f}, ν={vega:.3f}")
-            
-            return {
-                'iv_30d': atm_iv,
-                'iv_60d': iv_60d,
-                'iv_90d': iv_90d,
-                'delta': delta,
-                'gamma': gamma,
-                'theta': theta,
-                'vega': vega
-            }
-            
-        except Exception as e:
-            self.logger.warning(f"Greeks calculation failed for {symbol}: {e}")
-            return self._fallback_greeks(symbol)
-    
+
     def _fallback_greeks(self, symbol: str) -> Dict[str, float]:
         """Fallback Greeks when YOUR models aren't available"""
         vol_characteristics = self._get_symbol_vol_characteristics(symbol.upper())
@@ -619,7 +830,7 @@ class DashboardConnector:
             return self._safe_fallback_data(symbol)
     
     def get_vol_surface_data(self, symbol: str) -> tuple:
-        """Get volatility surface using YOUR working VolatilitySurface class"""
+        """Get volatility surface using improved surface construction"""
         try:
             # Generate realistic options data
             options_data = self.options_generator.create_realistic_options_data(symbol)
@@ -629,66 +840,282 @@ class DashboardConnector:
             
             spot_price = self.price_provider.get_live_price(symbol)
             
-            # Use YOUR working VolatilitySurface class (same as diagnostic)
-            if PRICING_MODELS_AVAILABLE:
-                try:
-                    self.logger.info(f"🌊 Building surface for {symbol} using YOUR VolatilitySurface class")
-                    
-                    vol_surface = VolatilitySurface(options_data, spot_price, 0.05)
-                    surface_dict = vol_surface.construct_surface(method='linear')
-                    
-                    if 'combined' in surface_dict:
-                        surface_data = surface_dict['combined']
-                        strikes = surface_data['strikes']
-                        times = surface_data['times'] * 365  # Convert to days
-                        vols = surface_data['implied_vols']
-                        
-                        self.logger.info(f"✅ Surface created using YOUR VolatilitySurface class")
-                        self.logger.info(f"   Surface shape: {vols.shape}")
-                        self.logger.info(f"   Vol range: {np.nanmin(vols):.1%} to {np.nanmax(vols):.1%}")
-                        
-                        # Verify skew direction (same check as diagnostic)
-                        if vols.shape[1] > 2:
-                            mid_time = vols.shape[0] // 2
-                            left_vol = vols[mid_time, 0]    # Low strike
-                            right_vol = vols[mid_time, -1]  # High strike
-                            
-                            if left_vol > right_vol:
-                                self.logger.info(f"   ✅ Correct skew preserved: {left_vol:.1%} > {right_vol:.1%}")
-                            else:
-                                self.logger.warning(f"   ⚠️ Unexpected skew: {left_vol:.1%} vs {right_vol:.1%}")
-                        
-                        return strikes, times, vols
-                    else:
-                        self.logger.warning("No 'combined' surface found in results")
-                        
-                except Exception as e:
-                    self.logger.warning(f"YOUR VolatilitySurface failed: {e}")
-                    self.logger.info("Falling back to manual surface extraction")
+            # FIXED: Improved surface construction with better data handling
+            self.logger.info(f"🌊 Building improved surface for {symbol} using {len(options_data)} contracts")
             
-            # Manual extraction fallback
-            return self._extract_surface_manually(options_data, spot_price)
+            try:
+                # Clean and prepare data more carefully
+                clean_data = self._prepare_surface_data(options_data, spot_price)
+                
+                if clean_data.empty:
+                    raise ValueError("No valid data after cleaning")
+                
+                # Try YOUR VolatilitySurface class first
+                if PRICING_MODELS_AVAILABLE:
+                    try:
+                        vol_surface = VolatilitySurface(clean_data, spot_price, 0.05)
+                        surface_dict = vol_surface.construct_surface(method='linear')
+                        
+                        if 'combined' in surface_dict:
+                            surface_data = surface_dict['combined']
+                            strikes = surface_data['strikes']
+                            times = surface_data['times'] * 365  # Convert to days
+                            vols = surface_data['implied_vols']
+                            
+                            # Validate surface quality
+                            if self._validate_surface_quality(vols, strikes, times, symbol):
+                                self.logger.info(f"✅ High-quality surface created using YOUR VolatilitySurface class")
+                                return strikes, times, vols
+                            else:
+                                self.logger.warning("Surface quality check failed, trying manual construction")
+                        
+                    except Exception as e:
+                        self.logger.warning(f"YOUR VolatilitySurface failed: {e}")
+                
+                # Improved manual surface construction
+                strikes, times, vols = self._construct_surface_manually(clean_data, spot_price)
+                
+                if self._validate_surface_quality(vols, strikes, times, symbol):
+                    return strikes, times, vols
+                else:
+                    self.logger.warning("Manual surface quality check failed, using fallback")
+                
+            except Exception as e:
+                self.logger.warning(f"Enhanced surface construction failed: {e}")
+            
+            # Last resort fallback
+            return self._basic_fallback_surface(symbol)
             
         except Exception as e:
             self.logger.error(f"Surface generation failed for {symbol}: {e}")
             return self._basic_fallback_surface(symbol)
-    
-    def _extract_surface_manually(self, options_data: pd.DataFrame, spot_price: float) -> tuple:
-        """Extract surface manually from options data when YOUR VolatilitySurface fails"""
+
+    def _prepare_surface_data(self, options_data: pd.DataFrame, spot_price: float) -> pd.DataFrame:
+        """Prepare and clean options data for surface construction"""
         try:
-            self.logger.info("Extracting surface manually from options data")
+            clean_data = options_data.copy()
             
-            strikes = sorted(options_data['strike'].unique())
-            expiry_days = sorted(options_data['daysToExpiration'].unique())
+            # Ensure required columns exist
+            required_cols = ['strike', 'impliedVolatility', 'time_to_expiry', 'type']
+            missing_cols = [col for col in required_cols if col not in clean_data.columns]
+            
+            if missing_cols:
+                self.logger.error(f"Missing required columns: {missing_cols}")
+                return pd.DataFrame()
+            
+            # Calculate moneyness if not present
+            if 'moneyness' not in clean_data.columns:
+                clean_data['moneyness'] = clean_data['strike'] / spot_price
+            
+            # Filter for reasonable data
+            initial_count = len(clean_data)
+            
+            # Remove extreme outliers
+            clean_data = clean_data[
+                (clean_data['impliedVolatility'] > 0.02) &  # Min 2% vol
+                (clean_data['impliedVolatility'] < 3.0) &   # Max 300% vol
+                (clean_data['time_to_expiry'] > 0.003) &    # Min 1 day
+                (clean_data['time_to_expiry'] < 3.0) &      # Max 3 years
+                (clean_data['moneyness'] > 0.3) &           # Not too far OTM
+                (clean_data['moneyness'] < 3.0) &           # Not too far ITM
+                (clean_data['strike'] > 0)
+            ]
+            
+            removed_count = initial_count - len(clean_data)
+            if removed_count > 0:
+                self.logger.info(f"Removed {removed_count} outlier options during cleaning")
+            
+            # Remove statistical outliers for each expiration group
+            cleaned_groups = []
+            
+            # Group by similar expiration times (within 2 days)
+            clean_data['exp_group'] = (clean_data['time_to_expiry'] * 365).round(0)
+            
+            for exp_group, group_data in clean_data.groupby('exp_group'):
+                if len(group_data) < 3:  # Need at least 3 points
+                    continue
+                
+                # Remove IV outliers using IQR method
+                Q1 = group_data['impliedVolatility'].quantile(0.25)
+                Q3 = group_data['impliedVolatility'].quantile(0.75)
+                IQR = Q3 - Q1
+                
+                if IQR > 0:  # Avoid division by zero
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+                    
+                    filtered_group = group_data[
+                        (group_data['impliedVolatility'] >= lower_bound) &
+                        (group_data['impliedVolatility'] <= upper_bound)
+                    ]
+                    
+                    if len(filtered_group) >= 3:  # Still have enough points
+                        cleaned_groups.append(filtered_group)
+            
+            if cleaned_groups:
+                clean_data = pd.concat(cleaned_groups, ignore_index=True)
+            
+            # Final validation
+            if len(clean_data) < 10:
+                self.logger.warning(f"Only {len(clean_data)} options remain after cleaning")
+            
+            # Sort by time and moneyness for better interpolation
+            clean_data = clean_data.sort_values(['time_to_expiry', 'moneyness'])
+            
+            self.logger.info(f"Data preparation complete: {len(clean_data)} clean options")
+            
+            return clean_data.drop('exp_group', axis=1, errors='ignore')
+            
+        except Exception as e:
+            self.logger.error(f"Error preparing surface data: {e}")
+            return pd.DataFrame()
+
+    def _construct_surface_manually(self, clean_data: pd.DataFrame, spot_price: float) -> tuple:
+        """Improved manual surface construction with better interpolation"""
+        try:
+            self.logger.info("Building surface manually with improved interpolation")
+            
+            # Create regular grids for interpolation
+            time_values = clean_data['time_to_expiry'].values
+            moneyness_values = clean_data['moneyness'].values
+            iv_values = clean_data['impliedVolatility'].values
+            
+            # Define grid ranges
+            time_min, time_max = time_values.min(), time_values.max()
+            money_min, money_max = moneyness_values.min(), moneyness_values.max()
+            
+            # Create denser grid for smooth surface
+            time_grid = np.linspace(time_min, time_max, 30)
+            money_grid = np.linspace(money_min, money_max, 40)
+            
+            Time_mesh, Money_mesh = np.meshgrid(time_grid, money_grid)
+            
+            # Convert back to strike prices
+            Strike_mesh = Money_mesh * spot_price
+            Time_mesh_days = Time_mesh * 365
+            
+            # Interpolate using multiple methods and choose best
+            try:
+                from scipy.interpolate import griddata, RBFInterpolator
+                
+                # Method 1: Linear interpolation
+                points = np.column_stack((time_values, moneyness_values))
+                grid_points = np.column_stack((Time_mesh.ravel(), Money_mesh.ravel()))
+                
+                iv_linear = griddata(points, iv_values, grid_points, method='linear')
+                iv_linear = iv_linear.reshape(Time_mesh.shape)
+                
+                # Method 2: RBF interpolation (if available)
+                try:
+                    rbf = RBFInterpolator(points, iv_values, kernel='thin_plate_spline', smoothing=0.1)
+                    iv_rbf = rbf(grid_points).reshape(Time_mesh.shape)
+                    
+                    # Choose RBF if it has fewer NaN values
+                    if np.isnan(iv_rbf).sum() < np.isnan(iv_linear).sum():
+                        vol_surface = iv_rbf
+                        method_used = "RBF"
+                    else:
+                        vol_surface = iv_linear
+                        method_used = "Linear"
+                        
+                except ImportError:
+                    vol_surface = iv_linear
+                    method_used = "Linear"
+                
+                # Fill NaN values using nearest neighbor
+                if np.isnan(vol_surface).any():
+                    iv_nearest = griddata(points, iv_values, grid_points, method='nearest')
+                    iv_nearest = iv_nearest.reshape(Time_mesh.shape)
+                    
+                    nan_mask = np.isnan(vol_surface)
+                    vol_surface[nan_mask] = iv_nearest[nan_mask]
+                
+                # Apply smoothing to reduce noise
+                try:
+                    from scipy.ndimage import gaussian_filter
+                    vol_surface = gaussian_filter(vol_surface, sigma=0.5)
+                except ImportError:
+                    pass  # No smoothing if scipy not available
+                
+                # Ensure reasonable bounds
+                vol_surface = np.clip(vol_surface, 0.05, 2.5)
+                
+                self.logger.info(f"✅ Manual surface construction complete using {method_used}")
+                self.logger.info(f"   Surface shape: {vol_surface.shape}")
+                self.logger.info(f"   Vol range: {np.nanmin(vol_surface):.1%} to {np.nanmax(vol_surface):.1%}")
+                
+                return Strike_mesh, Time_mesh_days, vol_surface
+                
+            except Exception as e:
+                self.logger.error(f"Advanced interpolation failed: {e}")
+                return self._simple_grid_interpolation(clean_data, spot_price)
+        
+        except Exception as e:
+            self.logger.error(f"Manual surface construction failed: {e}")
+            return self._basic_fallback_surface("manual_fallback")
+
+    def _validate_surface_quality(self, vols: np.ndarray, strikes: np.ndarray, 
+                                times: np.ndarray, symbol: str) -> bool:
+        """Validate the quality of the constructed surface"""
+        try:
+            # Check for basic sanity
+            if vols.size == 0 or np.all(np.isnan(vols)):
+                self.logger.warning("Surface contains no valid data")
+                return False
+            
+            # Check volatility range
+            min_vol = np.nanmin(vols)
+            max_vol = np.nanmax(vols)
+            
+            if min_vol < 0.01 or max_vol > 5.0:
+                self.logger.warning(f"Surface has extreme volatilities: {min_vol:.2%} to {max_vol:.2%}")
+                return False
+            
+            # Check for sufficient data coverage
+            valid_ratio = np.sum(~np.isnan(vols)) / vols.size
+            if valid_ratio < 0.5:
+                self.logger.warning(f"Surface has too many NaN values: {valid_ratio:.1%} valid")
+                return False
+            
+            # Check for realistic volatility smile/skew
+            if len(vols.shape) > 1 and vols.shape[1] > 3:
+                mid_time = vols.shape[0] // 2
+                if mid_time < vols.shape[0]:
+                    left_vol = vols[mid_time, 0]    # Low strike
+                    center_vol = vols[mid_time, vols.shape[1]//2]  # ATM
+                    right_vol = vols[mid_time, -1]  # High strike
+                    
+                    # For equity options, we expect left_vol >= center_vol >= right_vol (negative skew)
+                    if not np.isnan([left_vol, center_vol, right_vol]).any():
+                        skew_ratio = (left_vol - right_vol) / center_vol
+                        
+                        # Should have some negative skew, but not extreme
+                        if skew_ratio < -0.5 or skew_ratio > 0.3:
+                            self.logger.warning(f"Unusual skew pattern for {symbol}: {skew_ratio:.2f}")
+                            # Don't fail for this, just warn
+            
+            self.logger.info(f"✅ Surface quality validation passed for {symbol}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Surface validation error: {e}")
+            return False
+
+    def _simple_grid_interpolation(self, clean_data: pd.DataFrame, spot_price: float) -> tuple:
+        """Simple grid interpolation fallback"""
+        try:
+            # Extract unique strikes and times
+            strikes = sorted(clean_data['strike'].unique())
+            expiry_days = sorted(clean_data['daysToExpiration'].unique())
             
             vol_surface = np.zeros((len(expiry_days), len(strikes)))
             
             for i, days in enumerate(expiry_days):
                 for j, strike in enumerate(strikes):
                     # Find matching options
-                    matching = options_data[
-                        (abs(options_data['strike'] - strike) < 0.01) &
-                        (abs(options_data['daysToExpiration'] - days) < 0.1)
+                    matching = clean_data[
+                        (abs(clean_data['strike'] - strike) < 0.01) &
+                        (abs(clean_data['daysToExpiration'] - days) < 0.1)
                     ]
                     
                     if not matching.empty:
@@ -699,15 +1126,14 @@ class DashboardConnector:
             # Fill NaN values using interpolation
             self._fill_surface_gaps(vol_surface)
             
-            self.logger.info(f"✅ Manual surface extraction complete: {vol_surface.shape}")
-            self.logger.info(f"   Vol range: {np.nanmin(vol_surface):.1%} to {np.nanmax(vol_surface):.1%}")
+            self.logger.info(f"✅ Simple grid interpolation complete: {vol_surface.shape}")
             
             return np.array(strikes), np.array(expiry_days), vol_surface
             
         except Exception as e:
-            self.logger.error(f"Manual surface extraction failed: {e}")
-            return self._basic_fallback_surface("manual_fallback")
-    
+            self.logger.error(f"Simple grid interpolation failed: {e}")
+            return self._basic_fallback_surface("grid_fallback")
+
     def _fill_surface_gaps(self, vol_surface: np.ndarray):
         """Fill NaN gaps in volatility surface using interpolation"""
         try:
@@ -746,7 +1172,7 @@ class DashboardConnector:
         except Exception as e:
             self.logger.warning(f"Surface gap filling failed: {e}")
             vol_surface[np.isnan(vol_surface)] = 0.25
-    
+
     def _basic_fallback_surface(self, symbol: str) -> tuple:
         """Basic fallback surface when all else fails"""
         try:
@@ -789,7 +1215,7 @@ class DashboardConnector:
             expiries = np.array([30, 60, 90])
             vols = np.full((3, 5), 0.25)
             return strikes, expiries, vols
-    
+
     def _safe_fallback_data(self, symbol: str) -> Dict[str, Any]:
         """Safe fallback data when all else fails"""
         try:

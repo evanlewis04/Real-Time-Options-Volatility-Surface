@@ -181,8 +181,11 @@ class OptionsDataClient:
         return self._create_enhanced_synthetic_options(symbol)
     
     def _clean_yfinance_options(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-        """Clean and standardize yfinance options data"""
+        """Clean and standardize yfinance options data with proper IV calculation"""
         try:
+            # Get current stock price
+            stock_price = self.get_current_stock_price(symbol)
+            
             # Rename columns to match our expected format
             column_mapping = {
                 'contractSymbol': 'contractSymbol',
@@ -212,6 +215,10 @@ class OptionsDataClient:
             # Calculate days to expiration
             today = datetime.now().date()
             df['daysToExpiration'] = df['expiration'].apply(lambda x: (x.date() - today).days)
+            df['time_to_expiry'] = df['daysToExpiration'] / 365.0
+            
+            # Calculate moneyness
+            df['moneyness'] = df['strike'] / stock_price
             
             # Filter out expired or very short-term options
             df = df[df['daysToExpiration'] > 0]
@@ -227,6 +234,76 @@ class OptionsDataClient:
             df = df[df['strike'] > 0]
             df = df[df['last'] > 0]
             
+            # FIXED: Validate and recalculate IV if necessary
+            if 'impliedVolatility' in df.columns:
+                # Check for unrealistic IV values from yfinance
+                df['iv_valid'] = (df['impliedVolatility'] > 0.01) & (df['impliedVolatility'] < 5.0)
+                
+                # For invalid IVs, recalculate using our IV calculator
+                invalid_iv_mask = ~df['iv_valid']
+                
+                if invalid_iv_mask.sum() > 0:
+                    logger.info(f"Recalculating IV for {invalid_iv_mask.sum()} options with invalid yfinance IV")
+                    
+                    # Initialize IV calculator
+                    try:
+                        from src.pricing.implied_vol import ImpliedVolatilityCalculator
+                        iv_calc = ImpliedVolatilityCalculator()
+                        risk_free_rate = 0.05  # Use current risk-free rate
+                        
+                        for idx in df[invalid_iv_mask].index:
+                            try:
+                                row = df.loc[idx]
+                                
+                                # Calculate IV from market price
+                                iv, method = iv_calc.calculate_implied_vol(
+                                    market_price=row['last'],
+                                    S=stock_price,
+                                    K=row['strike'],
+                                    T=row['time_to_expiry'],
+                                    r=risk_free_rate,
+                                    option_type=row['type'],
+                                    method='newton'
+                                )
+                                
+                                if iv is not None:
+                                    df.loc[idx, 'impliedVolatility'] = iv
+                                    df.loc[idx, 'iv_valid'] = True
+                                    logger.debug(f"Recalculated IV for {row['contractSymbol']}: {iv:.2%}")
+                                else:
+                                    # Remove options where IV calculation failed
+                                    df.loc[idx, 'iv_valid'] = False
+                                    
+                            except Exception as e:
+                                logger.debug(f"Failed to calculate IV for option {idx}: {e}")
+                                df.loc[idx, 'iv_valid'] = False
+                    except ImportError:
+                        # If IV calculator not available, just filter
+                        logger.warning("IV calculator not available, using yfinance IVs as-is")
+                
+                # Filter to only valid IV options
+                df = df[df['iv_valid']].drop('iv_valid', axis=1)
+            
+            else:
+                # No IV column from yfinance - this is unusual, but handle it
+                logger.warning(f"No IV data from yfinance for {symbol}")
+                
+                # Add a basic IV estimate based on option type and moneyness
+                df['impliedVolatility'] = 0.25  # Default 25% IV
+                
+                # Adjust IV based on moneyness for realism
+                for idx, row in df.iterrows():
+                    base_iv = 0.25
+                    moneyness = row['moneyness']
+                    
+                    # Simple skew: OTM puts have higher IV
+                    if row['type'] == 'put' and moneyness > 1.0:  # OTM put
+                        base_iv *= 1.2
+                    elif row['type'] == 'call' and moneyness < 1.0:  # OTM call
+                        base_iv *= 1.1
+                    
+                    df.loc[idx, 'impliedVolatility'] = base_iv
+            
             # Calculate bid-ask spread
             if 'bid' in df.columns and 'ask' in df.columns:
                 df['bidAskSpread'] = df['ask'] - df['bid']
@@ -239,8 +316,17 @@ class OptionsDataClient:
                     (df['bidAskSpreadPct'] < 1.0)  # Less than 100% spread
                 ]
             
+            # Final validation
+            df = df[
+                (df['impliedVolatility'] > 0.01) & 
+                (df['impliedVolatility'] < 5.0) &
+                (df['time_to_expiry'] > 0.003)  # At least 1 day
+            ]
+            
             # Sort by expiration and strike
             df = df.sort_values(['expiration', 'strike'])
+            
+            logger.info(f"✅ Cleaned {len(df)} options for {symbol} with valid IVs")
             
             return df
             
