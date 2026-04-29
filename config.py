@@ -13,6 +13,7 @@ load_dotenv()
 ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', 'demo')
 POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')
 IEX_CLOUD_API_KEY = os.getenv('IEX_CLOUD_API_KEY')
+BASE_URL_ALPHA_VANTAGE = 'https://www.alphavantage.co/query'
 
 # yfinance is the primary data source now - no API key needed!
 USE_YFINANCE = True
@@ -34,6 +35,7 @@ DEFAULT_SYMBOLS = [
     'AMZN',   # Amazon
     'JPM',    # JPMorgan
 ]
+DEFAULT_SYMBOL = DEFAULT_SYMBOLS[0]
 
 # Data validation settings (more lenient for yfinance)
 MIN_VOLUME = 1           # yfinance provides good data even for lower volume

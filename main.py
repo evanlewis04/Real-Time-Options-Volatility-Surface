@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Import your config
 try:
-    import app_config as config
+    import config
     logger.info("+ Config imported successfully")
     
     # Check for API key using your config structure
