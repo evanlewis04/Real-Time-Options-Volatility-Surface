@@ -183,6 +183,31 @@ def init_dashboard_system():
 # Initialize the system
 connector, system_ready = init_dashboard_system()
 
+
+# Cached wrappers around the connector. Stabilises displayed values across
+# reruns and avoids repeated yfinance round-trips. TTL matches the connector's
+# internal 5-minute price cache.
+@st.cache_data(ttl=300, show_spinner=False)
+def get_current_data_cached(symbol: str):
+    return connector.get_current_data(symbol)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_vol_surface_data_cached(symbol: str):
+    return connector.get_vol_surface_data(symbol)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_correlation_matrix_cached(symbols_key: tuple):
+    # symbols_key only exists to key the cache; the connector reads its own state.
+    return connector.get_correlation_matrix()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_portfolio_metrics_cached():
+    return connector.get_portfolio_metrics()
+
+
 # Header
 st.markdown('<h1 class="main-header">Real-Time Options Volatility Surface</h1>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #7f8c8d;">Professional Quantitative Trading Dashboard</p>', unsafe_allow_html=True)
@@ -207,18 +232,18 @@ if hasattr(connector, 'trigger_data_refresh') and REAL_SYSTEM_AVAILABLE:
 available_symbols = [
     'AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA', 'TSLA',  # Tech
     'AMD', 'NFLX', 'CRM', 'ORCL', 'ADBE', 'PLTR',             # More Tech
-    'SPY', 'QQQ', 'IWM', 'VTI',                               # ETFs  
-    'JPM', 'BAC', 'WFC', 'GS'                                 # Finance
-    'JNJ', 'PFE', 'UNH', 'MRNA'                               # Healthcare
-    'KO', 'PEP', 'WMT', 'HD'                                  # Consumer
+    'SPY', 'QQQ', 'IWM', 'VTI',                               # ETFs
+    'JPM', 'BAC', 'WFC', 'GS',                                # Finance
+    'JNJ', 'PFE', 'UNH', 'MRNA',                              # Healthcare
+    'KO', 'PEP', 'WMT', 'HD',                                 # Consumer
     'DIS', 'SPOT',                                            # Entertainment
-    'COIN', 'SQ', 'PYPL',                                      # Popular/Crypto
-    'GME', 'AMC', 'RBLX',                                     # Meme Stocks  
+    'COIN', 'SQ', 'PYPL',                                     # Popular/Crypto
+    'GME', 'AMC', 'RBLX',                                     # Meme Stocks
     'UBER', 'LYFT', 'F', 'GM',                                # Automotive
     'XOM', 'CVX', 'COP',                                      # Energy
-    'V', 'MA', 'INTC', 'IBM',                                 #Other
+    'V', 'MA', 'INTC', 'IBM',                                 # Other
     'CSCO', 'BABA', 'NIO', 'RIVN',
-    'LCID', 'SOFI', 'HOOD', 'DKNG'
+    'LCID', 'SOFI', 'HOOD', 'DKNG',
 ]
 
 selected_symbols = st.sidebar.multiselect(
@@ -256,8 +281,8 @@ if selected_symbols and connector:
     st.markdown('<div class="section-header">💼 Portfolio Overview</div>', unsafe_allow_html=True)
     
     try:
-        portfolio_metrics = connector.get_portfolio_metrics()
-        
+        portfolio_metrics = get_portfolio_metrics_cached()
+
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -296,7 +321,7 @@ if selected_symbols and connector:
     market_data = []
     for symbol in selected_symbols:
         try:
-            data = connector.get_current_data(symbol)
+            data = get_current_data_cached(symbol)
             # Ensure each symbol gets its own price
             individual_price = data['price']
             market_data.append({
@@ -335,7 +360,7 @@ if selected_symbols and connector:
         # Get Greeks data for each symbol with individual prices
         for symbol in selected_symbols:
             try:
-                data = connector.get_current_data(symbol)
+                data = get_current_data_cached(symbol)
                 
                 # Ensure we have valid Greeks data with individual prices
                 if data and isinstance(data, dict):
@@ -513,7 +538,7 @@ if selected_symbols and connector:
 
     # Live price display
     try:
-        current_data = connector.get_current_data(surface_symbol)
+        current_data = get_current_data_cached(surface_symbol)
         current_price = current_data['price']
         
         col1, col2, col3 = st.columns(3)
@@ -526,7 +551,7 @@ if selected_symbols and connector:
                 st.rerun()
 
         try:
-            strikes, expiries, vol_surface = connector.get_vol_surface_data(surface_symbol)
+            strikes, expiries, vol_surface = get_vol_surface_data_cached(surface_symbol)
             
             # FIXED: Ensure strikes are actual prices, not ratios
             if hasattr(strikes, 'shape') and len(strikes.shape) > 1:
@@ -694,7 +719,7 @@ if selected_symbols and connector:
         st.markdown('<div class="section-header">🔗 Cross-Asset Correlation Analysis</div>', unsafe_allow_html=True)
         
         try:
-            corr_matrix = connector.get_correlation_matrix()
+            corr_matrix = get_correlation_matrix_cached(tuple(sorted(selected_symbols)))
             
             # Filter for selected symbols
             available_symbols_in_corr = [s for s in selected_symbols if s in corr_matrix.index]

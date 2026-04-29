@@ -54,18 +54,20 @@ except ImportError as e:
                 d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
                 d2 = d1 - sigma*np.sqrt(T)
                 return S*norm.cdf(d1) - K*np.exp(-r*T)*norm.cdf(d2)
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback call_price math failure: {e}")
                 return max(0.01, S - K)
-        
+
         @staticmethod
         def put_price(S, K, T, r, sigma):
             # Put-call parity
             try:
                 call = BlackScholesModel.call_price(S, K, T, r, sigma)
                 return call - S + K*np.exp(-r*T)
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback put_price math failure: {e}")
                 return max(0.01, K - S)
-    
+
     class OptionGreeks:
         @staticmethod
         def delta(S, K, T, r, sigma, option_type):
@@ -78,9 +80,10 @@ except ImportError as e:
                     return norm.cdf(d1)
                 else:
                     return -norm.cdf(-d1)
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback delta math failure: {e}")
                 return 0.5 if option_type == 'call' else -0.5
-        
+
         @staticmethod
         def gamma(S, K, T, r, sigma):
             try:
@@ -89,9 +92,10 @@ except ImportError as e:
                 if T <= 0 or sigma <= 0: return 0.0
                 d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
                 return norm.pdf(d1) / (S * sigma * np.sqrt(T))
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback gamma math failure: {e}")
                 return 0.02
-        
+
         @staticmethod
         def theta(S, K, T, r, sigma, option_type):
             try:
@@ -100,17 +104,18 @@ except ImportError as e:
                 if T <= 0: return 0.0
                 d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
                 d2 = d1 - sigma*np.sqrt(T)
-                
+
                 term1 = -(S * norm.pdf(d1) * sigma) / (2 * np.sqrt(T))
                 term2 = r * K * np.exp(-r*T)
-                
+
                 if option_type == 'call':
                     return (term1 - term2 * norm.cdf(d2)) / 365
                 else:
                     return (term1 + term2 * norm.cdf(-d2)) / 365
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback theta math failure: {e}")
                 return -0.05
-        
+
         @staticmethod
         def vega(S, K, T, r, sigma):
             try:
@@ -119,25 +124,27 @@ except ImportError as e:
                 if T <= 0: return 0.0
                 d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
                 return S * norm.pdf(d1) * np.sqrt(T) / 100
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback vega math failure: {e}")
                 return 0.2
-    
+
     class ImpliedVolatilityCalculator:
         def calculate_implied_vol(self, market_price, S, K, T, r, option_type, method='newton'):
             # Simple IV calculation fallback
             try:
                 import numpy as np
                 from scipy.optimize import brentq
-                
+
                 def price_diff(vol):
                     if option_type == 'call':
                         return BlackScholesModel.call_price(S, K, T, r, vol) - market_price
                     else:
                         return BlackScholesModel.put_price(S, K, T, r, vol) - market_price
-                
+
                 iv = brentq(price_diff, 0.01, 3.0, xtol=1e-6)
                 return iv, 'brent'
-            except:
+            except (ImportError, ValueError, ArithmeticError) as e:
+                logger.debug(f"Fallback IV solver failed: {e}")
                 return None, 'failed'
 
 
@@ -281,8 +288,8 @@ class RealTimePriceProvider:
                 fast_info = ticker.fast_info
                 if hasattr(fast_info, 'last_price') and fast_info.last_price > 0:
                     return float(fast_info.last_price)
-            except:
-                pass
+            except (AttributeError, ValueError, TypeError, OSError) as e:
+                self.logger.debug(f"fast_info unavailable for {symbol}: {e}")
             
             # Method 4: Info object
             info = ticker.info
@@ -1161,8 +1168,8 @@ class DashboardConnector:
                             vol_surface[i, j] = griddata(
                                 valid_coords, valid_values, [(i, j)], method='nearest'
                             )[0]
-                        except:
-                            # Ultimate fallback
+                        except (ValueError, IndexError, TypeError) as e:
+                            self.logger.debug(f"griddata fill failed at ({i},{j}): {e}")
                             vol_surface[i, j] = 0.25
             
         except ImportError:
@@ -1220,7 +1227,8 @@ class DashboardConnector:
         """Safe fallback data when all else fails"""
         try:
             price = self.price_provider.get_live_price(symbol)
-        except:
+        except Exception as e:
+            self.logger.debug(f"Live price fetch failed for {symbol}, using static fallback: {e}")
             price = self.price_provider.current_market_prices.get(symbol.upper(), 100.0)
         
         # Use symbol-specific fallback
@@ -1263,16 +1271,18 @@ class DashboardConnector:
             
             # Create realistic correlation structure
             corr = np.random.uniform(0.3, 0.8, (n, n))
-            corr = (corr + corr.T) / 2
-            np.fill_diagonal(corr, 1.0)
-            
-            # Make tech stocks more correlated
-            tech_indices = list(range(6))  # First 6 are tech stocks
+
+            # Make tech stocks more correlated (write upper triangle only)
+            tech_indices = list(range(6))
             for i in tech_indices:
                 for j in tech_indices:
-                    if i != j:
+                    if i < j:
                         corr[i, j] = np.random.uniform(0.6, 0.85)
-            
+
+            # Symmetrise after all overrides, then anchor diagonal
+            corr = np.triu(corr) + np.triu(corr, 1).T
+            np.fill_diagonal(corr, 1.0)
+
             return pd.DataFrame(corr, index=symbols, columns=symbols)
             
         except Exception as e:

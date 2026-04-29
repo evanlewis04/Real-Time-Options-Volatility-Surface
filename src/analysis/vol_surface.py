@@ -244,19 +244,19 @@ class VolatilitySurface:
         # Find ATM volatility (closest to moneyness = 1.0)
         try:
             atm_idx = np.unravel_index(
-                np.nanargmin(np.abs(moneyness_grid - 1.0)), 
+                np.nanargmin(np.abs(moneyness_grid - 1.0)),
                 moneyness_grid.shape
             )
             stats['atm_vol'] = iv_grid[atm_idx]
-        except:
+        except (ValueError, IndexError):
             stats['atm_vol'] = np.nanmean(iv_grid)
-        
+
         # Calculate surface curvature/convexity
         try:
             # Approximate second derivative along strike dimension
             d2_vol_dk2 = np.gradient(np.gradient(iv_grid, axis=1), axis=1)
             stats['mean_convexity'] = np.nanmean(d2_vol_dk2)
-        except:
+        except (ValueError, IndexError):
             stats['mean_convexity'] = 0.0
         
         return stats
@@ -391,7 +391,7 @@ class VolatilitySurface:
                     'short_term_vol': atm_ts['atmVolatility'].iloc[0] if len(atm_ts) > 0 else None,
                     'long_term_vol': atm_ts['atmVolatility'].iloc[-1] if len(atm_ts) > 0 else None
                 }
-            except:
+            except (KeyError, IndexError, ValueError):
                 pass
         
         return summary

@@ -1,0 +1,20 @@
+# Narrow ruff config: catch the bug classes we already cleaned up
+# (bare excepts, redefined symbols, true/false comparisons) without
+# flagging the existing codebase's style nits. Broaden over time.
+
+target-version = "py310"
+
+[lint]
+select = [
+    "E722",  # bare except
+    "E712",  # `== True` / `== False` comparisons
+    "F811",  # redefined while unused
+    "F821",  # undefined name
+    "F823",  # local variable referenced before assignment
+]
+
+[lint.per-file-ignores]
+# Tests legitimately redefine fixtures
+"tests/*.py" = ["F811"]
+# Pre-existing duplicate method definitions; tracked for follow-up cleanup
+"src/config/multi_asset_config.py" = ["F811"]
