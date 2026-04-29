@@ -584,8 +584,8 @@ class Week2IntegrationTest:
         
         # Overall success
         total_tests = len(self.test_results)
-        successful_tests = sum(1 for results in self.test_results.values() 
-                             if results.get('success', True) != False)
+        successful_tests = sum(1 for results in self.test_results.values()
+                             if results.get('success', True))
         
         print(f"Tests completed: {successful_tests}/{total_tests}")
         print(f"Surfaces generated: {len(self.surfaces_generated)}")

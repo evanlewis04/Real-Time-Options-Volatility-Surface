@@ -27,3 +27,6 @@ data/processed/*
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime artefacts
+*.log

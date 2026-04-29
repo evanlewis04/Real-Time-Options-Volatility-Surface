@@ -358,12 +358,12 @@ class StreamProcessor:
                 for _, row in options_data.iterrows():
                     try:
                         predicted_iv = surface.interpolator(
-                            row['time_to_expiry'], 
+                            row['time_to_expiry'],
                             row['moneyness']
                         )
                         predicted_ivs.append(predicted_iv)
                         actual_ivs.append(row['implied_volatility'])
-                    except:
+                    except (ValueError, KeyError, TypeError):
                         continue
                 
                 if predicted_ivs and actual_ivs:
