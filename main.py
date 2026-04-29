@@ -11,6 +11,15 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+# Force UTF-8 on stdout/stderr so non-ASCII output from third-party libs doesn't
+# crash on Windows cp1252 consoles.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # Add project root to path
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
@@ -265,7 +274,7 @@ class SimpleVolatilitySystem:
     def interactive_mode(self):
         """Simple interactive mode"""
         print("\n" + "="*50)
-        print("🚀 Simple Volatility System")
+        print("Simple Volatility System")
         print("="*50)
         print("Commands:")
         print("  test    - Run system test")
@@ -286,14 +295,14 @@ class SimpleVolatilitySystem:
                     self.start_basic_monitoring()
                     
                 elif command == 'status':
-                    print(f"\n📊 Component Status:")
+                    print(f"\nComponent Status:")
                     for comp, status in self.component_status.items():
                         print(f"  {comp}: {status}")
-                    print(f"\n🔧 Available: {list(self.available_components.keys())}")
+                    print(f"\nAvailable: {list(self.available_components.keys())}")
                     print()
-                    
+
                 elif command in ['quit', 'exit']:
-                    print("👋 Goodbye!")
+                    print("Goodbye!")
                     break
                     
                 elif command == '':

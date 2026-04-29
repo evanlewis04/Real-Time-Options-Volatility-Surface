@@ -17,7 +17,7 @@ warnings.filterwarnings('ignore')
 # Configure page
 st.set_page_config(
     page_title="Real-Time Options Volatility Surface",
-    page_icon="📈",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -213,35 +213,35 @@ st.markdown('<h1 class="main-header">Real-Time Options Volatility Surface</h1>',
 st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #7f8c8d;">Professional Quantitative Trading Dashboard</p>', unsafe_allow_html=True)
 
 # Sidebar
-st.sidebar.markdown("📊 Dashboard Controls")
+st.sidebar.markdown(" Dashboard Controls")
 
 # System controls
 if hasattr(connector, 'trigger_data_refresh') and REAL_SYSTEM_AVAILABLE:
-    if st.sidebar.button("🔄 Refresh Data"):
+    if st.sidebar.button(" Refresh Data"):
         with st.spinner("Refreshing data..."):
             try:
                 result = connector.trigger_data_refresh()
                 if result.get('status') == 'success':
-                    st.sidebar.success("✅ Data refreshed!")
+                    st.sidebar.success("[OK] Data refreshed!")
                 else:
-                    st.sidebar.error(f"❌ Refresh failed: {result.get('message', 'Unknown error')}")
+                    st.sidebar.error(f"[FAIL] Refresh failed: {result.get('message', 'Unknown error')}")
             except Exception as e:
-                st.sidebar.error(f"❌ Refresh error: {e}")
+                st.sidebar.error(f"[FAIL] Refresh error: {e}")
 
 # Symbol selection
 available_symbols = [
-    'AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA', 'TSLA',  # Tech
-    'AMD', 'NFLX', 'CRM', 'ORCL', 'ADBE', 'PLTR',             # More Tech
-    'SPY', 'QQQ', 'IWM', 'VTI',                               # ETFs
-    'JPM', 'BAC', 'WFC', 'GS',                                # Finance
-    'JNJ', 'PFE', 'UNH', 'MRNA',                              # Healthcare
-    'KO', 'PEP', 'WMT', 'HD',                                 # Consumer
-    'DIS', 'SPOT',                                            # Entertainment
-    'COIN', 'SQ', 'PYPL',                                     # Popular/Crypto
-    'GME', 'AMC', 'RBLX',                                     # Meme Stocks
-    'UBER', 'LYFT', 'F', 'GM',                                # Automotive
-    'XOM', 'CVX', 'COP',                                      # Energy
-    'V', 'MA', 'INTC', 'IBM',                                 # Other
+    'AAPL', 'MSFT', 'GOOGL', 'META', 'AMZN', 'NVDA', 'TSLA', # Tech
+    'AMD', 'NFLX', 'CRM', 'ORCL', 'ADBE', 'PLTR', # More Tech
+    'SPY', 'QQQ', 'IWM', 'VTI', # ETFs
+    'JPM', 'BAC', 'WFC', 'GS', # Finance
+    'JNJ', 'PFE', 'UNH', 'MRNA', # Healthcare
+    'KO', 'PEP', 'WMT', 'HD', # Consumer
+    'DIS', 'SPOT', # Entertainment
+    'COIN', 'SQ', 'PYPL', # Popular/Crypto
+    'GME', 'AMC', 'RBLX', # Meme Stocks
+    'UBER', 'LYFT', 'F', 'GM', # Automotive
+    'XOM', 'CVX', 'COP', # Energy
+    'V', 'MA', 'INTC', 'IBM', # Other
     'CSCO', 'BABA', 'NIO', 'RIVN',
     'LCID', 'SOFI', 'HOOD', 'DKNG',
 ]
@@ -254,7 +254,7 @@ selected_symbols = st.sidebar.multiselect(
 )
 
 # Dashboard settings
-auto_refresh = st.sidebar.checkbox("🔴 Live Updates", value=False)  # Default to False for demo
+auto_refresh = st.sidebar.checkbox(" Live Updates", value=False) # Default to False for demo
 
 # Display settings
 show_greeks = st.sidebar.checkbox("Show Greeks", value=True)
@@ -278,7 +278,7 @@ st.sidebar.markdown(f"**Last Update:** {datetime.now().strftime('%H:%M:%S')}")
 if selected_symbols and connector:
     
     # Portfolio Overview
-    st.markdown('<div class="section-header">💼 Portfolio Overview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"> Portfolio Overview</div>', unsafe_allow_html=True)
     
     try:
         portfolio_metrics = get_portfolio_metrics_cached()
@@ -316,7 +316,7 @@ if selected_symbols and connector:
         st.error(f"Error loading portfolio metrics: {e}")
     
     # Market Data Table with individual symbol prices
-    st.markdown('<div class="section-header">📈 Real-Time Market Data</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"> Real-Time Market Data</div>', unsafe_allow_html=True)
     
     market_data = []
     for symbol in selected_symbols:
@@ -353,7 +353,7 @@ if selected_symbols and connector:
     
     # Enhanced Greeks Dashboard
     if show_greeks:
-        st.markdown('<div class="section-header">🔢 Options Greeks Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"> Options Greeks Analysis</div>', unsafe_allow_html=True)
         
         greeks_data = []
         
@@ -368,7 +368,7 @@ if selected_symbols and connector:
                     gamma = data.get('gamma', 0)
                     theta = data.get('theta', 0)
                     vega = data.get('vega', 0)
-                    individual_price = data.get('price', 0)  # Get individual price for each symbol
+                    individual_price = data.get('price', 0) # Get individual price for each symbol
                     
                     # Only add if we have meaningful data or generate realistic estimates
                     if abs(delta) > 0.001 or abs(gamma) > 0.001:
@@ -453,7 +453,7 @@ if selected_symbols and connector:
                     row=1, col=1
                 )
                 
-                # Gamma  
+                # Gamma 
                 fig_greeks.add_trace(
                     go.Bar(
                         x=greeks_df['Symbol'], 
@@ -512,13 +512,13 @@ if selected_symbols and connector:
                 st.plotly_chart(fig_greeks, use_container_width=True)
             
             # Add Greeks explanation
-            with st.expander("📚 Greeks Explanation"):
+            with st.expander(" Greeks Explanation"):
                 st.markdown("""
                 **Delta**: Sensitivity to underlying price changes (0-1 for calls, -1-0 for puts)
                 
                 **Gamma**: Rate of change of delta with respect to underlying price
                 
-                **Theta**: Time decay - how much option value decreases per day  
+                **Theta**: Time decay - how much option value decreases per day 
                 
                 **Vega**: Sensitivity to volatility changes
                 """)
@@ -531,7 +531,7 @@ if selected_symbols and connector:
     # REPLACE the entire volatility surface section with this fixed version:
 
     # Enhanced Volatility Surface
-    st.markdown('<div class="section-header">🌊 Volatility Surface Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"> Volatility Surface Analysis</div>', unsafe_allow_html=True)
 
     # Symbol selector for surface
     surface_symbol = st.selectbox("Select symbol for volatility surface:", selected_symbols)
@@ -547,7 +547,7 @@ if selected_symbols and connector:
         with col2:
             st.metric("Last Update", datetime.now().strftime('%H:%M:%S'))
         with col3:
-            if st.button("🔄 Force Refresh"):
+            if st.button(" Force Refresh"):
                 st.rerun()
 
         try:
@@ -559,9 +559,9 @@ if selected_symbols and connector:
                 actual_strikes = strikes
             else:
                 # 1D array - check if these are ratios or actual prices
-                if np.max(strikes) <= 2.0:  # These are ratios (moneyness)
+                if np.max(strikes) <= 2.0: # These are ratios (moneyness)
                     actual_strikes = strikes * current_price
-                else:  # These are already actual prices
+                else: # These are already actual prices
                     actual_strikes = strikes
             
             # FIXED: Handle expiries properly
@@ -716,7 +716,7 @@ if selected_symbols and connector:
     
     # Correlation Analysis
     if show_correlations and len(selected_symbols) > 1:
-        st.markdown('<div class="section-header">🔗 Cross-Asset Correlation Analysis</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header"> Cross-Asset Correlation Analysis</div>', unsafe_allow_html=True)
         
         try:
             corr_matrix = get_correlation_matrix_cached(tuple(sorted(selected_symbols)))
@@ -751,7 +751,7 @@ if selected_symbols and connector:
             st.error(f"Error generating correlation matrix: {e}")
     
     # Performance Analytics
-    st.markdown('<div class="section-header">📊 Performance Analytics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header"> Performance Analytics</div>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
@@ -802,7 +802,7 @@ if selected_symbols and connector:
         # Show countdown
         placeholder = st.empty()
         for i in range(30, 0, -1):
-            placeholder.info(f"🔄 Auto-refresh in {i} seconds...")
+            placeholder.info(f" Auto-refresh in {i} seconds...")
             time.sleep(1)
         placeholder.empty()
         st.rerun()
@@ -811,14 +811,14 @@ elif not selected_symbols:
     st.warning("Please select at least one symbol from the sidebar to begin analysis.")
 
 else:
-    st.error("⚠️ System not available. Using fallback mode.")
+    st.error("[WARN] System not available. Using fallback mode.")
 
 # Footer
 st.markdown("---")
 st.markdown(f"""
 <div style='text-align: center; color: #7f8c8d; padding: 2rem;'>
     <p>Built with Python • Streamlit • Real-time Options Data • Advanced Analytics</p>
-    <p><strong>System Status:</strong> {'🟢 Live' if (REAL_SYSTEM_AVAILABLE and CONNECTOR_AVAILABLE) else '🔴 Demo Mode'}</p>
+    <p><strong>System Status:</strong> {' Live' if (REAL_SYSTEM_AVAILABLE and CONNECTOR_AVAILABLE) else ' Demo Mode'}</p>
     <p><em>Surface generated at: {datetime.now().strftime('%H:%M:%S')}</em></p>
 </div>
 """, unsafe_allow_html=True)

@@ -19,8 +19,8 @@ class OptionsDataClient:
     
     def __init__(self, api_key: str = None, provider: str = 'yfinance'):
         self.provider = provider
-        self.api_key = api_key  # Keep for backwards compatibility, but not used
-        self.rate_limit_delay = 0.1  # Much more lenient than API limits
+        self.api_key = api_key # Keep for backwards compatibility, but not used
+        self.rate_limit_delay = 0.1 # Much more lenient than API limits
         
         # Test yfinance availability
         try:
@@ -29,33 +29,33 @@ class OptionsDataClient:
             test_data = test_ticker.history(period="1d")
             if not test_data.empty:
                 self.yfinance_available = True
-                logger.info("✅ yfinance working - using REAL stock prices!")
+                logger.info("[OK] yfinance working - using REAL stock prices!")
             else:
                 self.yfinance_available = False
-                logger.warning("⚠️ yfinance installed but not responding")
+                logger.warning("[WARN] yfinance installed but not responding")
         except ImportError:
             self.yfinance_available = False
-            logger.error("❌ yfinance not installed. Run: pip install yfinance")
+            logger.error("[FAIL] yfinance not installed. Run: pip install yfinance")
         except Exception as e:
             self.yfinance_available = False
-            logger.warning(f"⚠️ yfinance test failed: {e}")
+            logger.warning(f"[WARN] yfinance test failed: {e}")
         
         # Fallback prices (updated December 2024)
         self.fallback_prices = {
-            'AAPL': 196.50,   'MSFT': 416.50,   'GOOGL': 166.80,
-            'NVDA': 138.50,   'TSLA': 325.00,   'SPY': 578.00,
-            'QQQ': 478.00,    'META': 540.00,   'AMZN': 177.50,
-            'JPM': 241.00,    'BAC': 42.50,     'GME': 20.50,
-            'NFLX': 720.00,   'AMD': 132.00,    'UBER': 68.50,
-            'DIS': 95.00,     'COIN': 245.00,   'PLTR': 62.00
+            'AAPL': 196.50, 'MSFT': 416.50, 'GOOGL': 166.80,
+            'NVDA': 138.50, 'TSLA': 325.00, 'SPY': 578.00,
+            'QQQ': 478.00, 'META': 540.00, 'AMZN': 177.50,
+            'JPM': 241.00, 'BAC': 42.50, 'GME': 20.50,
+            'NFLX': 720.00, 'AMD': 132.00, 'UBER': 68.50,
+            'DIS': 95.00, 'COIN': 245.00, 'PLTR': 62.00
         }
         
         # Price cache to avoid excessive API calls
         self.price_cache = {}
         self.cache_timestamps = {}
-        self.cache_duration = 300  # 5 minutes cache
+        self.cache_duration = 300 # 5 minutes cache
         
-        logger.info(f"📊 OptionsDataClient initialized with yfinance")
+        logger.info(f" OptionsDataClient initialized with yfinance")
     
     def get_current_stock_price(self, symbol: str) -> float:
         """Get REAL current stock price using yfinance"""
@@ -67,16 +67,16 @@ class OptionsDataClient:
             (now - self.cache_timestamps[symbol]).total_seconds() < self.cache_duration):
             
             cached_price = self.price_cache[symbol]
-            logger.debug(f"📋 Using cached price for {symbol}: ${cached_price:.2f}")
+            logger.debug(f" Using cached price for {symbol}: ${cached_price:.2f}")
             return cached_price
         
         if not self.yfinance_available:
             fallback = self.fallback_prices.get(symbol, 100.0)
-            logger.info(f"📊 yfinance unavailable, using fallback for {symbol}: ${fallback:.2f}")
+            logger.info(f" yfinance unavailable, using fallback for {symbol}: ${fallback:.2f}")
             return fallback
         
         try:
-            logger.debug(f"🌐 Fetching REAL price for {symbol} via yfinance...")
+            logger.debug(f" Fetching REAL price for {symbol} via yfinance...")
             ticker = yf.Ticker(symbol)
             
             # Method 1: Get from recent history (most reliable)
@@ -85,7 +85,7 @@ class OptionsDataClient:
                 real_price = float(hist['Close'].iloc[-1])
                 if real_price > 0:
                     self._cache_price(symbol, real_price)
-                    logger.info(f"✅ REAL price for {symbol}: ${real_price:.2f} (from history)")
+                    logger.info(f"[OK] REAL price for {symbol}: ${real_price:.2f} (from history)")
                     return real_price
             
             # Method 2: Try daily history if minute data fails
@@ -94,7 +94,7 @@ class OptionsDataClient:
                 real_price = float(hist_daily['Close'].iloc[-1])
                 if real_price > 0:
                     self._cache_price(symbol, real_price)
-                    logger.info(f"✅ REAL price for {symbol}: ${real_price:.2f} (from daily)")
+                    logger.info(f"[OK] REAL price for {symbol}: ${real_price:.2f} (from daily)")
                     return real_price
             
             # Method 3: Try ticker info
@@ -103,17 +103,17 @@ class OptionsDataClient:
                 if price_field in info and info[price_field] and info[price_field] > 0:
                     real_price = float(info[price_field])
                     self._cache_price(symbol, real_price)
-                    logger.info(f"✅ REAL price for {symbol}: ${real_price:.2f} (from {price_field})")
+                    logger.info(f"[OK] REAL price for {symbol}: ${real_price:.2f} (from {price_field})")
                     return real_price
             
-            logger.warning(f"⚠️ yfinance returned no valid price for {symbol}")
+            logger.warning(f"[WARN] yfinance returned no valid price for {symbol}")
             
         except Exception as e:
-            logger.warning(f"❌ yfinance failed for {symbol}: {e}")
+            logger.warning(f"[FAIL] yfinance failed for {symbol}: {e}")
         
         # Fallback to updated static price
         fallback = self.fallback_prices.get(symbol, 100.0)
-        logger.info(f"📊 Using updated fallback for {symbol}: ${fallback:.2f}")
+        logger.info(f" Using updated fallback for {symbol}: ${fallback:.2f}")
         return fallback
     
     def _cache_price(self, symbol: str, price: float):
@@ -129,19 +129,19 @@ class OptionsDataClient:
         # Try to get real options data from yfinance
         if self.yfinance_available:
             try:
-                logger.info(f"🔍 Trying to fetch REAL options data for {symbol}...")
+                logger.info(f" Trying to fetch REAL options data for {symbol}...")
                 ticker = yf.Ticker(symbol)
                 
                 # Get available expiration dates
                 exp_dates = ticker.options
                 
                 if exp_dates and len(exp_dates) > 0:
-                    logger.info(f"✅ Found {len(exp_dates)} expiration dates for {symbol}")
+                    logger.info(f"[OK] Found {len(exp_dates)} expiration dates for {symbol}")
                     
                     all_options = []
                     
                     # Get options for first few expirations (to avoid too much data)
-                    for exp_date in exp_dates[:6]:  # Limit to first 6 expirations
+                    for exp_date in exp_dates[:6]: # Limit to first 6 expirations
                         try:
                             option_chain = ticker.option_chain(exp_date)
                             
@@ -150,7 +150,7 @@ class OptionsDataClient:
                             calls['type'] = 'call'
                             calls['expiration'] = exp_date
                             
-                            # Process puts  
+                            # Process puts 
                             puts = option_chain.puts.copy()
                             puts['type'] = 'put'
                             puts['expiration'] = exp_date
@@ -159,7 +159,7 @@ class OptionsDataClient:
                             exp_options = pd.concat([calls, puts], ignore_index=True)
                             all_options.append(exp_options)
                             
-                            time.sleep(0.1)  # Small delay to be nice to yfinance
+                            time.sleep(0.1) # Small delay to be nice to yfinance
                             
                         except Exception as e:
                             logger.warning(f"Failed to get options for {symbol} exp {exp_date}: {e}")
@@ -170,14 +170,14 @@ class OptionsDataClient:
                         df = self._clean_yfinance_options(df, symbol)
                         
                         if not df.empty:
-                            logger.info(f"✅ Got {len(df)} REAL options contracts for {symbol}")
+                            logger.info(f"[OK] Got {len(df)} REAL options contracts for {symbol}")
                             return df
                 
             except Exception as e:
-                logger.warning(f"⚠️ Real options data failed for {symbol}: {e}")
+                logger.warning(f"[WARN] Real options data failed for {symbol}: {e}")
         
         # Fallback to enhanced synthetic options data
-        logger.info(f"📊 Creating enhanced synthetic options data for {symbol}")
+        logger.info(f" Creating enhanced synthetic options data for {symbol}")
         return self._create_enhanced_synthetic_options(symbol)
     
     def _clean_yfinance_options(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
@@ -249,7 +249,7 @@ class OptionsDataClient:
                     try:
                         from src.pricing.implied_vol import ImpliedVolatilityCalculator
                         iv_calc = ImpliedVolatilityCalculator()
-                        risk_free_rate = 0.05  # Use current risk-free rate
+                        risk_free_rate = 0.05 # Use current risk-free rate
                         
                         for idx in df[invalid_iv_mask].index:
                             try:
@@ -289,7 +289,7 @@ class OptionsDataClient:
                 logger.warning(f"No IV data from yfinance for {symbol}")
                 
                 # Add a basic IV estimate based on option type and moneyness
-                df['impliedVolatility'] = 0.25  # Default 25% IV
+                df['impliedVolatility'] = 0.25 # Default 25% IV
                 
                 # Adjust IV based on moneyness for realism
                 for idx, row in df.iterrows():
@@ -297,9 +297,9 @@ class OptionsDataClient:
                     moneyness = row['moneyness']
                     
                     # Simple skew: OTM puts have higher IV
-                    if row['type'] == 'put' and moneyness > 1.0:  # OTM put
+                    if row['type'] == 'put' and moneyness > 1.0: # OTM put
                         base_iv *= 1.2
-                    elif row['type'] == 'call' and moneyness < 1.0:  # OTM call
+                    elif row['type'] == 'call' and moneyness < 1.0: # OTM call
                         base_iv *= 1.1
                     
                     df.loc[idx, 'impliedVolatility'] = base_iv
@@ -313,20 +313,20 @@ class OptionsDataClient:
                 df = df[
                     (df['bid'] > 0) & 
                     (df['ask'] > df['bid']) & 
-                    (df['bidAskSpreadPct'] < 1.0)  # Less than 100% spread
+                    (df['bidAskSpreadPct'] < 1.0) # Less than 100% spread
                 ]
             
             # Final validation
             df = df[
                 (df['impliedVolatility'] > 0.01) & 
                 (df['impliedVolatility'] < 5.0) &
-                (df['time_to_expiry'] > 0.003)  # At least 1 day
+                (df['time_to_expiry'] > 0.003) # At least 1 day
             ]
             
             # Sort by expiration and strike
             df = df.sort_values(['expiration', 'strike'])
             
-            logger.info(f"✅ Cleaned {len(df)} options for {symbol} with valid IVs")
+            logger.info(f"[OK] Cleaned {len(df)} options for {symbol} with valid IVs")
             
             return df
             
@@ -342,20 +342,20 @@ class OptionsDataClient:
         # Get REAL current stock price
         stock_price = self.get_current_stock_price(symbol)
         
-        logger.info(f"📊 Creating synthetic options for {symbol} at REAL price ${stock_price:.2f}")
+        logger.info(f" Creating synthetic options for {symbol} at REAL price ${stock_price:.2f}")
         
         # Generate strikes around REAL current price
         strikes = []
         
         # Calculate appropriate strike spacing based on stock price
         if stock_price < 20:
-            strike_spacing = 1  # $1 spacing for cheap stocks
+            strike_spacing = 1 # $1 spacing for cheap stocks
         elif stock_price < 100:
-            strike_spacing = 2.5  # $2.50 spacing
+            strike_spacing = 2.5 # $2.50 spacing
         elif stock_price < 200:
-            strike_spacing = 5  # $5 spacing
+            strike_spacing = 5 # $5 spacing
         else:
-            strike_spacing = 10  # $10 spacing for expensive stocks
+            strike_spacing = 10 # $10 spacing for expensive stocks
         
         # Generate strikes from 70% to 130% of current price
         num_strikes = 25
@@ -416,10 +416,10 @@ class OptionsDataClient:
                 moneyness = stock_price / strike
                 
                 # Calculate realistic implied volatility with smile/skew
-                vol = base_vol + 0.05 * np.sqrt(time_to_exp)  # Term structure
-                vol += 0.1 * (1 - moneyness)  # Volatility skew
-                vol += 0.05 * (moneyness - 1)**2  # Volatility smile
-                vol = max(0.05, min(vol, 3.0))  # Reasonable bounds
+                vol = base_vol + 0.05 * np.sqrt(time_to_exp) # Term structure
+                vol += 0.1 * (1 - moneyness) # Volatility skew
+                vol += 0.05 * (moneyness - 1)**2 # Volatility smile
+                vol = max(0.05, min(vol, 3.0)) # Reasonable bounds
                 
                 # Simplified Black-Scholes for option pricing
                 d1 = (np.log(stock_price/strike) + (0.05 + 0.5*vol**2)*time_to_exp) / (vol*np.sqrt(time_to_exp))
@@ -486,7 +486,7 @@ class OptionsDataClient:
         df['bidAskSpread'] = df['ask'] - df['bid']
         df['bidAskSpreadPct'] = df['bidAskSpread'] / ((df['bid'] + df['ask']) / 2)
         
-        logger.info(f"✅ Created {len(df)} synthetic options contracts for {symbol}")
+        logger.info(f"[OK] Created {len(df)} synthetic options contracts for {symbol}")
         return df
     
     def save_data(self, df: pd.DataFrame, symbol: str, data_dir: str = 'data/raw'):
@@ -498,32 +498,32 @@ class OptionsDataClient:
         filepath = os.path.join(data_dir, filename)
         
         df.to_csv(filepath, index=False)
-        logger.info(f"💾 Data saved to {filepath}")
+        logger.info(f" Data saved to {filepath}")
         
         return filepath
 
 
 def test_yfinance_client():
     """Test the yfinance-based client"""
-    print("🧪 Testing yfinance-based OptionsDataClient")
+    print(" Testing yfinance-based OptionsDataClient")
     print("=" * 50)
     
     client = OptionsDataClient()
     
     test_symbols = ['AAPL', 'MSFT', 'TSLA', 'NVDA']
     
-    print("📊 Testing stock prices:")
+    print(" Testing stock prices:")
     for symbol in test_symbols:
         price = client.get_current_stock_price(symbol)
-        print(f"  {symbol}: ${price:8.2f}")
+        print(f" {symbol}: ${price:8.2f}")
     
-    print(f"\n📈 Testing options data for AAPL:")
+    print(f"\n Testing options data for AAPL:")
     options = client.fetch_options_chain('AAPL')
-    print(f"  Got {len(options)} options contracts")
+    print(f" Got {len(options)} options contracts")
     
     if not options.empty:
-        print(f"  Strike range: ${options['strike'].min():.0f} - ${options['strike'].max():.0f}")
-        print(f"  Expiration range: {options['daysToExpiration'].min()} - {options['daysToExpiration'].max()} days")
+        print(f" Strike range: ${options['strike'].min():.0f} - ${options['strike'].max():.0f}")
+        print(f" Expiration range: {options['daysToExpiration'].min()} - {options['daysToExpiration'].max()} days")
 
 
 if __name__ == "__main__":

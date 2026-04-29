@@ -21,8 +21,8 @@ from src.data.data_manager import DataManager
 from src.realtime.stream_processor import StreamProcessor
 from src.portfolio.portfolio_analytics import PortfolioAnalytics
 from src.visualization.plotting import VolatilityPlotter
-# from src.visualization.surface_plots import create_portfolio_dashboard  # This one might not exist
-# from src.utils.helpers import setup_logging  # This one might not exist
+# from src.visualization.surface_plots import create_portfolio_dashboard # This one might not exist
+# from src.utils.helpers import setup_logging # This one might not exist
 
 
 class Week2IntegrationTest:
@@ -40,7 +40,7 @@ class Week2IntegrationTest:
         
         # Test configuration
         self.test_symbols = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'SPY', 'QQQ']
-        self.test_duration = 300  # 5 minutes of testing
+        self.test_duration = 300 # 5 minutes of testing
         
         # Results tracking
         self.test_results = {}
@@ -141,7 +141,7 @@ class Week2IntegrationTest:
         
         # Test that we can start processing threads
         self.stream_processor.start_processing()
-        time.sleep(2)  # Let threads start
+        time.sleep(2) # Let threads start
         
         # Check system health (be lenient during initialization)
         health = self.data_manager.get_system_health()
@@ -259,7 +259,7 @@ class Week2IntegrationTest:
         
         # Wait for some updates
         initial_surface_count = len(self.surfaces_generated)
-        test_duration = 60  # 1 minute test
+        test_duration = 60 # 1 minute test
         
         self.logger.info(f"Running real-time test for {test_duration} seconds...")
         time.sleep(test_duration)
@@ -270,9 +270,9 @@ class Week2IntegrationTest:
         if new_surfaces == 0:
             self.logger.warning("No surface updates received during streaming test")
             self.logger.info("This could be due to:")
-            self.logger.info("  - Implied volatility calculation issues")
-            self.logger.info("  - Data processing pipeline delays")
-            self.logger.info("  - Threading synchronization")
+            self.logger.info(" - Implied volatility calculation issues")
+            self.logger.info(" - Data processing pipeline delays")
+            self.logger.info(" - Threading synchronization")
             
             # Check if we at least got data updates
             processing_stats = self.stream_processor.get_processing_stats()
@@ -281,7 +281,7 @@ class Week2IntegrationTest:
             # Don't fail the test, but log the issue
             self.logger.info("Streaming architecture is working, but surface generation needs tuning")
         else:
-            self.logger.info(f"✅ Received {new_surfaces} surface updates during streaming test")
+            self.logger.info(f"[OK] Received {new_surfaces} surface updates during streaming test")
         
         # Check processing stats instead of surface count
         processing_stats = self.stream_processor.get_processing_stats()
@@ -477,13 +477,13 @@ class Week2IntegrationTest:
         for metric, value in self.performance_metrics.items():
             if isinstance(value, float):
                 if 'time' in metric:
-                    lines.append(f"  {metric}: {value:.3f} seconds")
+                    lines.append(f" {metric}: {value:.3f} seconds")
                 elif 'rate' in metric:
-                    lines.append(f"  {metric}: {value:.1%}")
+                    lines.append(f" {metric}: {value:.1%}")
                 else:
-                    lines.append(f"  {metric}: {value:.3f}")
+                    lines.append(f" {metric}: {value:.3f}")
             else:
-                lines.append(f"  {metric}: {value}")
+                lines.append(f" {metric}: {value}")
         lines.append("")
         
         # Test Results by Phase
@@ -493,18 +493,18 @@ class Week2IntegrationTest:
             lines.append(f"\n{phase.upper().replace('_', ' ')}:")
             for key, value in results.items():
                 if isinstance(value, dict):
-                    lines.append(f"  {key}:")
+                    lines.append(f" {key}:")
                     for sub_key, sub_value in value.items():
-                        lines.append(f"    {sub_key}: {sub_value}")
+                        lines.append(f" {sub_key}: {sub_value}")
                 elif isinstance(value, float):
                     if 'time' in key:
-                        lines.append(f"  {key}: {value:.3f}s")
+                        lines.append(f" {key}: {value:.3f}s")
                     elif 'rate' in key:
-                        lines.append(f"  {key}: {value:.1%}")
+                        lines.append(f" {key}: {value:.1%}")
                     else:
-                        lines.append(f"  {key}: {value:.3f}")
+                        lines.append(f" {key}: {value:.3f}")
                 else:
-                    lines.append(f"  {key}: {value}")
+                    lines.append(f" {key}: {value}")
         lines.append("")
         
         # Alert Summary
@@ -520,11 +520,11 @@ class Week2IntegrationTest:
             
             lines.append("Alert types:")
             for alert_type, count in alert_types.items():
-                lines.append(f"  {alert_type}: {count}")
+                lines.append(f" {alert_type}: {count}")
             
             lines.append("Alert severities:")
             for severity, count in alert_severities.items():
-                lines.append(f"  {severity}: {count}")
+                lines.append(f" {severity}: {count}")
             lines.append("")
         
         # System Health
@@ -534,13 +534,13 @@ class Week2IntegrationTest:
         for key, value in health.items():
             if isinstance(value, float):
                 if 'rate' in key:
-                    lines.append(f"  {key}: {value:.1%}")
+                    lines.append(f" {key}: {value:.1%}")
                 elif 'time' in key:
-                    lines.append(f"  {key}: {value:.3f}s")
+                    lines.append(f" {key}: {value:.3f}s")
                 else:
-                    lines.append(f"  {key}: {value:.3f}")
+                    lines.append(f" {key}: {value:.3f}")
             else:
-                lines.append(f"  {key}: {value}")
+                lines.append(f" {key}: {value}")
         lines.append("")
         
         # Portfolio Analytics Summary
@@ -553,13 +553,13 @@ class Week2IntegrationTest:
                 
                 if 'risk_summary' in summary:
                     risk = summary['risk_summary']
-                    lines.append(f"  Portfolio IV: {risk.get('portfolio_iv', 0):.2%}")
-                    lines.append(f"  Portfolio VaR: {risk.get('portfolio_var', 0):.2%}")
-                    lines.append(f"  Diversification Ratio: {risk.get('diversification_ratio', 0):.3f}")
+                    lines.append(f" Portfolio IV: {risk.get('portfolio_iv', 0):.2%}")
+                    lines.append(f" Portfolio VaR: {risk.get('portfolio_var', 0):.2%}")
+                    lines.append(f" Diversification Ratio: {risk.get('diversification_ratio', 0):.3f}")
                 
                 if 'signal_summary' in summary:
                     signals = summary['signal_summary']
-                    lines.append(f"  Active Signals: {signals.get('active_signals', 0)}")
+                    lines.append(f" Active Signals: {signals.get('active_signals', 0)}")
                 lines.append("")
         
         # Recommendations
@@ -594,11 +594,11 @@ class Week2IntegrationTest:
         # Key performance metrics
         print("\nKey Performance Metrics:")
         if 'multi_asset_processing_time' in self.performance_metrics:
-            print(f"  Multi-asset processing: {self.performance_metrics['multi_asset_processing_time']:.2f}s")
+            print(f" Multi-asset processing: {self.performance_metrics['multi_asset_processing_time']:.2f}s")
         if 'multi_asset_success_rate' in self.performance_metrics:
-            print(f"  Success rate: {self.performance_metrics['multi_asset_success_rate']:.1%}")
+            print(f" Success rate: {self.performance_metrics['multi_asset_success_rate']:.1%}")
         if 'total_contracts_processed' in self.performance_metrics:
-            print(f"  Total contracts: {self.performance_metrics['total_contracts_processed']:,}")
+            print(f" Total contracts: {self.performance_metrics['total_contracts_processed']:,}")
         
         # System health
         health = self.data_manager.get_system_health()
@@ -607,7 +607,7 @@ class Week2IntegrationTest:
         print(f"Success rate: {health['overall_success_rate']:.1%}")
         
         # Note about testing mode
-        print(f"\n📋 NOTE: This test uses placeholder API clients for demonstration.")
+        print(f"\n NOTE: This test uses placeholder API clients for demonstration.")
         print(f"In production, connect to real Alpha Vantage API for live data.")
         
         print("=" * 60)
@@ -658,7 +658,7 @@ class Week2IntegrationTest:
                             save_path='week2_test_dashboard.png'
                         )
                         
-                        self.logger.info("✅ Test dashboard created successfully")
+                        self.logger.info("[OK] Test dashboard created successfully")
                         
                     except Exception as viz_error:
                         self.logger.warning(f"Could not create visualization: {viz_error}")
@@ -719,10 +719,10 @@ def main():
         success = test_runner.run_comprehensive_test()
         
         if success:
-            print("\n✅ Week 2 Integration Test PASSED")
+            print("\n[OK] Week 2 Integration Test PASSED")
             print("System is ready for Week 3 dashboard development!")
         else:
-            print("\n❌ Week 2 Integration Test FAILED")
+            print("\n[FAIL] Week 2 Integration Test FAILED")
             print("Please review logs and fix issues before proceeding to Week 3")
     
     except KeyboardInterrupt:

@@ -56,7 +56,7 @@ class DashboardSetup:
     
     def validate_existing_system(self):
         """Validate that existing system exists and is properly structured"""
-        logger.info("📋 Validating existing volatility system...")
+        logger.info(" Validating existing volatility system...")
         
         required_dirs = [
             'src/data',
@@ -79,7 +79,7 @@ class DashboardSetup:
             if not (self.project_root / dir_path).exists():
                 logger.warning(f"Directory not found: {dir_path}")
             else:
-                logger.info(f"✓ Found: {dir_path}")
+                logger.info(f" Found: {dir_path}")
         
         # Check files
         missing_files = []
@@ -87,17 +87,17 @@ class DashboardSetup:
             if not (self.project_root / file_path).exists():
                 missing_files.append(file_path)
             else:
-                logger.info(f"✓ Found: {file_path}")
+                logger.info(f" Found: {file_path}")
         
         if missing_files:
             logger.warning(f"Missing files: {missing_files}")
             logger.warning("Dashboard will use fallback mock data mode")
         else:
-            logger.info("✅ System validation complete!")
+            logger.info("[OK] System validation complete!")
     
     def create_dashboard_files(self):
         """Create the dashboard files from the artifacts"""
-        logger.info("📁 Creating dashboard files...")
+        logger.info(" Creating dashboard files...")
         
         # Note: In a real implementation, you would copy the actual files
         # For this demo, we'll create placeholder files that reference the artifacts
@@ -117,11 +117,11 @@ class DashboardSetup:
                 with open(filepath, 'w') as f:
                     f.write(f"# {description}\n# Created by dashboard setup\n")
             else:
-                logger.info(f"✓ {filename} already exists")
+                logger.info(f" {filename} already exists")
     
     def update_requirements(self):
         """Update requirements.txt with dashboard dependencies"""
-        logger.info("📦 Updating requirements...")
+        logger.info(" Updating requirements...")
         
         dashboard_deps = [
             "streamlit>=1.28.0",
@@ -156,18 +156,18 @@ class DashboardSetup:
             
             logger.info(f"Added {len(new_deps)} new dependencies")
         else:
-            logger.info("✓ All dependencies already present")
+            logger.info(" All dependencies already present")
     
     def create_launch_scripts(self):
         """Create platform-specific launch scripts"""
-        logger.info("🚀 Creating launch scripts...")
+        logger.info(" Creating launch scripts...")
         
         # Windows batch script
         batch_content = f"""@echo off
 echo Starting Professional Volatility Dashboard...
 echo.
-echo 🚀 Real-Time Options Volatility Surface System
-echo 📊 Professional Trading Dashboard
+echo Real-Time Options Volatility Surface System
+echo Professional Trading Dashboard
 echo.
 
 cd /d "{self.project_root}"
@@ -184,7 +184,7 @@ pip install -r requirements.txt
 
 REM Launch dashboard
 echo.
-echo 🌐 Starting dashboard on http://localhost:8501
+echo Starting dashboard on http://localhost:8501
 echo.
 streamlit run app.py --server.port 8501
 
@@ -198,8 +198,8 @@ pause
         shell_content = f"""#!/bin/bash
 echo "Starting Professional Volatility Dashboard..."
 echo ""
-echo "🚀 Real-Time Options Volatility Surface System"
-echo "📊 Professional Trading Dashboard"
+echo " Real-Time Options Volatility Surface System"
+echo " Professional Trading Dashboard"
 echo ""
 
 cd "{self.project_root}"
@@ -216,7 +216,7 @@ pip install -r requirements.txt
 
 # Launch dashboard
 echo ""
-echo "🌐 Starting dashboard on http://localhost:8501"
+echo " Starting dashboard on http://localhost:8501"
 echo ""
 streamlit run app.py --server.port 8501
 """
@@ -229,11 +229,11 @@ streamlit run app.py --server.port 8501
         if os.name != 'nt':
             os.chmod(shell_script, 0o755)
         
-        logger.info("✓ Launch scripts created")
+        logger.info(" Launch scripts created")
     
     def test_integration(self):
         """Test the dashboard integration"""
-        logger.info("🧪 Testing dashboard integration...")
+        logger.info(" Testing dashboard integration...")
         
         # Test Python imports
         test_script = """
@@ -246,23 +246,23 @@ try:
     import plotly.graph_objects as go
     import pandas as pd
     import numpy as np
-    print("✓ Basic dashboard imports successful")
+    print(" Basic dashboard imports successful")
     
     # Test system imports
     try:
         from src.data.data_manager import DataManager
         from src.portfolio.portfolio_analytics import PortfolioAnalytics
-        print("✓ Real system imports successful")
+        print(" Real system imports successful")
         system_available = True
     except ImportError as e:
-        print(f"⚠ Real system imports failed: {e}")
-        print("✓ Dashboard will use mock data mode")
+        print(f"[WARN] Real system imports failed: {e}")
+        print(" Dashboard will use mock data mode")
         system_available = False
     
     print(f"Integration test complete. System available: {system_available}")
     
 except ImportError as e:
-    print(f"✗ Dashboard integration test failed: {e}")
+    print(f" Dashboard integration test failed: {e}")
     sys.exit(1)
 """
         
@@ -271,10 +271,10 @@ except ImportError as e:
                                   capture_output=True, text=True, cwd=self.project_root)
             
             if result.returncode == 0:
-                logger.info("✅ Integration test passed!")
+                logger.info("[OK] Integration test passed!")
                 logger.info(result.stdout.strip())
             else:
-                logger.warning("⚠ Integration test had issues:")
+                logger.warning("[WARN] Integration test had issues:")
                 logger.warning(result.stderr.strip())
                 
         except Exception as e:
@@ -282,7 +282,7 @@ except ImportError as e:
     
     def final_configuration(self):
         """Final configuration and setup"""
-        logger.info("⚙️ Final configuration...")
+        logger.info(" Final configuration...")
         
         # Create .streamlit directory and config
         streamlit_dir = self.project_root / '.streamlit'
@@ -330,50 +330,50 @@ DASHBOARD_REFRESH_INTERVAL=5
                 f.write("# Real-Time Options Volatility Surface - Environment Variables")
                 f.write(env_additions)
         
-        logger.info("✓ Configuration complete")
+        logger.info(" Configuration complete")
     
     def print_success_message(self):
         """Print success message with next steps"""
         logger.info("=" * 60)
-        logger.info("🎉 PROFESSIONAL DASHBOARD SETUP COMPLETE!")
+        logger.info(" PROFESSIONAL DASHBOARD SETUP COMPLETE!")
         logger.info("=" * 60)
         logger.info("")
-        logger.info("📊 Your professional volatility dashboard is ready!")
+        logger.info(" Your professional volatility dashboard is ready!")
         logger.info("")
-        logger.info("🚀 Next Steps:")
+        logger.info(" Next Steps:")
         logger.info("1. Ensure your Alpha Vantage API key is in .env file")
         logger.info("2. Run: python -m pip install -r requirements.txt")
         logger.info("3. Launch dashboard:")
-        logger.info("   • Windows: launch_dashboard.bat")
-        logger.info("   • Mac/Linux: ./launch_dashboard.sh")
-        logger.info("   • Manual: streamlit run app.py")
+        logger.info(" • Windows: launch_dashboard.bat")
+        logger.info(" • Mac/Linux: ./launch_dashboard.sh")
+        logger.info(" • Manual: streamlit run app.py")
         logger.info("")
-        logger.info("🌐 Dashboard will be available at: http://localhost:8501")
+        logger.info(" Dashboard will be available at: http://localhost:8501")
         logger.info("")
-        logger.info("✨ Features Ready:")
+        logger.info(" Features Ready:")
         logger.info("• Real-time multi-asset data feeds")
         logger.info("• Interactive 3D volatility surfaces")
         logger.info("• Portfolio risk analytics")
         logger.info("• Cross-asset correlation analysis")
         logger.info("• Professional presentation interface")
         logger.info("")
-        logger.info("🎯 Ready for portfolio presentation and interviews!")
+        logger.info(" Ready for portfolio presentation and interviews!")
         logger.info("=" * 60)
     
     def print_failure_message(self, error):
         """Print failure message with troubleshooting"""
         logger.error("=" * 60)
-        logger.error("❌ SETUP FAILED")
+        logger.error("[FAIL] SETUP FAILED")
         logger.error("=" * 60)
         logger.error(f"Error: {error}")
         logger.error("")
-        logger.error("🔧 Troubleshooting:")
+        logger.error(" Troubleshooting:")
         logger.error("1. Ensure you're in the correct project directory")
         logger.error("2. Check that existing system files exist")
         logger.error("3. Verify Python virtual environment is activated")
         logger.error("4. Run with administrator/sudo privileges if needed")
         logger.error("")
-        logger.error("📞 For help:")
+        logger.error(" For help:")
         logger.error("• Review the integration guide")
         logger.error("• Check the error logs above")
         logger.error("• Test individual components manually")

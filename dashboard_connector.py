@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 try:
     import yfinance as yf
     YFINANCE_AVAILABLE = True
-    logger.info("✅ yfinance available - using REAL stock prices")
+    logger.info("[OK] yfinance available - using REAL stock prices")
 except ImportError:
     YFINANCE_AVAILABLE = False
-    logger.warning("⚠️ yfinance not installed. Run: pip install yfinance")
+    logger.warning("[WARN] yfinance not installed. Run: pip install yfinance")
 
 # FIXED IMPORTS: Import YOUR working pricing models with better error handling
 try:
@@ -36,10 +36,10 @@ try:
     from src.pricing.implied_vol import ImpliedVolatilityCalculator
     from src.analysis.vol_surface import VolatilitySurface
     PRICING_MODELS_AVAILABLE = True
-    logger.info("✅ YOUR pricing models imported successfully!")
+    logger.info("[OK] YOUR pricing models imported successfully!")
 except ImportError as e:
     PRICING_MODELS_AVAILABLE = False
-    logger.warning(f"⚠️ YOUR pricing models not available: {e}")
+    logger.warning(f"[WARN] YOUR pricing models not available: {e}")
     
     # Create placeholder classes
     class BlackScholesModel:
@@ -157,51 +157,51 @@ class RealTimePriceProvider:
         # Updated stock prices (December 2024)
         self.current_market_prices = {
             # Mag 7 Tech
-            'AAPL': 196.50,   'MSFT': 416.50,   'GOOGL': 166.80,
-            'META': 540.00,   'AMZN': 177.50,   'NVDA': 138.50,   'TSLA': 325.00,
+            'AAPL': 196.50, 'MSFT': 416.50, 'GOOGL': 166.80,
+            'META': 540.00, 'AMZN': 177.50, 'NVDA': 138.50, 'TSLA': 325.00,
             
             # Other Major Tech
-            'AMD': 132.00,    'NFLX': 720.00,   'CRM': 285.00,
-            'ORCL': 115.00,   'ADBE': 565.00,   'PLTR': 62.00,
-            'INTC': 25.00,    'IBM': 235.00,    'CSCO': 58.00,
+            'AMD': 132.00, 'NFLX': 720.00, 'CRM': 285.00,
+            'ORCL': 115.00, 'ADBE': 565.00, 'PLTR': 62.00,
+            'INTC': 25.00, 'IBM': 235.00, 'CSCO': 58.00,
             
             # ETFs
-            'SPY': 578.00,    'QQQ': 478.00,    'IWM': 215.00,    'VTI': 275.00,
+            'SPY': 578.00, 'QQQ': 478.00, 'IWM': 215.00, 'VTI': 275.00,
             
             # Finance
-            'JPM': 241.00,    'BAC': 42.50,     'WFC': 68.00,     'GS': 485.00,
+            'JPM': 241.00, 'BAC': 42.50, 'WFC': 68.00, 'GS': 485.00,
             
             # Healthcare
-            'JNJ': 155.00,    'PFE': 26.50,     'UNH': 590.00,    'MRNA': 85.00,
+            'JNJ': 155.00, 'PFE': 26.50, 'UNH': 590.00, 'MRNA': 85.00,
             
             # Consumer
-            'KO': 59.50,      'PEP': 165.00,    'WMT': 185.00,    'HD': 415.00,
+            'KO': 59.50, 'PEP': 165.00, 'WMT': 185.00, 'HD': 415.00,
             
             # Entertainment/Media
-            'DIS': 95.00,     'SPOT': 425.00,
+            'DIS': 95.00, 'SPOT': 425.00,
             
             # Crypto/Fintech
-            'COIN': 245.00,   'SQ': 85.00,      'PYPL': 62.00,
+            'COIN': 245.00, 'SQ': 85.00, 'PYPL': 62.00,
             
             # Meme/Popular Stocks
-            'GME': 20.50,     'AMC': 4.25,      'RBLX': 45.00,
+            'GME': 20.50, 'AMC': 4.25, 'RBLX': 45.00,
             
             # Transportation
-            'UBER': 68.50,    'LYFT': 16.50,    'F': 11.00,       'GM': 42.00,
+            'UBER': 68.50, 'LYFT': 16.50, 'F': 11.00, 'GM': 42.00,
             
             # Energy
-            'XOM': 115.00,    'CVX': 158.00,    'COP': 108.00,
+            'XOM': 115.00, 'CVX': 158.00, 'COP': 108.00,
             
             # Payment/Other
-            'V': 295.00,      'MA': 485.00,     'BABA': 78.00,
-            'NIO': 4.50,      'RIVN': 12.00,    'LCID': 2.80,
-            'SOFI': 16.00,    'HOOD': 28.00,    'DKNG': 42.00
+            'V': 295.00, 'MA': 485.00, 'BABA': 78.00,
+            'NIO': 4.50, 'RIVN': 12.00, 'LCID': 2.80,
+            'SOFI': 16.00, 'HOOD': 28.00, 'DKNG': 42.00
         }
         
         # Price cache for performance
         self.price_cache = {}
         self.cache_timestamps = {}
-        self.cache_duration = 60  # 1 minute cache
+        self.cache_duration = 60 # 1 minute cache
         
         # Price movement simulation for realistic updates
         self.price_movements = {symbol: 0.0 for symbol in self.current_market_prices.keys()}
@@ -222,14 +222,14 @@ class RealTimePriceProvider:
             if not test_data.empty:
                 latest_price = float(test_data['Close'].iloc[-1])
                 if latest_price > 0:
-                    self.logger.info(f"✅ yfinance test successful: AAPL = ${latest_price:.2f}")
+                    self.logger.info(f"[OK] yfinance test successful: AAPL = ${latest_price:.2f}")
                     return True
             
-            self.logger.warning("⚠️ yfinance returned empty data")
+            self.logger.warning("[WARN] yfinance returned empty data")
             return False
             
         except Exception as e:
-            self.logger.warning(f"⚠️ yfinance test failed: {e}")
+            self.logger.warning(f"[WARN] yfinance test failed: {e}")
             return False
     
     def get_live_price(self, symbol: str) -> float:
@@ -244,7 +244,7 @@ class RealTimePriceProvider:
             (now - self.cache_timestamps[cache_key]).total_seconds() < self.cache_duration):
             
             cached_price = self.price_cache[cache_key]
-            self.logger.debug(f"📋 Cache hit for {symbol}: ${cached_price:.2f}")
+            self.logger.debug(f" Cache hit for {symbol}: ${cached_price:.2f}")
             return cached_price
         
         # Try yfinance for live data
@@ -253,7 +253,7 @@ class RealTimePriceProvider:
             if live_price is not None:
                 self.price_cache[cache_key] = live_price
                 self.cache_timestamps[cache_key] = now
-                self.logger.info(f"🌐 Live price for {symbol}: ${live_price:.2f}")
+                self.logger.info(f" Live price for {symbol}: ${live_price:.2f}")
                 return live_price
         
         # Fallback to simulated live price
@@ -261,7 +261,7 @@ class RealTimePriceProvider:
         self.price_cache[cache_key] = simulated_price
         self.cache_timestamps[cache_key] = now
         
-        self.logger.info(f"📊 Simulated live price for {symbol}: ${simulated_price:.2f}")
+        self.logger.info(f" Simulated live price for {symbol}: ${simulated_price:.2f}")
         return simulated_price
     
     def _fetch_yfinance_price(self, symbol: str) -> Optional[float]:
@@ -345,13 +345,13 @@ class RealTimePriceProvider:
         
         for symbol in self.price_movements.keys():
             # Different volatilities by symbol type
-            if symbol in ['TSLA', 'GME', 'PLTR', 'NVDA']:  # High volatility
+            if symbol in ['TSLA', 'GME', 'PLTR', 'NVDA']: # High volatility
                 daily_vol = 0.04 if is_market_hours else 0.01
-            elif symbol in ['SPY', 'QQQ', 'VTI']:  # ETFs
+            elif symbol in ['SPY', 'QQQ', 'VTI']: # ETFs
                 daily_vol = 0.015 if is_market_hours else 0.005
-            elif symbol in ['AAPL', 'MSFT', 'GOOGL']:  # Large cap
+            elif symbol in ['AAPL', 'MSFT', 'GOOGL']: # Large cap
                 daily_vol = 0.025 if is_market_hours else 0.008
-            else:  # Regular stocks
+            else: # Regular stocks
                 daily_vol = 0.03 if is_market_hours else 0.01
             
             # Random walk with mean reversion
@@ -381,10 +381,10 @@ class RealisticOptionsDataGenerator:
         if PRICING_MODELS_AVAILABLE:
             self.bs_model = BlackScholesModel()
             self.iv_calculator = ImpliedVolatilityCalculator()
-            self.logger.info("✅ Initialized YOUR working Black-Scholes and IV models")
+            self.logger.info("[OK] Initialized YOUR working Black-Scholes and IV models")
         else:
-            self.bs_model = BlackScholesModel()  # Use fallback
-            self.iv_calculator = ImpliedVolatilityCalculator()  # Use fallback
+            self.bs_model = BlackScholesModel() # Use fallback
+            self.iv_calculator = ImpliedVolatilityCalculator() # Use fallback
     
     def create_realistic_options_data(self, symbol: str) -> pd.DataFrame:
         """
@@ -395,20 +395,20 @@ class RealisticOptionsDataGenerator:
         # Get REAL current stock price
         stock_price = self.price_provider.get_live_price(symbol)
         
-        self.logger.info(f"📊 Creating synthetic options for {symbol} at REAL price ${stock_price:.2f}")
+        self.logger.info(f" Creating synthetic options for {symbol} at REAL price ${stock_price:.2f}")
         
         # Generate strikes around REAL current price
         strikes = []
         
         # Calculate appropriate strike spacing based on stock price
         if stock_price < 20:
-            strike_spacing = 1  # $1 spacing for cheap stocks
+            strike_spacing = 1 # $1 spacing for cheap stocks
         elif stock_price < 100:
-            strike_spacing = 2.5  # $2.50 spacing
+            strike_spacing = 2.5 # $2.50 spacing
         elif stock_price < 200:
-            strike_spacing = 5  # $5 spacing
+            strike_spacing = 5 # $5 spacing
         else:
-            strike_spacing = 10  # $10 spacing for expensive stocks
+            strike_spacing = 10 # $10 spacing for expensive stocks
         
         # Generate strikes from 70% to 130% of current price
         num_strikes = 25
@@ -453,7 +453,7 @@ class RealisticOptionsDataGenerator:
             'QQQ': {'base_vol': 0.20, 'volume_mult': 1500, 'skew': -0.06, 'smile': 0.025},
             'META': {'base_vol': 0.35, 'volume_mult': 700, 'skew': -0.09, 'smile': 0.035},
             'AMZN': {'base_vol': 0.30, 'volume_mult': 600, 'skew': -0.08, 'smile': 0.03},
-            'PLTR': {'base_vol': 0.75, 'volume_mult': 500, 'skew': -0.15, 'smile': 0.06}  # High vol stock
+            'PLTR': {'base_vol': 0.75, 'volume_mult': 500, 'skew': -0.15, 'smile': 0.06} # High vol stock
         }
         
         params = symbol_params.get(symbol, {'base_vol': 0.25, 'volume_mult': 200, 'skew': -0.08, 'smile': 0.03})
@@ -470,7 +470,7 @@ class RealisticOptionsDataGenerator:
             time_to_exp = days_to_exp / 365.0
             
             for strike in strikes:
-                moneyness = stock_price / strike  # S/K moneyness
+                moneyness = stock_price / strike # S/K moneyness
                 log_moneyness = np.log(moneyness)
                 
                 # FIXED: Build realistic implied volatility surface first
@@ -478,7 +478,7 @@ class RealisticOptionsDataGenerator:
                 vol = base_vol * (1.0 + 0.1 * np.sqrt(time_to_exp))
                 
                 # Volatility skew: OTM puts (low strikes) have higher vol
-                vol += skew_strength * log_moneyness  # Negative skew for equity options
+                vol += skew_strength * log_moneyness # Negative skew for equity options
                 
                 # Volatility smile: Far OTM options have higher vol
                 vol += smile_strength * (log_moneyness ** 2)
@@ -487,7 +487,7 @@ class RealisticOptionsDataGenerator:
                 vol += np.random.normal(0, 0.01)
                 
                 # Ensure reasonable bounds
-                vol = max(0.05, min(vol, 2.5))  # Between 5% and 250%
+                vol = max(0.05, min(vol, 2.5)) # Between 5% and 250%
                 
                 # NOW calculate option prices using Black-Scholes with this IV
                 try:
@@ -512,7 +512,7 @@ class RealisticOptionsDataGenerator:
                     put_price = max(0.01, strike * discount - stock_price)
                 
                 # Volume based on moneyness and popularity
-                volume_factor = max(0.1, 1.5 - abs(1 - moneyness))  # Higher volume near ATM
+                volume_factor = max(0.1, 1.5 - abs(1 - moneyness)) # Higher volume near ATM
                 base_volume = int(volume_mult * volume_factor * np.exp(-time_to_exp * 1.2))
                 base_volume = max(1, base_volume)
                 
@@ -531,7 +531,7 @@ class RealisticOptionsDataGenerator:
                     'last': round(call_price, 2),
                     'volume': int(base_volume),
                     'openInterest': int(base_volume * 5),
-                    'impliedVolatility': round(vol, 4),  # This IV matches the price!
+                    'impliedVolatility': round(vol, 4), # This IV matches the price!
                     'timestamp': today.strftime('%Y-%m-%d'),
                     'moneyness': moneyness,
                     'time_to_expiry': time_to_exp
@@ -552,7 +552,7 @@ class RealisticOptionsDataGenerator:
                     'last': round(put_price, 2),
                     'volume': int(base_volume * 0.8),
                     'openInterest': int(base_volume * 4),
-                    'impliedVolatility': round(vol, 4),  # This IV matches the price!
+                    'impliedVolatility': round(vol, 4), # This IV matches the price!
                     'timestamp': today.strftime('%Y-%m-%d'),
                     'moneyness': moneyness,
                     'time_to_expiry': time_to_exp
@@ -567,8 +567,8 @@ class RealisticOptionsDataGenerator:
         df['bidAskSpread'] = df['ask'] - df['bid']
         df['bidAskSpreadPct'] = df['bidAskSpread'] / ((df['bid'] + df['ask']) / 2)
         
-        self.logger.info(f"✅ Created {len(df)} synthetic options contracts for {symbol}")
-        self.logger.info(f"   IV range: {df['impliedVolatility'].min():.1%} to {df['impliedVolatility'].max():.1%}")
+        self.logger.info(f"[OK] Created {len(df)} synthetic options contracts for {symbol}")
+        self.logger.info(f" IV range: {df['impliedVolatility'].min():.1%} to {df['impliedVolatility'].max():.1%}")
         
         return df
     
@@ -587,12 +587,12 @@ class RealisticOptionsDataGenerator:
             base_iv_30d = vol_characteristics['base_vol']
             
             # More realistic term structure: typically upward sloping for equity options
-            iv_60d = base_iv_30d * (1.0 + 0.05 * np.sqrt(60/30))   # ~5% increase per sqrt(time)
-            iv_90d = base_iv_30d * (1.0 + 0.08 * np.sqrt(90/30))   # ~8% increase per sqrt(time)
+            iv_60d = base_iv_30d * (1.0 + 0.05 * np.sqrt(60/30)) # ~5% increase per sqrt(time)
+            iv_90d = base_iv_30d * (1.0 + 0.08 * np.sqrt(90/30)) # ~8% increase per sqrt(time)
             
             # Use 30-day IV for Greeks calculation (most liquid)
             atm_iv = base_iv_30d
-            time_to_exp = 30/365  # 30-day option
+            time_to_exp = 30/365 # 30-day option
             risk_free_rate = 0.05
             
             # FIXED: Calculate Greeks using YOUR working models with proper validation
@@ -628,7 +628,7 @@ class RealisticOptionsDataGenerator:
                 # Use call delta for display (more intuitive for most users)
                 delta = delta_call
                 
-                self.logger.debug(f"✅ Greeks for {symbol}: Δ={delta:.3f}, Γ={gamma:.4f}, θ={theta:.3f}, ν={vega:.3f}")
+                self.logger.debug(f"[OK] Greeks for {symbol}: Δ={delta:.3f}, Γ={gamma:.4f}, θ={theta:.3f}, ν={vega:.3f}")
                 
                 return {
                     'iv_30d': atm_iv,
@@ -658,19 +658,19 @@ class RealisticOptionsDataGenerator:
                 return 0.0
             
             d1 = (np.log(S/K) + (r + 0.5*sigma**2)*T) / (sigma*np.sqrt(T))
-            vega = S * norm.pdf(d1) * np.sqrt(T) / 100  # Per 1% vol change
+            vega = S * norm.pdf(d1) * np.sqrt(T) / 100 # Per 1% vol change
             
             return max(0.0, vega)
             
         except Exception:
-            return 0.15  # Reasonable fallback
+            return 0.15 # Reasonable fallback
 
     def _fallback_greeks_with_iv(self, symbol: str, iv_30d: float, iv_60d: float, iv_90d: float) -> Dict[str, float]:
         """Fallback Greeks when calculation fails but we have good IVs"""
         vol_characteristics = self._get_symbol_vol_characteristics(symbol.upper())
         
         # Use volatility-adjusted Greeks estimates
-        vol_factor = iv_30d / 0.25  # Scale relative to 25% base vol
+        vol_factor = iv_30d / 0.25 # Scale relative to 25% base vol
         
         if symbol.upper() in ['PLTR', 'GME', 'TSLA']:
             return {
@@ -700,11 +700,11 @@ class RealisticOptionsDataGenerator:
         if symbol in ['PLTR', 'GME', 'RBLX']:
             # High-volatility growth/meme stocks
             return {
-                'base_vol': 0.75,          # 75% base volatility
-                'skew_strength': -0.12,    # Strong negative skew
-                'smile_curvature': 0.08,   # Pronounced smile
-                'term_structure': 0.15,    # Term structure effect
-                'vol_clustering': 0.12     # Volatility clustering
+                'base_vol': 0.75, # 75% base volatility
+                'skew_strength': -0.12, # Strong negative skew
+                'smile_curvature': 0.08, # Pronounced smile
+                'term_structure': 0.15, # Term structure effect
+                'vol_clustering': 0.12 # Volatility clustering
             }
         elif symbol in ['TSLA', 'NVDA', 'AMD']:
             # High-vol tech with event risk
@@ -793,11 +793,11 @@ class DashboardConnector:
         
         # Real-time update simulation
         self.real_time_active = False
-        self.update_interval = 30  # seconds
+        self.update_interval = 30 # seconds
         
-        self.logger.info("✅ Complete Dashboard Connector initialized")
-        self.logger.info(f"   📊 Real stock prices: {'Available' if self.price_provider.yfinance_working else 'Simulated'}")
-        self.logger.info(f"   🧮 YOUR pricing models: {'Active' if PRICING_MODELS_AVAILABLE else 'Fallback mode'}")
+        self.logger.info("[OK] Complete Dashboard Connector initialized")
+        self.logger.info(f" Real stock prices: {'Available' if self.price_provider.yfinance_working else 'Simulated'}")
+        self.logger.info(f" YOUR pricing models: {'Active' if PRICING_MODELS_AVAILABLE else 'Fallback mode'}")
     
     def get_current_data(self, symbol: str) -> Dict[str, Any]:
         """Get current market data using YOUR working models with live prices"""
@@ -848,7 +848,7 @@ class DashboardConnector:
             spot_price = self.price_provider.get_live_price(symbol)
             
             # FIXED: Improved surface construction with better data handling
-            self.logger.info(f"🌊 Building improved surface for {symbol} using {len(options_data)} contracts")
+            self.logger.info(f" Building improved surface for {symbol} using {len(options_data)} contracts")
             
             try:
                 # Clean and prepare data more carefully
@@ -866,12 +866,12 @@ class DashboardConnector:
                         if 'combined' in surface_dict:
                             surface_data = surface_dict['combined']
                             strikes = surface_data['strikes']
-                            times = surface_data['times'] * 365  # Convert to days
+                            times = surface_data['times'] * 365 # Convert to days
                             vols = surface_data['implied_vols']
                             
                             # Validate surface quality
                             if self._validate_surface_quality(vols, strikes, times, symbol):
-                                self.logger.info(f"✅ High-quality surface created using YOUR VolatilitySurface class")
+                                self.logger.info(f"[OK] High-quality surface created using YOUR VolatilitySurface class")
                                 return strikes, times, vols
                             else:
                                 self.logger.warning("Surface quality check failed, trying manual construction")
@@ -919,12 +919,12 @@ class DashboardConnector:
             
             # Remove extreme outliers
             clean_data = clean_data[
-                (clean_data['impliedVolatility'] > 0.02) &  # Min 2% vol
-                (clean_data['impliedVolatility'] < 3.0) &   # Max 300% vol
-                (clean_data['time_to_expiry'] > 0.003) &    # Min 1 day
-                (clean_data['time_to_expiry'] < 3.0) &      # Max 3 years
-                (clean_data['moneyness'] > 0.3) &           # Not too far OTM
-                (clean_data['moneyness'] < 3.0) &           # Not too far ITM
+                (clean_data['impliedVolatility'] > 0.02) & # Min 2% vol
+                (clean_data['impliedVolatility'] < 3.0) & # Max 300% vol
+                (clean_data['time_to_expiry'] > 0.003) & # Min 1 day
+                (clean_data['time_to_expiry'] < 3.0) & # Max 3 years
+                (clean_data['moneyness'] > 0.3) & # Not too far OTM
+                (clean_data['moneyness'] < 3.0) & # Not too far ITM
                 (clean_data['strike'] > 0)
             ]
             
@@ -939,7 +939,7 @@ class DashboardConnector:
             clean_data['exp_group'] = (clean_data['time_to_expiry'] * 365).round(0)
             
             for exp_group, group_data in clean_data.groupby('exp_group'):
-                if len(group_data) < 3:  # Need at least 3 points
+                if len(group_data) < 3: # Need at least 3 points
                     continue
                 
                 # Remove IV outliers using IQR method
@@ -947,7 +947,7 @@ class DashboardConnector:
                 Q3 = group_data['impliedVolatility'].quantile(0.75)
                 IQR = Q3 - Q1
                 
-                if IQR > 0:  # Avoid division by zero
+                if IQR > 0: # Avoid division by zero
                     lower_bound = Q1 - 1.5 * IQR
                     upper_bound = Q3 + 1.5 * IQR
                     
@@ -956,7 +956,7 @@ class DashboardConnector:
                         (group_data['impliedVolatility'] <= upper_bound)
                     ]
                     
-                    if len(filtered_group) >= 3:  # Still have enough points
+                    if len(filtered_group) >= 3: # Still have enough points
                         cleaned_groups.append(filtered_group)
             
             if cleaned_groups:
@@ -1042,14 +1042,14 @@ class DashboardConnector:
                     from scipy.ndimage import gaussian_filter
                     vol_surface = gaussian_filter(vol_surface, sigma=0.5)
                 except ImportError:
-                    pass  # No smoothing if scipy not available
+                    pass # No smoothing if scipy not available
                 
                 # Ensure reasonable bounds
                 vol_surface = np.clip(vol_surface, 0.05, 2.5)
                 
-                self.logger.info(f"✅ Manual surface construction complete using {method_used}")
-                self.logger.info(f"   Surface shape: {vol_surface.shape}")
-                self.logger.info(f"   Vol range: {np.nanmin(vol_surface):.1%} to {np.nanmax(vol_surface):.1%}")
+                self.logger.info(f"[OK] Manual surface construction complete using {method_used}")
+                self.logger.info(f" Surface shape: {vol_surface.shape}")
+                self.logger.info(f" Vol range: {np.nanmin(vol_surface):.1%} to {np.nanmax(vol_surface):.1%}")
                 
                 return Strike_mesh, Time_mesh_days, vol_surface
                 
@@ -1088,9 +1088,9 @@ class DashboardConnector:
             if len(vols.shape) > 1 and vols.shape[1] > 3:
                 mid_time = vols.shape[0] // 2
                 if mid_time < vols.shape[0]:
-                    left_vol = vols[mid_time, 0]    # Low strike
-                    center_vol = vols[mid_time, vols.shape[1]//2]  # ATM
-                    right_vol = vols[mid_time, -1]  # High strike
+                    left_vol = vols[mid_time, 0] # Low strike
+                    center_vol = vols[mid_time, vols.shape[1]//2] # ATM
+                    right_vol = vols[mid_time, -1] # High strike
                     
                     # For equity options, we expect left_vol >= center_vol >= right_vol (negative skew)
                     if not np.isnan([left_vol, center_vol, right_vol]).any():
@@ -1101,7 +1101,7 @@ class DashboardConnector:
                             self.logger.warning(f"Unusual skew pattern for {symbol}: {skew_ratio:.2f}")
                             # Don't fail for this, just warn
             
-            self.logger.info(f"✅ Surface quality validation passed for {symbol}")
+            self.logger.info(f"[OK] Surface quality validation passed for {symbol}")
             return True
             
         except Exception as e:
@@ -1133,7 +1133,7 @@ class DashboardConnector:
             # Fill NaN values using interpolation
             self._fill_surface_gaps(vol_surface)
             
-            self.logger.info(f"✅ Simple grid interpolation complete: {vol_surface.shape}")
+            self.logger.info(f"[OK] Simple grid interpolation complete: {vol_surface.shape}")
             
             return np.array(strikes), np.array(expiry_days), vol_surface
             
@@ -1151,7 +1151,7 @@ class DashboardConnector:
             
             if not np.any(valid_mask):
                 self.logger.warning("No valid points in surface for interpolation")
-                vol_surface[:] = 0.25  # Fill with default
+                vol_surface[:] = 0.25 # Fill with default
                 return
             
             # Get coordinates of valid points
@@ -1205,13 +1205,13 @@ class DashboardConnector:
                     
                     # Create surface with correct skew
                     iv = base_vol * term_adj
-                    iv += skew_strength * (moneyness - 1.0)  # Correct skew direction
-                    iv += 0.03 * (moneyness - 1.0)**2       # Smile effect
+                    iv += skew_strength * (moneyness - 1.0) # Correct skew direction
+                    iv += 0.03 * (moneyness - 1.0)**2 # Smile effect
                     
                     vol_surface[i, j] = max(0.05, iv)
             
-            self.logger.info(f"✅ Basic fallback surface created for {symbol}")
-            self.logger.info(f"   Base vol: {base_vol:.1%}, Surface range: {np.min(vol_surface):.1%} to {np.max(vol_surface):.1%}")
+            self.logger.info(f"[OK] Basic fallback surface created for {symbol}")
+            self.logger.info(f" Base vol: {base_vol:.1%}, Surface range: {np.min(vol_surface):.1%} to {np.max(vol_surface):.1%}")
             
             return strikes, expiries, vol_surface
             
@@ -1349,7 +1349,7 @@ class DashboardConnector:
         """Start real-time updates (required by app.py)"""
         try:
             self.real_time_active = True
-            self.logger.info("✅ Real-time updates started")
+            self.logger.info("[OK] Real-time updates started")
             
             # In a full implementation, this would start background threads
             # For now, we simulate this by marking the flag
@@ -1363,7 +1363,7 @@ class DashboardConnector:
         """Stop real-time updates"""
         try:
             self.real_time_active = False
-            self.logger.info("🛑 Real-time updates stopped")
+            self.logger.info(" Real-time updates stopped")
         except Exception as e:
             self.logger.error(f"Error stopping real-time updates: {e}")
     
@@ -1391,16 +1391,16 @@ class DashboardConnector:
 
 def test_complete_connector():
     """Test the complete connector with all features"""
-    print("🧪 TESTING COMPLETE DASHBOARD CONNECTOR")
+    print(" TESTING COMPLETE DASHBOARD CONNECTOR")
     print("=" * 60)
     
     # Test connector creation
     print("1. Creating dashboard connector...")
     try:
         connector = DashboardConnector()
-        print("   ✅ Connector created successfully")
+        print(" [OK] Connector created successfully")
     except Exception as e:
-        print(f"   ❌ Connector creation failed: {e}")
+        print(f" [FAIL] Connector creation failed: {e}")
         return False
     
     # Test system health
@@ -1409,68 +1409,68 @@ def test_complete_connector():
         health = connector.get_system_health()
         overall = health['overall']
         
-        print(f"   Real stock prices: {'✅' if overall['yfinance_available'] else '📊'}")
-        print(f"   YOUR pricing models: {'✅' if overall['pricing_models_available'] else '❌'}")
-        print(f"   Black-Scholes active: {'✅' if overall['black_scholes_active'] else '❌'}")
-        print(f"   VolatilitySurface active: {'✅' if overall['vol_surface_active'] else '❌'}")
+        print(f" Real stock prices: {'[OK]' if overall['yfinance_available'] else ''}")
+        print(f" YOUR pricing models: {'[OK]' if overall['pricing_models_available'] else '[FAIL]'}")
+        print(f" Black-Scholes active: {'[OK]' if overall['black_scholes_active'] else '[FAIL]'}")
+        print(f" VolatilitySurface active: {'[OK]' if overall['vol_surface_active'] else '[FAIL]'}")
         
     except Exception as e:
-        print(f"   ❌ System health check failed: {e}")
+        print(f" [FAIL] System health check failed: {e}")
     
     # Test PLTR specifically (the challenging case)
     print("\n3. Testing PLTR data (high-vol stock)...")
     try:
         pltr_data = connector.get_current_data('PLTR')
         
-        print(f"   PLTR Price: ${pltr_data['price']:.2f}")
-        print(f"   PLTR 30D IV: {pltr_data['iv_30d']:.1%}")
-        print(f"   PLTR Vega: {pltr_data['vega']:.3f}")
-        print(f"   PLTR Delta: {pltr_data['delta']:.3f}")
+        print(f" PLTR Price: ${pltr_data['price']:.2f}")
+        print(f" PLTR 30D IV: {pltr_data['iv_30d']:.1%}")
+        print(f" PLTR Vega: {pltr_data['vega']:.3f}")
+        print(f" PLTR Delta: {pltr_data['delta']:.3f}")
         
         # Check if PLTR has realistic high-vol characteristics
         if pltr_data['iv_30d'] > 0.5:
-            print("   ✅ PLTR IV looks realistic for high-vol stock")
+            print(" [OK] PLTR IV looks realistic for high-vol stock")
         else:
-            print(f"   ⚠️ PLTR IV might be too low: {pltr_data['iv_30d']:.1%}")
+            print(f" [WARN] PLTR IV might be too low: {pltr_data['iv_30d']:.1%}")
         
         if pltr_data['vega'] > 0.3:
-            print("   ✅ PLTR Vega looks appropriate for high-vol")
+            print(" [OK] PLTR Vega looks appropriate for high-vol")
         else:
-            print(f"   ⚠️ PLTR Vega might be too low: {pltr_data['vega']:.3f}")
+            print(f" [WARN] PLTR Vega might be too low: {pltr_data['vega']:.3f}")
             
     except Exception as e:
-        print(f"   ❌ PLTR data test failed: {e}")
+        print(f" [FAIL] PLTR data test failed: {e}")
     
     # Test volatility surface
     print("\n4. Testing PLTR volatility surface...")
     try:
         strikes, expiries, vols = connector.get_vol_surface_data('PLTR')
         
-        print(f"   Surface shape: {vols.shape}")
-        print(f"   Vol range: {np.nanmin(vols):.1%} to {np.nanmax(vols):.1%}")
+        print(f" Surface shape: {vols.shape}")
+        print(f" Vol range: {np.nanmin(vols):.1%} to {np.nanmax(vols):.1%}")
         
         # Check skew direction (critical test)
         if len(vols.shape) > 1 and vols.shape[1] > 2:
             mid_time = vols.shape[0] // 2
-            left_vol = vols[mid_time, 0]    # Low strike
-            right_vol = vols[mid_time, -1]  # High strike
+            left_vol = vols[mid_time, 0] # Low strike
+            right_vol = vols[mid_time, -1] # High strike
             
-            print(f"   Skew check: Low strike = {left_vol:.1%}, High strike = {right_vol:.1%}")
+            print(f" Skew check: Low strike = {left_vol:.1%}, High strike = {right_vol:.1%}")
             
             if left_vol > right_vol:
-                print("   ✅ CORRECT skew direction (lower strikes have higher vol)")
+                print(" [OK] CORRECT skew direction (lower strikes have higher vol)")
             else:
-                print("   ❌ WRONG skew direction")
+                print(" [FAIL] WRONG skew direction")
         
         # Check if volatility levels are realistic for PLTR
         avg_vol = np.nanmean(vols)
         if avg_vol > 0.5:
-            print(f"   ✅ Average vol realistic for PLTR: {avg_vol:.1%}")
+            print(f" [OK] Average vol realistic for PLTR: {avg_vol:.1%}")
         else:
-            print(f"   ⚠️ Average vol might be too low for PLTR: {avg_vol:.1%}")
+            print(f" [WARN] Average vol might be too low for PLTR: {avg_vol:.1%}")
             
     except Exception as e:
-        print(f"   ❌ Surface test failed: {e}")
+        print(f" [FAIL] Surface test failed: {e}")
     
     # Test different stock types
     print("\n5. Testing different stock types...")
@@ -1479,9 +1479,9 @@ def test_complete_connector():
     for symbol in test_symbols:
         try:
             data = connector.get_current_data(symbol)
-            print(f"   {symbol:6}: ${data['price']:8.2f} | IV: {data['iv_30d']:6.1%} | Vega: {data['vega']:6.3f}")
+            print(f" {symbol:6}: ${data['price']:8.2f} | IV: {data['iv_30d']:6.1%} | Vega: {data['vega']:6.3f}")
         except Exception as e:
-            print(f"   {symbol:6}: ❌ Error - {e}")
+            print(f" {symbol:6}: [FAIL] Error - {e}")
     
     # Test required methods for app.py compatibility
     print("\n6. Testing app.py compatibility...")
@@ -1496,40 +1496,40 @@ def test_complete_connector():
         try:
             method = getattr(connector, method_name)
             result = method()
-            print(f"   ✅ {method_name}: Works")
+            print(f" [OK] {method_name}: Works")
         except Exception as e:
-            print(f"   ❌ {method_name}: {e}")
+            print(f" [FAIL] {method_name}: {e}")
     
     # Clean up
     print("\n7. Testing cleanup...")
     try:
         connector.stop_real_time_updates()
-        print("   ✅ Cleanup successful")
+        print(" [OK] Cleanup successful")
     except Exception as e:
-        print(f"   ⚠️ Cleanup issue: {e}")
+        print(f" [WARN] Cleanup issue: {e}")
     
     # Final summary
     print("\n" + "=" * 60)
-    print("🎯 COMPLETE CONNECTOR TEST SUMMARY")
+    print(" COMPLETE CONNECTOR TEST SUMMARY")
     print("=" * 60)
     
     health = connector.get_system_health()
     pricing_models = health['overall']['pricing_models_available']
     yfinance_working = health['overall']['yfinance_available']
     
-    print(f"📊 Real Stock Prices: {'LIVE' if yfinance_working else 'SIMULATED'}")
-    print(f"🧮 YOUR Pricing Models: {'ACTIVE' if pricing_models else 'FALLBACK'}")
-    print(f"🌊 Volatility Surfaces: {'YOUR CODE' if pricing_models else 'MANUAL'}")
-    print(f"📈 Dashboard Ready: ✅")
+    print(f" Real Stock Prices: {'LIVE' if yfinance_working else 'SIMULATED'}")
+    print(f" YOUR Pricing Models: {'ACTIVE' if pricing_models else 'FALLBACK'}")
+    print(f" Volatility Surfaces: {'YOUR CODE' if pricing_models else 'MANUAL'}")
+    print(f" Dashboard Ready: [OK]")
     
     if pricing_models and yfinance_working:
-        print(f"\n🎉 EXCELLENT: Full system working with YOUR models and live prices!")
+        print(f"\n EXCELLENT: Full system working with YOUR models and live prices!")
     elif pricing_models:
-        print(f"\n✅ GOOD: YOUR models working with simulated prices")
+        print(f"\n[OK] GOOD: YOUR models working with simulated prices")
     else:
-        print(f"\n📊 OK: Fallback mode - dashboard will still work nicely")
+        print(f"\n OK: Fallback mode - dashboard will still work nicely")
     
-    print(f"\n🚀 Ready for: streamlit run app.py")
+    print(f"\n Ready for: streamlit run app.py")
     
     return True
 

@@ -40,11 +40,11 @@ def test_complete_volatility_analysis():
     current_price = client.get_current_stock_price(symbol)
     
     if options_df.empty:
-        print("❌ No options data available")
+        print("[FAIL] No options data available")
         return False
     
-    print(f"✅ Fetched {len(options_df)} options contracts")
-    print(f"✅ Current {symbol} price: ${current_price:.2f}")
+    print(f"[OK] Fetched {len(options_df)} options contracts")
+    print(f"[OK] Current {symbol} price: ${current_price:.2f}")
     
     # Step 2: Build Volatility Surface
     print("\n2. CONSTRUCTING VOLATILITY SURFACE")
@@ -62,20 +62,20 @@ def test_complete_volatility_analysis():
         print("Building interpolated volatility surface...")
         surfaces = vol_surface.construct_surface(method='linear', separate_calls_puts=True)
         
-        print(f"✅ Successfully built {len(surfaces)} surfaces")
+        print(f"[OK] Successfully built {len(surfaces)} surfaces")
         
         # Get surface summary
         summary = vol_surface.get_surface_summary(surfaces)
-        print(f"✅ Surface covers {summary['total_options']} options")
+        print(f"[OK] Surface covers {summary['total_options']} options")
         
         # Display key statistics
         if 'combined_stats' in summary:
             stats = summary['combined_stats']
-            print(f"✅ Volatility range: {stats['min_vol']:.1%} - {stats['max_vol']:.1%}")
-            print(f"✅ ATM volatility: {stats['atm_vol']:.1%}")
+            print(f"[OK] Volatility range: {stats['min_vol']:.1%} - {stats['max_vol']:.1%}")
+            print(f"[OK] ATM volatility: {stats['atm_vol']:.1%}")
         
     except Exception as e:
-        print(f"❌ Error building surface: {e}")
+        print(f"[FAIL] Error building surface: {e}")
         return False
     
     # Step 3: Create 2D Visualizations
@@ -108,7 +108,7 @@ def test_complete_volatility_analysis():
         
         # 3. Volatility smile for shortest expiration
         print("Creating volatility smile...")
-        shortest_exp = options_df['daysToExpiration'].min() / 365.0  # Convert to years
+        shortest_exp = options_df['daysToExpiration'].min() / 365.0 # Convert to years
         smile_data = vol_surface.get_vol_smile(surfaces, shortest_exp)
         
         if len(smile_data) > 3:
@@ -149,10 +149,10 @@ def test_complete_volatility_analysis():
         )
         plt.close(fig6)
         
-        print("✅ All 2D plots created successfully")
+        print("[OK] All 2D plots created successfully")
         
     except Exception as e:
-        print(f"❌ Error creating 2D plots: {e}")
+        print(f"[FAIL] Error creating 2D plots: {e}")
         print("Continuing with 3D visualization...")
     
     # Step 4: Create 3D Visualizations
@@ -198,10 +198,10 @@ def test_complete_volatility_analysis():
             show_plot=False
         )
         
-        print("✅ All 3D visualizations created successfully")
+        print("[OK] All 3D visualizations created successfully")
         
     except Exception as e:
-        print(f"❌ Error creating 3D plots: {e}")
+        print(f"[FAIL] Error creating 3D plots: {e}")
         print("3D plotting may require additional packages (plotly)")
     
     # Step 5: Analysis and Insights
@@ -210,64 +210,64 @@ def test_complete_volatility_analysis():
     
     try:
         # Analyze the shortest expiration smile
-        shortest_exp = options_df['daysToExpiration'].min() / 365.0  # Convert to years
+        shortest_exp = options_df['daysToExpiration'].min() / 365.0 # Convert to years
         smile_data = vol_surface.get_vol_smile(surfaces, shortest_exp)
         
         if len(smile_data) > 3:
             skew_analysis = vol_surface.analyze_smile_skew(smile_data)
             
             if 'error' not in skew_analysis:
-                print(f"📊 VOLATILITY SMILE ANALYSIS ({shortest_exp*365:.0f} days to expiration):")
-                print(f"   ATM Volatility: {skew_analysis['atm_vol']:.1%}")
-                print(f"   Volatility Skew: {skew_analysis['skew_slope']:.3f}")
-                print(f"   Volatility Range: {skew_analysis['vol_range']:.1%}")
+                print(f" VOLATILITY SMILE ANALYSIS ({shortest_exp*365:.0f} days to expiration):")
+                print(f" ATM Volatility: {skew_analysis['atm_vol']:.1%}")
+                print(f" Volatility Skew: {skew_analysis['skew_slope']:.3f}")
+                print(f" Volatility Range: {skew_analysis['vol_range']:.1%}")
                 
                 if skew_analysis['risk_reversal']:
-                    print(f"   Risk Reversal (90%-110%): {skew_analysis['risk_reversal']:.1%}")
+                    print(f" Risk Reversal (90%-110%): {skew_analysis['risk_reversal']:.1%}")
                 
-                print(f"   Convexity: {skew_analysis['convexity']:.4f}")
+                print(f" Convexity: {skew_analysis['convexity']:.4f}")
                 
                 # Interpret the skew
                 if skew_analysis['skew_slope'] < -0.1:
-                    print("   🔍 INTERPRETATION: Strong negative skew (put premium)")
+                    print(" INTERPRETATION: Strong negative skew (put premium)")
                 elif skew_analysis['skew_slope'] > 0.1:
-                    print("   🔍 INTERPRETATION: Positive skew (call premium)")
+                    print(" INTERPRETATION: Positive skew (call premium)")
                 else:
-                    print("   🔍 INTERPRETATION: Relatively flat skew")
+                    print(" INTERPRETATION: Relatively flat skew")
         
         # ATM term structure analysis
         term_structure = vol_surface.get_atm_term_structure(surfaces)
         
         if len(term_structure) > 2:
-            print(f"\n📊 ATM TERM STRUCTURE ANALYSIS:")
+            print(f"\n ATM TERM STRUCTURE ANALYSIS:")
             
             short_vol = term_structure['atmVolatility'].iloc[0]
             long_vol = term_structure['atmVolatility'].iloc[-1]
             
-            print(f"   Short-term ATM Vol: {short_vol:.1%}")
-            print(f"   Long-term ATM Vol: {long_vol:.1%}")
-            print(f"   Term Structure Slope: {(long_vol - short_vol):.1%}")
+            print(f" Short-term ATM Vol: {short_vol:.1%}")
+            print(f" Long-term ATM Vol: {long_vol:.1%}")
+            print(f" Term Structure Slope: {(long_vol - short_vol):.1%}")
             
             # Interpret term structure
             if long_vol > short_vol * 1.1:
-                print("   🔍 INTERPRETATION: Upward sloping (normal backwardation)")
+                print(" INTERPRETATION: Upward sloping (normal backwardation)")
             elif long_vol < short_vol * 0.9:
-                print("   🔍 INTERPRETATION: Downward sloping (contango)")
+                print(" INTERPRETATION: Downward sloping (contango)")
             else:
-                print("   🔍 INTERPRETATION: Relatively flat term structure")
+                print(" INTERPRETATION: Relatively flat term structure")
         
         # Overall market sentiment
-        print(f"\n📊 MARKET SENTIMENT INDICATORS:")
+        print(f"\n MARKET SENTIMENT INDICATORS:")
         
         avg_iv = options_df['impliedVolatility'].mean()
-        print(f"   Average Implied Volatility: {avg_iv:.1%}")
+        print(f" Average Implied Volatility: {avg_iv:.1%}")
         
         if avg_iv > 0.4:
-            print("   🔍 HIGH VOLATILITY: Market expects significant price moves")
+            print(" HIGH VOLATILITY: Market expects significant price moves")
         elif avg_iv < 0.15:
-            print("   🔍 LOW VOLATILITY: Market expects calm conditions")
+            print(" LOW VOLATILITY: Market expects calm conditions")
         else:
-            print("   🔍 NORMAL VOLATILITY: Typical market conditions")
+            print(" NORMAL VOLATILITY: Typical market conditions")
         
         # Put/Call volume ratio if available
         if 'volume' in options_df.columns:
@@ -276,44 +276,44 @@ def test_complete_volatility_analysis():
             
             if call_volume > 0 and put_volume > 0:
                 pc_ratio = put_volume / call_volume
-                print(f"   Put/Call Volume Ratio: {pc_ratio:.2f}")
+                print(f" Put/Call Volume Ratio: {pc_ratio:.2f}")
                 
                 if pc_ratio > 1.2:
-                    print("   🔍 BEARISH SENTIMENT: High put buying")
+                    print(" BEARISH SENTIMENT: High put buying")
                 elif pc_ratio < 0.8:
-                    print("   🔍 BULLISH SENTIMENT: High call buying")
+                    print(" BULLISH SENTIMENT: High call buying")
                 else:
-                    print("   🔍 NEUTRAL SENTIMENT: Balanced put/call activity")
+                    print(" NEUTRAL SENTIMENT: Balanced put/call activity")
         
     except Exception as e:
-        print(f"❌ Error in analysis: {e}")
+        print(f"[FAIL] Error in analysis: {e}")
     
     # Step 6: Summary
     print("\n6. WEEK 1 COMPLETION SUMMARY")
     print("-" * 35)
     
-    print("✅ ACCOMPLISHED:")
-    print("   • Real-time options data fetching")
-    print("   • Black-Scholes pricing engine")
-    print("   • Implied volatility calculations")
-    print("   • Volatility surface construction")
-    print("   • 2D volatility analysis plots")
-    print("   • 3D interactive visualizations")
-    print("   • Market sentiment analysis")
+    print("[OK] ACCOMPLISHED:")
+    print(" • Real-time options data fetching")
+    print(" • Black-Scholes pricing engine")
+    print(" • Implied volatility calculations")
+    print(" • Volatility surface construction")
+    print(" • 2D volatility analysis plots")
+    print(" • 3D interactive visualizations")
+    print(" • Market sentiment analysis")
     
-    print(f"\n📁 OUTPUT FILES CREATED:")
-    print("   • plots/raw_data_analysis.png")
-    print("   • plots/calls_vs_puts.png")
-    print("   • plots/vol_smile.png")
-    print("   • plots/term_structure.png")
-    print("   • plots/volume_analysis.png")
-    print("   • plots/summary_dashboard.png")
-    print("   • plots/vol_surface_3d.png")
-    print("   • plots/vol_surface_interactive.html")
-    print("   • plots/vol_contour.html")
-    print("   • plots/interactive_dashboard.html")
+    print(f"\n OUTPUT FILES CREATED:")
+    print(" • plots/raw_data_analysis.png")
+    print(" • plots/calls_vs_puts.png")
+    print(" • plots/vol_smile.png")
+    print(" • plots/term_structure.png")
+    print(" • plots/volume_analysis.png")
+    print(" • plots/summary_dashboard.png")
+    print(" • plots/vol_surface_3d.png")
+    print(" • plots/vol_surface_interactive.html")
+    print(" • plots/vol_contour.html")
+    print(" • plots/interactive_dashboard.html")
     
-    print(f"\n🎉 WEEK 1 SUCCESSFULLY COMPLETED!")
+    print(f"\n WEEK 1 SUCCESSFULLY COMPLETED!")
     print("Ready to move on to Week 2: Multi-stock expansion and real-time features")
     
     return True
@@ -342,11 +342,11 @@ def quick_demo():
             stats = summary['combined_stats']
             print(f"Vol range: {stats['min_vol']:.1%} - {stats['max_vol']:.1%}")
         
-        print("✅ Quick demo completed successfully!")
+        print("[OK] Quick demo completed successfully!")
         return True
         
     except Exception as e:
-        print(f"❌ Quick demo failed: {e}")
+        print(f"[FAIL] Quick demo failed: {e}")
         return False
 
 if __name__ == "__main__":
