@@ -29,16 +29,16 @@ class OptionsDataClient:
             test_data = test_ticker.history(period="1d")
             if not test_data.empty:
                 self.yfinance_available = True
-                logger.info("[OK] yfinance working - using REAL stock prices!")
+                logger.info("yfinance working - using REAL stock prices!")
             else:
                 self.yfinance_available = False
-                logger.warning("[WARN] yfinance installed but not responding")
+                logger.warning("WARN: yfinance installed but not responding")
         except ImportError:
             self.yfinance_available = False
-            logger.error("[FAIL] yfinance not installed. Run: pip install yfinance")
+            logger.error("FAIL: yfinance not installed. Run: pip install yfinance")
         except Exception as e:
             self.yfinance_available = False
-            logger.warning(f"[WARN] yfinance test failed: {e}")
+            logger.warning(f"WARN: yfinance test failed: {e}")
         
         # Fallback prices (updated December 2024)
         self.fallback_prices = {
@@ -85,7 +85,7 @@ class OptionsDataClient:
                 real_price = float(hist['Close'].iloc[-1])
                 if real_price > 0:
                     self._cache_price(symbol, real_price)
-                    logger.info(f"[OK] REAL price for {symbol}: ${real_price:.2f} (from history)")
+                    logger.info(f"REAL price for {symbol}: ${real_price:.2f} (from history)")
                     return real_price
             
             # Method 2: Try daily history if minute data fails
@@ -94,7 +94,7 @@ class OptionsDataClient:
                 real_price = float(hist_daily['Close'].iloc[-1])
                 if real_price > 0:
                     self._cache_price(symbol, real_price)
-                    logger.info(f"[OK] REAL price for {symbol}: ${real_price:.2f} (from daily)")
+                    logger.info(f"REAL price for {symbol}: ${real_price:.2f} (from daily)")
                     return real_price
             
             # Method 3: Try ticker info
@@ -103,13 +103,13 @@ class OptionsDataClient:
                 if price_field in info and info[price_field] and info[price_field] > 0:
                     real_price = float(info[price_field])
                     self._cache_price(symbol, real_price)
-                    logger.info(f"[OK] REAL price for {symbol}: ${real_price:.2f} (from {price_field})")
+                    logger.info(f"REAL price for {symbol}: ${real_price:.2f} (from {price_field})")
                     return real_price
             
-            logger.warning(f"[WARN] yfinance returned no valid price for {symbol}")
+            logger.warning(f"WARN: yfinance returned no valid price for {symbol}")
             
         except Exception as e:
-            logger.warning(f"[FAIL] yfinance failed for {symbol}: {e}")
+            logger.warning(f"FAIL: yfinance failed for {symbol}: {e}")
         
         # Fallback to updated static price
         fallback = self.fallback_prices.get(symbol, 100.0)
@@ -136,7 +136,7 @@ class OptionsDataClient:
                 exp_dates = ticker.options
                 
                 if exp_dates and len(exp_dates) > 0:
-                    logger.info(f"[OK] Found {len(exp_dates)} expiration dates for {symbol}")
+                    logger.info(f"Found {len(exp_dates)} expiration dates for {symbol}")
                     
                     all_options = []
                     
@@ -170,11 +170,11 @@ class OptionsDataClient:
                         df = self._clean_yfinance_options(df, symbol)
                         
                         if not df.empty:
-                            logger.info(f"[OK] Got {len(df)} REAL options contracts for {symbol}")
+                            logger.info(f"Got {len(df)} REAL options contracts for {symbol}")
                             return df
                 
             except Exception as e:
-                logger.warning(f"[WARN] Real options data failed for {symbol}: {e}")
+                logger.warning(f"WARN: Real options data failed for {symbol}: {e}")
         
         # Fallback to enhanced synthetic options data
         logger.info(f" Creating enhanced synthetic options data for {symbol}")
@@ -234,7 +234,7 @@ class OptionsDataClient:
             df = df[df['strike'] > 0]
             df = df[df['last'] > 0]
             
-            # FIXED: Validate and recalculate IV if necessary
+            # Validate and recalculate IV if necessary
             if 'impliedVolatility' in df.columns:
                 # Check for unrealistic IV values from yfinance
                 df['iv_valid'] = (df['impliedVolatility'] > 0.01) & (df['impliedVolatility'] < 5.0)
@@ -326,7 +326,7 @@ class OptionsDataClient:
             # Sort by expiration and strike
             df = df.sort_values(['expiration', 'strike'])
             
-            logger.info(f"[OK] Cleaned {len(df)} options for {symbol} with valid IVs")
+            logger.info(f"Cleaned {len(df)} options for {symbol} with valid IVs")
             
             return df
             
@@ -486,7 +486,7 @@ class OptionsDataClient:
         df['bidAskSpread'] = df['ask'] - df['bid']
         df['bidAskSpreadPct'] = df['bidAskSpread'] / ((df['bid'] + df['ask']) / 2)
         
-        logger.info(f"[OK] Created {len(df)} synthetic options contracts for {symbol}")
+        logger.info(f"Created {len(df)} synthetic options contracts for {symbol}")
         return df
     
     def save_data(self, df: pd.DataFrame, symbol: str, data_dir: str = 'data/raw'):

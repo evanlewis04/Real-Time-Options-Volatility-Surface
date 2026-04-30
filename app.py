@@ -222,11 +222,11 @@ if hasattr(connector, 'trigger_data_refresh') and REAL_SYSTEM_AVAILABLE:
             try:
                 result = connector.trigger_data_refresh()
                 if result.get('status') == 'success':
-                    st.sidebar.success("[OK] Data refreshed!")
+                    st.sidebar.success("Data refreshed!")
                 else:
-                    st.sidebar.error(f"[FAIL] Refresh failed: {result.get('message', 'Unknown error')}")
+                    st.sidebar.error(f"FAIL: Refresh failed: {result.get('message', 'Unknown error')}")
             except Exception as e:
-                st.sidebar.error(f"[FAIL] Refresh error: {e}")
+                st.sidebar.error(f"FAIL: Refresh error: {e}")
 
 # Symbol selection
 available_symbols = [
@@ -526,11 +526,7 @@ if selected_symbols and connector:
             st.warning("No Greeks data available. This may be due to:")
             st.info("• Insufficient options data\n• API limitations\n• Data processing issues")
     
-    # Complete fix for the Enhanced Volatility Surface section in app.py
-    # FIND the section starting with "# Enhanced Volatility Surface" (around line 300)
-    # REPLACE the entire volatility surface section with this fixed version:
-
-    # Enhanced Volatility Surface
+    # Volatility Surface
     st.markdown('<div class="section-header"> Volatility Surface Analysis</div>', unsafe_allow_html=True)
 
     # Symbol selector for surface
@@ -553,7 +549,7 @@ if selected_symbols and connector:
         try:
             strikes, expiries, vol_surface = get_vol_surface_data_cached(surface_symbol)
             
-            # FIXED: Ensure strikes are actual prices, not ratios
+            # Ensure strikes are actual prices, not ratios
             if hasattr(strikes, 'shape') and len(strikes.shape) > 1:
                 # Already a 2D array
                 actual_strikes = strikes
@@ -564,14 +560,14 @@ if selected_symbols and connector:
                 else: # These are already actual prices
                     actual_strikes = strikes
             
-            # FIXED: Handle expiries properly
+            # Handle expiries properly
             if hasattr(expiries, 'shape') and len(expiries.shape) > 1:
                 time_values = expiries
             else:
                 time_values = expiries
             
             if show_3d_surface:
-                # FIXED: Clean 3D Surface Plot without formatting errors
+                # Clean 3D Surface Plot without formatting errors
                 fig_3d = go.Figure()
                 
                 # Create meshgrid for surface if needed
@@ -593,7 +589,7 @@ if selected_symbols and connector:
                     showlegend=False
                 ))
                 
-                # FIXED: Update layout without problematic formatting
+                # Update layout without problematic formatting
                 fig_3d.update_layout(
                     title=f'{surface_symbol} Implied Volatility Surface (Current Price: ${current_price:.2f})',
                     scene=dict(
@@ -606,7 +602,7 @@ if selected_symbols and connector:
                     showlegend=False
                 )
                 
-                # FIXED: Add clean annotation
+                # Add clean annotation
                 current_time = datetime.now().strftime('%H:%M:%S')
                 fig_3d.add_annotation(
                     x=0.02,
@@ -623,7 +619,7 @@ if selected_symbols and connector:
                 
                 st.plotly_chart(fig_3d, use_container_width=True)
             
-            # FIXED: Enhanced 2D Heatmap
+            # Enhanced 2D Heatmap
             fig_heatmap = go.Figure()
             
             # Ensure we have proper 2D arrays for heatmap
@@ -653,7 +649,7 @@ if selected_symbols and connector:
             )
             st.plotly_chart(fig_heatmap, use_container_width=True)
             
-            # FIXED: Volatility smile for shortest expiration
+            # Volatility smile for shortest expiration
             try:
                 shortest_exp_idx = 0
                 if len(vol_surface.shape) > 1:
@@ -811,7 +807,7 @@ elif not selected_symbols:
     st.warning("Please select at least one symbol from the sidebar to begin analysis.")
 
 else:
-    st.error("[WARN] System not available. Using fallback mode.")
+    st.error("WARN: System not available. Using fallback mode.")
 
 # Footer
 st.markdown("---")

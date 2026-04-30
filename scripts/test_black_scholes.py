@@ -40,7 +40,7 @@ def test_black_scholes_basic():
     
     # Verify put-call parity
     parity_check = BlackScholesModel.put_call_parity_check(call_price, put_price, S, K, T, r)
-    print(f"Put-Call Parity: {'[OK] PASS' if parity_check else '[FAIL] FAIL'}")
+    print(f"Put-Call Parity: {'PASS' if parity_check else 'FAIL: FAIL'}")
     
     # Calculate Greeks
     print(f"\n--- Greeks ---")
@@ -64,45 +64,45 @@ def test_black_scholes_basic():
     
     # Delta should be around 0.5 for ATM options
     if 0.45 < call_delta < 0.55:
-        print("[OK] Call delta reasonable for ATM option")
+        print("Call delta reasonable for ATM option")
         checks_passed += 1
     else:
-        print("[FAIL] Call delta seems wrong for ATM option")
+        print("FAIL: Call delta seems wrong for ATM option")
     
     # Put delta should be negative
     if put_delta < 0:
-        print("[OK] Put delta is negative")
+        print("Put delta is negative")
         checks_passed += 1
     else:
-        print("[FAIL] Put delta should be negative")
+        print("FAIL: Put delta should be negative")
     
     # Gamma should be positive
     if gamma > 0:
-        print("[OK] Gamma is positive")
+        print("Gamma is positive")
         checks_passed += 1
     else:
-        print("[FAIL] Gamma should be positive")
+        print("FAIL: Gamma should be positive")
     
     # Theta should be negative for long options
     if call_theta < 0:
-        print("[OK] Call theta is negative (time decay)")
+        print("Call theta is negative (time decay)")
         checks_passed += 1
     else:
-        print("[FAIL] Call theta should be negative")
+        print("FAIL: Call theta should be negative")
     
     # Vega should be positive
     if vega > 0:
-        print("[OK] Vega is positive")
+        print("Vega is positive")
         checks_passed += 1
     else:
-        print("[FAIL] Vega should be positive")
+        print("FAIL: Vega should be positive")
     
     # Call prices should be reasonable
     if 1 < call_price < 15:
-        print("[OK] Call price in reasonable range")
+        print("Call price in reasonable range")
         checks_passed += 1
     else:
-        print("[FAIL] Call price seems unreasonable")
+        print("FAIL: Call price seems unreasonable")
     
     print(f"\nBasic Tests: {checks_passed}/{total_checks} passed")
     return checks_passed == total_checks
@@ -139,11 +139,11 @@ def test_implied_volatility():
             print(f"{method.capitalize()} method: {implied_vol:.4f} ({method_used}) - Error: {error:.6f}")
             
             if error < 0.001: # Less than 0.1% error
-                print(f"[OK] {method.capitalize()} method accurate")
+                print(f"{method.capitalize()} method accurate")
             else:
-                print(f"[FAIL] {method.capitalize()} method inaccurate")
+                print(f"FAIL: {method.capitalize()} method inaccurate")
         else:
-            print(f"[FAIL] {method.capitalize()} method failed to converge")
+            print(f"FAIL: {method.capitalize()} method failed to converge")
     
     return True
 
@@ -161,7 +161,7 @@ def test_with_real_market_data():
     current_price = client.get_current_stock_price(DEFAULT_SYMBOL)
     
     if options_df.empty:
-        print("[FAIL] No options data available")
+        print("FAIL: No options data available")
         return False
     
     # Filter for reasonable options (not too far OTM, reasonable volume)
@@ -174,7 +174,7 @@ def test_with_real_market_data():
     ].copy()
     
     if filtered_df.empty:
-        print("[FAIL] No suitable options found after filtering")
+        print("FAIL: No suitable options found after filtering")
         return False
     
     print(f"Analyzing {len(filtered_df)} options contracts...")
@@ -227,13 +227,13 @@ def test_with_real_market_data():
         print(f"Options within 5% vol: {accurate_count}/{len(results_df)}")
         
         if mean_diff < 0.1: # Average error less than 10% vol points
-            print("[OK] Good agreement with market implied volatilities")
+            print("Good agreement with market implied volatilities")
             return True
         else:
-            print("[WARN] Significant differences from market - may be due to dividends, early exercise, or data quality")
+            print("WARN: Significant differences from market - may be due to dividends, early exercise, or data quality")
             return True
     else:
-        print("[FAIL] Could not calculate implied volatilities for any options")
+        print("FAIL: Could not calculate implied volatilities for any options")
         return False
 
 def test_edge_cases():
@@ -246,21 +246,21 @@ def test_edge_cases():
         price = BlackScholesModel.call_price(100, 100, 0, 0.05, 0.2)
         intrinsic = max(0, 100 - 100)
         if abs(price - intrinsic) < 0.01:
-            print("[OK] Zero time to expiration handled correctly")
+            print("Zero time to expiration handled correctly")
         else:
-            print("[FAIL] Zero time to expiration not handled correctly")
+            print("FAIL: Zero time to expiration not handled correctly")
     except Exception as e:
-        print(f"[FAIL] Zero time to expiration caused error: {e}")
+        print(f"FAIL: Zero time to expiration caused error: {e}")
     
     # Test with very high volatility
     try:
         price = BlackScholesModel.call_price(100, 100, 0.25, 0.05, 2.0) # 200% vol
         if 0 < price < 200: # Should be positive but not crazy
-            print("[OK] High volatility handled")
+            print("High volatility handled")
         else:
-            print("[FAIL] High volatility produced unrealistic price")
+            print("FAIL: High volatility produced unrealistic price")
     except Exception as e:
-        print(f"[FAIL] High volatility caused error: {e}")
+        print(f"FAIL: High volatility caused error: {e}")
     
     # Test put-call parity with different parameters
     S, K, T, r, sigma = 120, 100, 0.5, 0.03, 0.3
@@ -268,9 +268,9 @@ def test_edge_cases():
     put = BlackScholesModel.put_price(S, K, T, r, sigma)
     
     if BlackScholesModel.put_call_parity_check(call, put, S, K, T, r):
-        print("[OK] Put-call parity holds for different parameters")
+        print("Put-call parity holds for different parameters")
     else:
-        print("[FAIL] Put-call parity violated")
+        print("FAIL: Put-call parity violated")
     
     print("Edge case testing completed")
     return True
@@ -305,7 +305,7 @@ def main():
     if tests_passed == total_tests:
         print(" All tests passed! Black-Scholes implementation is working correctly.")
     else:
-        print("[WARN] Some tests failed. Check the output above for details.")
+        print("WARN: Some tests failed. Check the output above for details.")
 
 if __name__ == "__main__":
     main()

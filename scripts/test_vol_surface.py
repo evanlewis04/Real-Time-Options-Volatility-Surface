@@ -40,11 +40,11 @@ def test_complete_volatility_analysis():
     current_price = client.get_current_stock_price(symbol)
     
     if options_df.empty:
-        print("[FAIL] No options data available")
+        print("FAIL: No options data available")
         return False
     
-    print(f"[OK] Fetched {len(options_df)} options contracts")
-    print(f"[OK] Current {symbol} price: ${current_price:.2f}")
+    print(f"Fetched {len(options_df)} options contracts")
+    print(f"Current {symbol} price: ${current_price:.2f}")
     
     # Step 2: Build Volatility Surface
     print("\n2. CONSTRUCTING VOLATILITY SURFACE")
@@ -62,20 +62,20 @@ def test_complete_volatility_analysis():
         print("Building interpolated volatility surface...")
         surfaces = vol_surface.construct_surface(method='linear', separate_calls_puts=True)
         
-        print(f"[OK] Successfully built {len(surfaces)} surfaces")
+        print(f"Successfully built {len(surfaces)} surfaces")
         
         # Get surface summary
         summary = vol_surface.get_surface_summary(surfaces)
-        print(f"[OK] Surface covers {summary['total_options']} options")
+        print(f"Surface covers {summary['total_options']} options")
         
         # Display key statistics
         if 'combined_stats' in summary:
             stats = summary['combined_stats']
-            print(f"[OK] Volatility range: {stats['min_vol']:.1%} - {stats['max_vol']:.1%}")
-            print(f"[OK] ATM volatility: {stats['atm_vol']:.1%}")
+            print(f"Volatility range: {stats['min_vol']:.1%} - {stats['max_vol']:.1%}")
+            print(f"ATM volatility: {stats['atm_vol']:.1%}")
         
     except Exception as e:
-        print(f"[FAIL] Error building surface: {e}")
+        print(f"FAIL: Error building surface: {e}")
         return False
     
     # Step 3: Create 2D Visualizations
@@ -149,10 +149,10 @@ def test_complete_volatility_analysis():
         )
         plt.close(fig6)
         
-        print("[OK] All 2D plots created successfully")
+        print("All 2D plots created successfully")
         
     except Exception as e:
-        print(f"[FAIL] Error creating 2D plots: {e}")
+        print(f"FAIL: Error creating 2D plots: {e}")
         print("Continuing with 3D visualization...")
     
     # Step 4: Create 3D Visualizations
@@ -198,10 +198,10 @@ def test_complete_volatility_analysis():
             show_plot=False
         )
         
-        print("[OK] All 3D visualizations created successfully")
+        print("All 3D visualizations created successfully")
         
     except Exception as e:
-        print(f"[FAIL] Error creating 3D plots: {e}")
+        print(f"FAIL: Error creating 3D plots: {e}")
         print("3D plotting may require additional packages (plotly)")
     
     # Step 5: Analysis and Insights
@@ -286,13 +286,13 @@ def test_complete_volatility_analysis():
                     print(" NEUTRAL SENTIMENT: Balanced put/call activity")
         
     except Exception as e:
-        print(f"[FAIL] Error in analysis: {e}")
+        print(f"FAIL: Error in analysis: {e}")
     
     # Step 6: Summary
     print("\n6. WEEK 1 COMPLETION SUMMARY")
     print("-" * 35)
     
-    print("[OK] ACCOMPLISHED:")
+    print("ACCOMPLISHED:")
     print(" • Real-time options data fetching")
     print(" • Black-Scholes pricing engine")
     print(" • Implied volatility calculations")
@@ -342,11 +342,11 @@ def quick_demo():
             stats = summary['combined_stats']
             print(f"Vol range: {stats['min_vol']:.1%} - {stats['max_vol']:.1%}")
         
-        print("[OK] Quick demo completed successfully!")
+        print("Quick demo completed successfully!")
         return True
         
     except Exception as e:
-        print(f"[FAIL] Quick demo failed: {e}")
+        print(f"FAIL: Quick demo failed: {e}")
         return False
 
 if __name__ == "__main__":

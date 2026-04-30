@@ -93,7 +93,7 @@ class DashboardSetup:
             logger.warning(f"Missing files: {missing_files}")
             logger.warning("Dashboard will use fallback mock data mode")
         else:
-            logger.info("[OK] System validation complete!")
+            logger.info("System validation complete!")
     
     def create_dashboard_files(self):
         """Create the dashboard files from the artifacts"""
@@ -255,7 +255,7 @@ try:
         print(" Real system imports successful")
         system_available = True
     except ImportError as e:
-        print(f"[WARN] Real system imports failed: {e}")
+        print(f"WARN: Real system imports failed: {e}")
         print(" Dashboard will use mock data mode")
         system_available = False
     
@@ -271,10 +271,10 @@ except ImportError as e:
                                   capture_output=True, text=True, cwd=self.project_root)
             
             if result.returncode == 0:
-                logger.info("[OK] Integration test passed!")
+                logger.info("Integration test passed!")
                 logger.info(result.stdout.strip())
             else:
-                logger.warning("[WARN] Integration test had issues:")
+                logger.warning("WARN: Integration test had issues:")
                 logger.warning(result.stderr.strip())
                 
         except Exception as e:
@@ -363,7 +363,7 @@ DASHBOARD_REFRESH_INTERVAL=5
     def print_failure_message(self, error):
         """Print failure message with troubleshooting"""
         logger.error("=" * 60)
-        logger.error("[FAIL] SETUP FAILED")
+        logger.error("FAIL: SETUP FAILED")
         logger.error("=" * 60)
         logger.error(f"Error: {error}")
         logger.error("")

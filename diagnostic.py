@@ -14,9 +14,9 @@ try:
     from src.pricing.implied_vol import ImpliedVolatilityCalculator
     from src.analysis.vol_surface import VolatilitySurface
     MODELS_AVAILABLE = True
-    print("[OK] Successfully imported your models")
+    print("Successfully imported your models")
 except ImportError as e:
-    print(f"[FAIL] Failed to import models: {e}")
+    print(f"FAIL: Failed to import models: {e}")
     MODELS_AVAILABLE = False
     sys.exit(1)
 
@@ -48,16 +48,16 @@ def debug_black_scholes():
             
             # Check for issues
             if call_price <= 0:
-                print(f" [FAIL] ERROR: Call price is {call_price}")
+                print(f" FAIL: ERROR: Call price is {call_price}")
             if put_price <= 0:
-                print(f" [FAIL] ERROR: Put price is {put_price}")
+                print(f" FAIL: ERROR: Put price is {put_price}")
             if not np.isfinite(call_price):
-                print(f" [FAIL] ERROR: Call price is not finite")
+                print(f" FAIL: ERROR: Call price is not finite")
             if not np.isfinite(put_price):
-                print(f" [FAIL] ERROR: Put price is not finite")
+                print(f" FAIL: ERROR: Put price is not finite")
                 
         except Exception as e:
-            print(f" [FAIL] ERROR at vol {sigma:.1%}: {e}")
+            print(f" FAIL: ERROR at vol {sigma:.1%}: {e}")
     
     # Test edge cases
     print(f"\n Testing edge cases:")
@@ -68,7 +68,7 @@ def debug_black_scholes():
         call_short = bs.call_price(S, K, T_short, r, 0.5)
         print(f"1-day ATM call at 50% vol: ${call_short:.3f}")
     except Exception as e:
-        print(f"[FAIL] Short time error: {e}")
+        print(f"FAIL: Short time error: {e}")
     
     # Very long time
     try:
@@ -76,7 +76,7 @@ def debug_black_scholes():
         call_long = bs.call_price(S, K, T_long, r, 0.5)
         print(f"2-year ATM call at 50% vol: ${call_long:.3f}")
     except Exception as e:
-        print(f"[FAIL] Long time error: {e}")
+        print(f"FAIL: Long time error: {e}")
     
     # Deep OTM/ITM
     try:
@@ -84,7 +84,7 @@ def debug_black_scholes():
         put_otm = bs.put_price(S, S*0.5, T, r, 0.5) # Deep OTM put
         print(f"Deep OTM call: ${call_otm:.3f}, Deep OTM put: ${put_otm:.3f}")
     except Exception as e:
-        print(f"[FAIL] Deep OTM error: {e}")
+        print(f"FAIL: Deep OTM error: {e}")
 
 def debug_greeks():
     """Debug Greeks calculations"""
@@ -130,14 +130,14 @@ def debug_greeks():
             issues.append(f"Gamma {gamma:.4f} seems too low")
         
         if issues:
-            print("[WARN] POTENTIAL ISSUES FOUND:")
+            print("WARN: POTENTIAL ISSUES FOUND:")
             for issue in issues:
                 print(f" • {issue}")
         else:
-            print("[OK] Greeks look reasonable")
+            print("Greeks look reasonable")
             
     except Exception as e:
-        print(f"[FAIL] Greeks calculation error: {e}")
+        print(f"FAIL: Greeks calculation error: {e}")
 
 def debug_implied_vol():
     """Debug implied volatility calculation"""
@@ -162,7 +162,7 @@ def debug_implied_vol():
         print(f"Market price at {true_vol:.1%} vol: ${market_price:.3f}")
         
         if market_price <= 0:
-            print(f"[FAIL] ERROR: Market price is {market_price}")
+            print(f"FAIL: ERROR: Market price is {market_price}")
             return
         
         # Step 2: Calculate implied volatility from market price
@@ -171,16 +171,16 @@ def debug_implied_vol():
         )
         
         if implied_vol is None:
-            print(f"[FAIL] ERROR: Could not calculate implied volatility")
+            print(f"FAIL: ERROR: Could not calculate implied volatility")
             return
         
         print(f"Calculated IV: {implied_vol:.1%} (method: {method})")
         print(f"Error: {abs(implied_vol - true_vol)/true_vol:.1%}")
         
         if abs(implied_vol - true_vol) < 0.01: # Within 1%
-            print("[OK] IV calculation is accurate")
+            print("IV calculation is accurate")
         else:
-            print(f"[WARN] IV calculation has significant error")
+            print(f"WARN: IV calculation has significant error")
             
         # Test different volatility levels
         print(f"\nTesting multiple volatility levels:")
@@ -203,7 +203,7 @@ def debug_implied_vol():
                 print(f" {test_vol:.1%} → ERROR: {e}")
         
     except Exception as e:
-        print(f"[FAIL] IV calculation error: {e}")
+        print(f"FAIL: IV calculation error: {e}")
 
 def debug_surface_construction():
     """Debug volatility surface construction"""
@@ -267,10 +267,10 @@ def debug_surface_construction():
                 })
                 
             except Exception as e:
-                print(f"[FAIL] Error creating option data for strike {strike}, days {days}: {e}")
+                print(f"FAIL: Error creating option data for strike {strike}, days {days}: {e}")
     
     if not options_data:
-        print("[FAIL] No options data created")
+        print("FAIL: No options data created")
         return
     
     df = pd.DataFrame(options_data)
@@ -284,17 +284,17 @@ def debug_surface_construction():
         
         if 'combined' in surface_dict:
             surface_data = surface_dict['combined']
-            print(f"[OK] Surface constructed successfully")
+            print(f"Surface constructed successfully")
             print(f"Surface shape: {surface_data['implied_vols'].shape}")
             
             # Check for issues
             vols = surface_data['implied_vols']
             if np.any(np.isnan(vols)):
-                print(f"[WARN] Surface contains NaN values")
+                print(f"WARN: Surface contains NaN values")
             if np.any(vols <= 0):
-                print(f"[WARN] Surface contains non-positive volatilities")
+                print(f"WARN: Surface contains non-positive volatilities")
             if np.any(vols > 3.0):
-                print(f"[WARN] Surface contains extremely high volatilities (>300%)")
+                print(f"WARN: Surface contains extremely high volatilities (>300%)")
                 
             print(f"Surface vol range: {np.nanmin(vols):.1%} to {np.nanmax(vols):.1%}")
             
@@ -309,14 +309,14 @@ def debug_surface_construction():
                 right_vol = vol_slice[-1] # Highest strike
                 
                 if left_vol > right_vol:
-                    print(f"[OK] Correct skew: Lower strikes have higher vol ({left_vol:.1%} vs {right_vol:.1%})")
+                    print(f"Correct skew: Lower strikes have higher vol ({left_vol:.1%} vs {right_vol:.1%})")
                 else:
-                    print(f"[FAIL] WRONG skew: Higher strikes have higher vol ({left_vol:.1%} vs {right_vol:.1%})")
+                    print(f"FAIL: WRONG skew: Higher strikes have higher vol ({left_vol:.1%} vs {right_vol:.1%})")
         else:
-            print(f"[FAIL] Surface construction failed - no 'combined' surface")
+            print(f"FAIL: Surface construction failed - no 'combined' surface")
             
     except Exception as e:
-        print(f"[FAIL] Surface construction error: {e}")
+        print(f"FAIL: Surface construction error: {e}")
 
 def run_comprehensive_debug():
     """Run all debugging tests"""
@@ -324,7 +324,7 @@ def run_comprehensive_debug():
     print("=" * 60)
     
     if not MODELS_AVAILABLE:
-        print("[FAIL] Cannot debug - models not available")
+        print("FAIL: Cannot debug - models not available")
         return
     
     debug_black_scholes()

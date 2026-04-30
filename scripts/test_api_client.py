@@ -22,7 +22,7 @@ def test_api_client():
     options_df = client.fetch_options_chain(symbol)
     
     if not options_df.empty:
-        print(f"\n[OK] Successfully fetched {len(options_df)} options contracts")
+        print(f"\nSuccessfully fetched {len(options_df)} options contracts")
         
         # Display basic statistics
         print(f"\nData Overview:")
@@ -44,11 +44,11 @@ def test_api_client():
         filepath = client.save_data(options_df, symbol)
         print(f"\nData saved to: {filepath}")
         
-        print(f"\n[OK] API Client test completed successfully!")
+        print(f"\nAPI Client test completed successfully!")
         return True
         
     else:
-        print("[FAIL] No options data received")
+        print("FAIL: No options data received")
         return False
 
 if __name__ == "__main__":

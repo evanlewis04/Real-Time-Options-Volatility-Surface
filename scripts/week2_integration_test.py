@@ -281,7 +281,7 @@ class Week2IntegrationTest:
             # Don't fail the test, but log the issue
             self.logger.info("Streaming architecture is working, but surface generation needs tuning")
         else:
-            self.logger.info(f"[OK] Received {new_surfaces} surface updates during streaming test")
+            self.logger.info(f"Received {new_surfaces} surface updates during streaming test")
         
         # Check processing stats instead of surface count
         processing_stats = self.stream_processor.get_processing_stats()
@@ -658,7 +658,7 @@ class Week2IntegrationTest:
                             save_path='week2_test_dashboard.png'
                         )
                         
-                        self.logger.info("[OK] Test dashboard created successfully")
+                        self.logger.info("Test dashboard created successfully")
                         
                     except Exception as viz_error:
                         self.logger.warning(f"Could not create visualization: {viz_error}")
@@ -719,10 +719,10 @@ def main():
         success = test_runner.run_comprehensive_test()
         
         if success:
-            print("\n[OK] Week 2 Integration Test PASSED")
+            print("\nWeek 2 Integration Test PASSED")
             print("System is ready for Week 3 dashboard development!")
         else:
-            print("\n[FAIL] Week 2 Integration Test FAILED")
+            print("\nFAIL: Week 2 Integration Test FAILED")
             print("Please review logs and fix issues before proceeding to Week 3")
     
     except KeyboardInterrupt:
