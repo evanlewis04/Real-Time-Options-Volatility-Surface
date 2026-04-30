@@ -182,12 +182,19 @@ class SyntheticOptionsGenerator:
 
     @staticmethod
     def _iv_at(spot: float, strike: float, T: float, params: Dict[str, float]) -> float:
-        """Build IV for one (strike, T) point: term structure + skew + smile + noise."""
-        log_money = np.log(spot / strike)
+        """Build IV for one (strike, T) point: term structure + skew + smile + noise.
+
+        Uses standard log-moneyness ``log(K/S)``:
+          - OTM puts have log(K/S) < 0; with negative skew this lifts their IV.
+          - OTM calls have log(K/S) > 0; with negative skew this lowers their IV.
+        Smile is symmetric in log-moneyness, lifting the wings on both sides.
+        """
+        log_money = np.log(strike / spot)
         iv = params['base_vol'] * (1.0 + 0.1 * np.sqrt(T))
         iv += params['skew'] * log_money
         iv += params['smile'] * log_money ** 2
-        iv += np.random.normal(0, 0.01)
+        # Noise scaled to base vol so low-vol names (SPY) don't drown their skew.
+        iv += np.random.normal(0, 0.005 * params['base_vol'])
         return float(np.clip(iv, 0.05, 2.5))
 
     @staticmethod
