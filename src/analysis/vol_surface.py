@@ -1,11 +1,14 @@
 # src/analysis/vol_surface.py
 
+import logging
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
 from scipy.interpolate import griddata, RBFInterpolator
 import warnings
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class VolatilitySurface:
     """
@@ -61,7 +64,7 @@ class VolatilitySurface:
         # Filter out bad data
         self._clean_data()
         
-        print(f"Prepared {len(self.options_data)} options for surface construction")
+        logger.info("Prepared %s options for surface construction", len(self.options_data))
         
     def _clean_data(self):
         """Clean options data by removing outliers and bad points."""
@@ -110,7 +113,7 @@ class VolatilitySurface:
         
         removed_count = initial_count - len(self.options_data)
         if removed_count > 0:
-            print(f"Removed {removed_count} outlier options during cleaning")
+            logger.info("Removed %s outlier options during cleaning", removed_count)
     
     def construct_surface(self, method: str = 'linear', separate_calls_puts: bool = False) -> Dict:
         """
@@ -220,7 +223,7 @@ class VolatilitySurface:
             return surface
             
         except Exception as e:
-            print(f"Error building {surface_type} surface with {method} method: {e}")
+            logger.warning("Error building %s surface with %s method: %s", surface_type, method, e)
             # Fallback to linear method
             if method != 'linear':
                 return self._build_single_surface(data, 'linear', surface_type)

@@ -1,0 +1,114 @@
+"""Project healthcheck for CI and local smoke testing."""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from typing import Callable, List
+
+
+@dataclass
+class CheckResult:
+    name: str
+    passed: bool
+    detail: str = ""
+
+
+def _run(name: str, fn: Callable[[], str]) -> CheckResult:
+    try:
+        detail = fn()
+        return CheckResult(name, True, detail)
+    except Exception as exc:
+        return CheckResult(name, False, f"{type(exc).__name__}: {exc}")
+
+
+def check_imports() -> str:
+    import dashboard_connector  # noqa: F401
+    from src.dashboard import run_dashboard  # noqa: F401
+    from src.dashboard.surface_view import surface_stats  # noqa: F401
+    from src.dashboard.theme import apply_chart_layout  # noqa: F401
+    from src.data.options_provider import YFinanceOptionsProvider  # noqa: F401
+    from src.pricing.black_scholes import BlackScholesModel  # noqa: F401
+    from src.pricing.implied_vol import ImpliedVolatilityCalculator  # noqa: F401
+
+    return "core and dashboard modules imported"
+
+
+def check_pricing() -> str:
+    from src.pricing.black_scholes import BlackScholesModel
+    from src.pricing.implied_vol import ImpliedVolatilityCalculator
+
+    price = BlackScholesModel.call_price(100.0, 100.0, 0.5, 0.04, 0.25)
+    iv, method = ImpliedVolatilityCalculator().calculate_implied_vol(
+        price, 100.0, 100.0, 0.5, 0.04, "call", method="brent"
+    )
+    if iv is None or abs(iv - 0.25) > 1e-4:
+        raise AssertionError(f"IV round trip failed: {iv}")
+    return f"call={price:.4f}, iv={iv:.4f}, method={method}"
+
+
+def check_surface() -> str:
+    from src.analysis.surface_builder import build_surface
+    from src.data.price_provider import RealTimePriceProvider
+    from src.data.synthetic_options import SyntheticOptionsGenerator
+
+    provider = RealTimePriceProvider()
+    generator = SyntheticOptionsGenerator(provider)
+    chain = generator.create_chain("AAPL")
+    spot = provider.get_live_price("AAPL")
+    _, _, vols = build_surface(chain, spot, "AAPL")
+    if vols.size == 0:
+        raise AssertionError("surface has no points")
+    return f"surface shape={vols.shape}, rows={len(chain)}"
+
+
+def check_connector() -> str:
+    from dashboard_connector import DashboardConnector
+
+    connector = DashboardConnector()
+    data = connector.get_current_data("AAPL")
+    required = {"price", "data_mode", "iv_30d", "timestamp"}
+    missing = required - set(data)
+    if missing:
+        raise AssertionError(f"missing connector fields: {sorted(missing)}")
+    health = connector.get_system_health()
+    return f"mode={data['data_mode']}, yfinance={health['overall'].get('yfinance_available')}"
+
+
+def check_streamlit_testing() -> str:
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file("app.py")
+    at.run(timeout=90)
+    if len(at.exception) > 0:
+        raise AssertionError(f"{len(at.exception)} Streamlit exceptions")
+    return f"metrics={len(at.metric)}, dataframes={len(at.dataframe)}"
+
+
+def main() -> int:
+    checks: List[CheckResult] = [
+        _run("imports", check_imports),
+        _run("pricing", check_pricing),
+        _run("surface", check_surface),
+        _run("connector", check_connector),
+        _run("streamlit", check_streamlit_testing),
+    ]
+
+    print("PROJECT HEALTHCHECK")
+    print("=" * 60)
+    for result in checks:
+        status = "PASS" if result.passed else "FAIL"
+        print(f"{status:4} {result.name:12} {result.detail}")
+
+    failed = [result for result in checks if not result.passed]
+    if failed:
+        print("=" * 60)
+        print(f"{len(failed)} check(s) failed")
+        return 1
+    print("=" * 60)
+    print("All checks passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

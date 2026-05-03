@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import logging
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -318,22 +319,61 @@ class SimpleVolatilitySystem:
 
 def main():
     """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description="Run noninteractive checks or monitoring for the volatility surface system."
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["test", "start", "status"],
+        help="Legacy command alias. Use --smoke-test for CI-friendly checks.",
+    )
+    parser.add_argument(
+        "--smoke-test",
+        action="store_true",
+        help="Run component discovery and pricing checks, then exit.",
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Open the legacy interactive prompt.",
+    )
+    parser.add_argument(
+        "--symbol",
+        default="AAPL",
+        help="Symbol for data-fetch checks when using the legacy test command.",
+    )
+    args = parser.parse_args()
+
     system = SimpleVolatilitySystem()
-    
-    if len(sys.argv) > 1:
-        command = sys.argv[1].lower()
-        
-        if command == 'test':
-            system.run_system_test()
-        elif command == 'start':
-            print("Starting basic monitoring... Press Ctrl+C to stop")
-            system.start_basic_monitoring()
-        else:
-            print(f"Unknown command: {command}")
-            print("Available: test, start")
-    else:
-        # Default to interactive mode
+
+    if args.interactive:
         system.interactive_mode()
+        return 0
+
+    if args.command == "start":
+        print("Starting basic monitoring... Press Ctrl+C to stop")
+        system.start_basic_monitoring([args.symbol])
+        return 0
+
+    if args.command == "status":
+        print("\nAvailable components:")
+        for name in sorted(system.available_components):
+            print(f"  {name}")
+        return 0
+
+    if args.command == "test":
+        passed, total = system.run_system_test()
+        return 0 if passed == total else 1
+
+    # Default and --smoke-test are intentionally noninteractive for CI and
+    # agent workflows.
+    pricing_ok = system.test_pricing_models()
+    print("\nSMOKE TEST SUMMARY")
+    print("=" * 50)
+    print(f"Components available: {len(system.available_components)}")
+    print(f"Pricing model check: {'PASS' if pricing_ok else 'FAIL'}")
+    return 0 if pricing_ok and system.available_components else 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

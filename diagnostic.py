@@ -8,6 +8,13 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # Import your models
 try:
     from src.pricing.black_scholes import BlackScholesModel, OptionGreeks
