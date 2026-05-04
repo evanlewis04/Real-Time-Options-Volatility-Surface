@@ -22,6 +22,15 @@ def _sample_chain() -> pd.DataFrame:
                 "volume": 120,
                 "openInterest": 500,
                 "impliedVolatility": 0.24,
+                "riskFreeRate": 0.051,
+                "dividendYield": 0.005,
+                "effectiveDividendYield": 0.015,
+                "discreteDividendAmount": 0.26,
+                "discreteDividendPV": 0.259,
+                "discreteDividendCount": 1,
+                "quoteQuality": "bid_ask",
+                "isStaleQuote": False,
+                "quoteAgeSeconds": 3600,
                 "bidAskSpread": 0.4,
                 "bidAskSpreadPct": 0.04878,
                 "quoteTimestamp": pd.Timestamp("2026-05-03 10:00:00"),
@@ -39,11 +48,20 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert quote.contract == "AAPL260619C00200000"
     assert quote.type == "call"
     assert quote.raw_iv == 0.24
+    assert quote.risk_free_rate == 0.051
+    assert quote.effective_dividend_yield == 0.015
+    assert quote.discrete_dividend_count == 1
+    assert quote.quote_quality == "bid_ask"
+    assert quote.is_stale_quote is False
+    assert quote.quote_age_seconds == 3600
     assert quote.open_interest == 500
 
     frame = option_quotes_to_frame(quotes)
     assert frame.iloc[0]["contractSymbol"] == quote.contract
     assert frame.iloc[0]["impliedVolatility"] == quote.raw_iv
+    assert frame.iloc[0]["riskFreeRate"] == quote.risk_free_rate
+    assert frame.iloc[0]["effectiveDividendYield"] == quote.effective_dividend_yield
+    assert frame.iloc[0]["quoteQuality"] == "bid_ask"
     assert frame.iloc[0]["time_to_expiry"] == quote.dte / 365.0
 
 
@@ -64,6 +82,78 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
             "cache_age_seconds": 12,
             "fallback_reason": None,
             "warnings": ["one row rejected"],
+            "risk_free_rate_source": "local:config/risk_free_curve.csv",
+            "risk_free_rate_mode": "Local",
+            "risk_free_rate_timestamp": now,
+            "risk_free_rate_curve": [{"tenor_days": 30, "rate": 0.051}],
+            "expiry_rates": {"2026-06-19": 0.0505},
+            "risk_free_rate_30d": 0.051,
+            "risk_free_rate_min": 0.0505,
+            "risk_free_rate_max": 0.0505,
+            "risk_free_rate_median": 0.0505,
+            "dividend_source": "local:config/dividends.csv",
+            "dividend_mode": "Local",
+            "dividend_timestamp": now,
+            "annual_dividend_yield": 0.005,
+            "dividend_events": [{"ex_date": "2026-05-15", "amount": 0.26, "currency": "USD"}],
+            "expiry_dividends": {
+                "2026-06-19": {
+                    "annual_yield": 0.005,
+                    "effective_yield": 0.015,
+                    "discrete_amount": 0.26,
+                    "discrete_present_value": 0.259,
+                    "discrete_count": 1,
+                }
+            },
+            "effective_dividend_yield_30d": 0.012,
+            "effective_dividend_yield_min": 0.005,
+            "effective_dividend_yield_max": 0.015,
+            "effective_dividend_yield_median": 0.015,
+            "corporate_action_source": "local:config/corporate_actions.csv",
+            "corporate_action_mode": "Local",
+            "corporate_action_timestamp": now,
+            "corporate_actions": [
+                {
+                    "symbol": "AAPL",
+                    "action_type": "dividend",
+                    "effective_date": "2026-05-15",
+                    "description": "Cash dividend",
+                    "value": 0.26,
+                    "ratio": None,
+                    "source": "fixture",
+                }
+            ],
+            "upcoming_corporate_actions": [
+                {
+                    "symbol": "AAPL",
+                    "action_type": "dividend",
+                    "effective_date": "2026-05-15",
+                    "description": "Cash dividend",
+                    "value": 0.26,
+                    "ratio": None,
+                    "source": "fixture",
+                }
+            ],
+            "expiry_corporate_actions": {
+                "2026-06-19": [
+                    {
+                        "symbol": "AAPL",
+                        "action_type": "dividend",
+                        "effective_date": "2026-05-15",
+                        "description": "Cash dividend",
+                        "value": 0.26,
+                        "ratio": None,
+                        "source": "fixture",
+                    }
+                ]
+            },
+            "corporate_action_warning_count": 1,
+            "corporate_action_warnings": ["AAPL dividend on 2026-05-15: Cash dividend (0.26)"],
+            "stale_quote_count": 0,
+            "last_only_quote_count": 0,
+            "zero_bid_ask_count": 0,
+            "stale_last_only_rejected_count": 1,
+            "max_quote_age_days": 5,
         },
     )
 
@@ -76,6 +166,16 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
     assert snapshot.rejected_rows == 1
     assert snapshot.expirations == (datetime(2026, 6, 19),)
     assert snapshot.metadata_dict()["cache_age_seconds"] == 12
+    assert snapshot.options[0].risk_free_rate == 0.051
+    assert snapshot.metadata_dict()["risk_free_rate_source"] == "local:config/risk_free_curve.csv"
+    assert snapshot.metadata_dict()["expiry_rates"]["2026-06-19"] == 0.0505
+    assert snapshot.metadata_dict()["risk_free_rate_30d"] == 0.051
+    assert snapshot.metadata_dict()["annual_dividend_yield"] == 0.005
+    assert snapshot.metadata_dict()["expiry_dividends"]["2026-06-19"]["discrete_count"] == 1
+    assert snapshot.metadata_dict()["corporate_action_warning_count"] == 1
+    assert snapshot.metadata_dict()["expiry_corporate_actions"]["2026-06-19"][0]["action_type"] == "dividend"
+    assert snapshot.metadata_dict()["stale_last_only_rejected_count"] == 1
+    assert snapshot.metadata_dict()["max_quote_age_days"] == 5
 
 
 def test_empty_snapshot_returns_empty_options_frame():

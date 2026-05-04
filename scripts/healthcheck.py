@@ -38,6 +38,9 @@ def check_imports() -> str:
     from src.data.snapshots import save_snapshot  # noqa: F401
     from src.pricing.black_scholes import BlackScholesModel  # noqa: F401
     from src.pricing.implied_vol import ImpliedVolatilityCalculator  # noqa: F401
+    from src.quant.corporate_actions import CorporateActionProvider  # noqa: F401
+    from src.quant.dividends import DividendProvider  # noqa: F401
+    from src.quant.rates import RiskFreeRateProvider  # noqa: F401
 
     return "core and dashboard modules imported"
 
@@ -45,10 +48,14 @@ def check_imports() -> str:
 def check_pricing() -> str:
     from src.pricing.black_scholes import BlackScholesModel
     from src.pricing.implied_vol import ImpliedVolatilityCalculator
+    from src.quant.dividends import DividendProvider
+    from src.quant.rates import RiskFreeRateProvider
 
-    price = BlackScholesModel.call_price(100.0, 100.0, 0.5, 0.04, 0.25)
+    rate = RiskFreeRateProvider().get_curve().rate_for_dte(180).rate
+    dividend_yield = DividendProvider().get("AAPL").annual_yield
+    price = BlackScholesModel.call_price(100.0, 100.0, 0.5, rate, 0.25, q=dividend_yield)
     iv, method = ImpliedVolatilityCalculator().calculate_implied_vol(
-        price, 100.0, 100.0, 0.5, 0.04, "call", method="brent"
+        price, 100.0, 100.0, 0.5, rate, "call", q=dividend_yield, method="brent"
     )
     if iv is None or abs(iv - 0.25) > 1e-4:
         raise AssertionError(f"IV round trip failed: {iv}")

@@ -25,6 +25,9 @@ from src.data.options_provider import OptionsChainMetadata, YFinanceOptionsProvi
 from src.data.price_provider import RealTimePriceProvider
 from src.data.snapshots import load_latest_snapshot, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
+from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
+from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
+from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +41,14 @@ class DashboardConnector:
         self.options_provider = YFinanceOptionsProvider(max_expirations=8)
         self.historical_loader = HistoricalPriceLoader()
         self.market_calendar = MarketCalendar()
-        self.options_generator = SyntheticOptionsGenerator(self.price_provider)
+        self.rate_provider = RiskFreeRateProvider()
+        self.dividend_provider = DividendProvider()
+        self.corporate_action_provider = CorporateActionProvider()
+        self.options_generator = SyntheticOptionsGenerator(
+            self.price_provider,
+            rate_provider=self.rate_provider,
+            dividend_provider=self.dividend_provider,
+        )
         self.snapshot_dir = Path("data/snapshots")
         self.real_time_active = False
         self.update_interval = 30
@@ -56,8 +66,22 @@ class DashboardConnector:
         now = datetime.now()
         try:
             spot = self.price_provider.get_live_price(key)
+            rate_curve = self.rate_provider.get_curve()
+            rate_30d = rate_curve.rate_for_dte(30).rate
+            dividend_assumption = self.dividend_provider.get(key)
+            corporate_actions = self.corporate_action_provider.get(key)
+            dividend_30d = dividend_assumption.effective_yield(
+                datetime.now() + timedelta(days=30),
+                spot,
+                rate_30d,
+            )
             market_status = self.get_market_status()
-            greeks = self.options_generator.calculate_greeks(key, spot)
+            greeks = self.options_generator.calculate_greeks(
+                key,
+                spot,
+                risk_free_rate=rate_30d,
+                dividend_yield=dividend_30d,
+            )
             chain, chain_meta = self._cached_chain_if_present(key)
             chain_summary = self._summarize_chain(chain, spot) if chain is not None and not chain.empty else {}
 
@@ -77,6 +101,20 @@ class DashboardConnector:
                 "iv_30d": chain_summary.get("iv_30d", greeks["iv_30d"]),
                 "iv_60d": chain_summary.get("iv_60d", greeks["iv_60d"]),
                 "iv_90d": chain_summary.get("iv_90d", greeks["iv_90d"]),
+                "risk_free_rate_30d": chain_meta.get("risk_free_rate_30d") if chain_meta else rate_30d,
+                "risk_free_rate_source": (
+                    chain_meta.get("risk_free_rate_source") if chain_meta else rate_curve.source
+                ),
+                "dividend_yield_30d": chain_meta.get("effective_dividend_yield_30d") if chain_meta else dividend_30d,
+                "dividend_source": chain_meta.get("dividend_source") if chain_meta else dividend_assumption.source,
+                "corporate_action_warning_count": (
+                    chain_meta.get("corporate_action_warning_count")
+                    if chain_meta
+                    else len(corporate_actions.warning_messages())
+                ),
+                "corporate_action_source": (
+                    chain_meta.get("corporate_action_source") if chain_meta else corporate_actions.source
+                ),
                 "delta": greeks["delta"],
                 "gamma": greeks["gamma"],
                 "theta": greeks["theta"],
@@ -138,7 +176,9 @@ class DashboardConnector:
             if chain.empty:
                 raise ValueError(meta.get("fallback_reason") or "No usable option-chain data")
 
-            strikes, expiries, vols = build_surface(chain, spot, key)
+            surface_rate = meta.get("risk_free_rate_median") or meta.get("risk_free_rate_30d")
+            surface_dividend = meta.get("effective_dividend_yield_median") or meta.get("effective_dividend_yield_30d")
+            strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
             self.surface_metadata[key] = {
                 **meta,
                 "surface_mode": meta.get("mode", "Live/Delayed"),
@@ -146,12 +186,26 @@ class DashboardConnector:
                 "surface_points": int(np.size(vols)),
                 "spot": spot,
                 "spot_timestamp": datetime.now(),
+                "surface_risk_free_rate": surface_rate,
+                "surface_dividend_yield": surface_dividend,
             }
             return strikes, expiries, vols
         except Exception as exc:
             logger.warning("Real chain surface failed for %s: %s", key, exc)
             chain = self.options_generator.create_chain(key)
-            strikes, expiries, vols = build_surface(chain, spot, key)
+            rate_curve = self.rate_provider.get_curve()
+            rate_meta = self._rate_metadata(rate_curve, chain)
+            dividend_assumption = self.dividend_provider.get(key)
+            chain = apply_dividends_to_options(chain, dividend_assumption, spot)
+            dividend_meta = self._dividend_metadata(dividend_assumption, chain, spot)
+            corporate_actions = self.corporate_action_provider.get(key)
+            corporate_meta = self._corporate_action_metadata(corporate_actions, chain)
+            surface_rate = rate_meta.get("risk_free_rate_median") or rate_meta.get("risk_free_rate_30d")
+            surface_dividend = (
+                dividend_meta.get("effective_dividend_yield_median")
+                or dividend_meta.get("effective_dividend_yield_30d")
+            )
+            strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
             self.surface_metadata[key] = {
                 "symbol": key,
                 "source": "synthetic generator",
@@ -167,6 +221,11 @@ class DashboardConnector:
                 "surface_points": int(np.size(vols)),
                 "spot": spot,
                 "spot_timestamp": datetime.now(),
+                "surface_risk_free_rate": surface_rate,
+                "surface_dividend_yield": surface_dividend,
+                **rate_meta,
+                **dividend_meta,
+                **corporate_meta,
             }
             return strikes, expiries, vols
 
@@ -249,6 +308,10 @@ class DashboardConnector:
                 "option_chain_cache_entries": len(self.chain_cache),
                 "option_expiry_cache_entries": self.options_provider.cache_status().get("entries"),
                 "historical_cache_entries": len(self.historical_loader.cache),
+                "risk_free_rate_source": self.rate_provider.get_curve().source,
+                "risk_free_rate_mode": self.rate_provider.get_curve().mode,
+                "dividend_cache_entries": len(self.dividend_provider._cache),
+                "corporate_action_cache_entries": len(self.corporate_action_provider._cache),
                 "market_state": market_status.get("session_state"),
                 "market_reason": market_status.get("reason"),
                 "next_market_open": market_status.get("next_open"),
@@ -262,6 +325,9 @@ class DashboardConnector:
                 "price_provider": "yfinance" if self.price_provider.yfinance_working else "simulated fallback",
                 "options_provider": "yfinance delayed chains",
                 "fallback_provider": "Black-Scholes synthetic chain",
+                "rates_provider": self.rate_provider.get_curve().source,
+                "dividends_provider": self.dividend_provider.preferred_source,
+                "corporate_actions_provider": self.corporate_action_provider.preferred_source,
                 "calendar_provider": market_status.get("market"),
                 "data_delay_minutes": market_status.get("data_delay_minutes"),
             },
@@ -273,10 +339,13 @@ class DashboardConnector:
             self.chain_cache.clear()
             self.options_provider.clear_cache()
             self.historical_loader.clear_cache()
+            self.rate_provider.clear_cache()
+            self.dividend_provider.clear_cache()
+            self.corporate_action_provider.clear_cache()
             self.surface_metadata.clear()
             return {
                 "status": "success",
-                "message": "Price, option-chain, and surface caches cleared",
+                "message": "Price, option-chain, rate, dividend, corporate-action, and surface caches cleared",
                 "timestamp": datetime.now(),
                 "yfinance_active": self.price_provider.yfinance_working,
                 "pricing_models_active": True,
@@ -322,6 +391,19 @@ class DashboardConnector:
         spot_price = spot if spot is not None else self.price_provider.get_live_price(symbol)
         df, meta_obj = self.options_provider.fetch_chain(symbol, spot_price)
         meta = meta_obj.as_dict() if isinstance(meta_obj, OptionsChainMetadata) else dict(meta_obj)
+        rate_curve = self.rate_provider.get_curve()
+        df = apply_curve_to_options(df, rate_curve)
+        dividend_assumption = self.dividend_provider.get(symbol)
+        df = apply_dividends_to_options(df, dividend_assumption, spot_price)
+        corporate_actions = self.corporate_action_provider.get(symbol)
+        meta.update(self._rate_metadata(rate_curve, df))
+        meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
+        corporate_meta = self._corporate_action_metadata(corporate_actions, df)
+        meta.update(corporate_meta)
+        meta["warnings"] = self._merge_warnings(
+            meta.get("warnings"),
+            corporate_meta.get("corporate_action_warnings"),
+        )
         meta["cache_age_seconds"] = 0
         self.chain_cache[symbol] = (df.copy(), meta, now)
         return df, meta
@@ -356,13 +438,76 @@ class DashboardConnector:
             out[name] = float(atm["impliedVolatility"].median())
         return out
 
+    @staticmethod
+    def _rate_metadata(rate_curve: Any, chain: pd.DataFrame) -> Dict[str, Any]:
+        metadata = rate_curve.metadata_dict()
+        metadata["expiry_rates"] = expiry_rate_metadata(chain, rate_curve)
+        metadata["risk_free_rate_30d"] = rate_curve.rate_for_dte(30).rate
+        if not chain.empty and "riskFreeRate" in chain.columns:
+            rates = pd.to_numeric(chain["riskFreeRate"], errors="coerce").dropna()
+            if not rates.empty:
+                metadata["risk_free_rate_min"] = float(rates.min())
+                metadata["risk_free_rate_max"] = float(rates.max())
+                metadata["risk_free_rate_median"] = float(rates.median())
+        return metadata
+
+    @staticmethod
+    def _dividend_metadata(assumption: Any, chain: pd.DataFrame, spot: float) -> Dict[str, Any]:
+        metadata = assumption.metadata_dict()
+        metadata["expiry_dividends"] = expiry_dividend_metadata(chain, assumption, spot)
+        metadata["effective_dividend_yield_30d"] = assumption.effective_yield(
+            datetime.now() + timedelta(days=30),
+            spot,
+        )
+        if not chain.empty and "effectiveDividendYield" in chain.columns:
+            yields = pd.to_numeric(chain["effectiveDividendYield"], errors="coerce").dropna()
+            if not yields.empty:
+                metadata["effective_dividend_yield_min"] = float(yields.min())
+                metadata["effective_dividend_yield_max"] = float(yields.max())
+                metadata["effective_dividend_yield_median"] = float(yields.median())
+        return metadata
+
+    @staticmethod
+    def _corporate_action_metadata(action_snapshot: Any, chain: pd.DataFrame) -> Dict[str, Any]:
+        metadata = action_snapshot.metadata_dict()
+        if not chain.empty and "expiration" in chain.columns:
+            metadata["expiry_corporate_actions"] = expiry_corporate_action_metadata(
+                chain["expiration"],
+                action_snapshot,
+            )
+        else:
+            metadata["expiry_corporate_actions"] = {}
+        return metadata
+
+    @staticmethod
+    def _merge_warnings(*groups: Any) -> List[str]:
+        out: List[str] = []
+        seen = set()
+        for group in groups:
+            for item in group or []:
+                text = str(item)
+                if text and text not in seen:
+                    seen.add(text)
+                    out.append(text)
+        return out
+
     def _safe_fallback(self, symbol: str) -> Dict[str, Any]:
         try:
             price = self.price_provider.get_live_price(symbol)
         except Exception:
             price = self.price_provider.current_market_prices.get(symbol.upper(), 100.0)
 
-        greeks = self.options_generator.calculate_greeks(symbol, price)
+        rate_curve = self.rate_provider.get_curve()
+        rate_30d = rate_curve.rate_for_dte(30).rate
+        dividend_assumption = self.dividend_provider.get(symbol)
+        corporate_actions = self.corporate_action_provider.get(symbol)
+        dividend_30d = dividend_assumption.effective_yield(datetime.now() + timedelta(days=30), price, rate_30d)
+        greeks = self.options_generator.calculate_greeks(
+            symbol,
+            price,
+            risk_free_rate=rate_30d,
+            dividend_yield=dividend_30d,
+        )
         market_status = self.get_market_status()
         return {
             "symbol": symbol.upper(),
@@ -375,6 +520,12 @@ class DashboardConnector:
             "iv_30d": greeks["iv_30d"],
             "iv_60d": greeks["iv_60d"],
             "iv_90d": greeks["iv_90d"],
+            "risk_free_rate_30d": rate_30d,
+            "risk_free_rate_source": rate_curve.source,
+            "dividend_yield_30d": dividend_30d,
+            "dividend_source": dividend_assumption.source,
+            "corporate_action_warning_count": len(corporate_actions.warning_messages()),
+            "corporate_action_source": corporate_actions.source,
             "delta": greeks["delta"],
             "gamma": greeks["gamma"],
             "theta": greeks["theta"],

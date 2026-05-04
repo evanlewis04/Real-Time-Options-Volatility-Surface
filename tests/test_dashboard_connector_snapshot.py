@@ -32,6 +32,12 @@ class StubOptionsProvider:
                     "volume": 120,
                     "openInterest": 500,
                     "impliedVolatility": 0.24,
+                    "riskFreeRate": 0.051,
+                    "dividendYield": 0.005,
+                    "effectiveDividendYield": 0.015,
+                    "discreteDividendAmount": 0.26,
+                    "discreteDividendPV": 0.259,
+                    "discreteDividendCount": 1,
                     "bidAskSpread": 0.4,
                     "bidAskSpreadPct": 0.04878,
                 }
@@ -64,6 +70,15 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.source == "fixture"
     assert len(snapshot.options) == 1
     assert snapshot.options[0].contract == "AAPL260619C00200000"
+    assert snapshot.options[0].risk_free_rate is not None
+    assert snapshot.options[0].effective_dividend_yield is not None
+    assert snapshot.risk_free_rate_source is not None
+    assert snapshot.expiry_rates
+    assert snapshot.dividend_source is not None
+    assert snapshot.expiry_dividends
+    assert snapshot.corporate_action_source is not None
+    assert snapshot.corporate_action_warning_count >= 1
+    assert snapshot.expiry_corporate_actions
 
 
 def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
@@ -77,8 +92,17 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
 
     assert frame.iloc[0]["contractSymbol"] == "AAPL260619C00200000"
     assert frame.iloc[0]["impliedVolatility"] == 0.24
+    assert frame.iloc[0]["riskFreeRate"] > 0.0
+    assert frame.iloc[0]["effectiveDividendYield"] >= 0.0
     assert meta["source"] == "fixture"
     assert meta["valid_rows"] == 1
+    assert meta["risk_free_rate_30d"] > 0.0
+    assert meta["expiry_rates"]["2026-06-19"] > 0.0
+    assert meta["effective_dividend_yield_30d"] >= 0.0
+    assert "2026-06-19" in meta["expiry_dividends"]
+    assert meta["corporate_action_warning_count"] >= 1
+    assert "2026-06-19" in meta["expiry_corporate_actions"]
+    assert any("dividend" in warning for warning in meta["corporate_action_warnings"])
 
 
 def test_connector_exposes_market_calendar_status():

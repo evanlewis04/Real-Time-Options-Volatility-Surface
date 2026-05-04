@@ -1,0 +1,9 @@
+symbol,action_type,effective_date,description,value,ratio
+AAPL,dividend,2026-05-15,Configured cash dividend assumption,0.26,
+AAPL,dividend,2026-08-14,Configured cash dividend assumption,0.26,
+MSFT,dividend,2026-05-20,Configured cash dividend assumption,0.83,
+MSFT,dividend,2026-08-19,Configured cash dividend assumption,0.83,
+SPY,dividend,2026-06-20,Configured ETF distribution assumption,1.85,
+SPY,dividend,2026-09-19,Configured ETF distribution assumption,1.85,
+QQQ,dividend,2026-06-22,Configured ETF distribution assumption,0.75,
+QQQ,dividend,2026-09-21,Configured ETF distribution assumption,0.75,

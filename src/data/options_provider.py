@@ -42,6 +42,11 @@ class OptionsChainMetadata:
     valid_rows: int = 0
     rejected_rows: int = 0
     median_spread_pct: Optional[float] = None
+    stale_quote_count: int = 0
+    last_only_quote_count: int = 0
+    zero_bid_ask_count: int = 0
+    stale_last_only_rejected_count: int = 0
+    max_quote_age_days: int = 5
     fallback_reason: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
 
@@ -54,9 +59,10 @@ class OptionsChainMetadata:
 class YFinanceOptionsProvider:
     """Fetch and normalize delayed option-chain data from yfinance."""
 
-    def __init__(self, max_expirations: int = 8, cache_ttl_seconds: int = 300):
+    def __init__(self, max_expirations: int = 8, cache_ttl_seconds: int = 300, max_quote_age_days: int = 5):
         self.max_expirations = max_expirations
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
+        self.max_quote_age_days = max_quote_age_days
         self.expiration_cache: Dict[Tuple[str, str], Tuple[pd.DataFrame, datetime]] = {}
 
     def fetch_chain(self, symbol: str, spot_price: float) -> Tuple[pd.DataFrame, OptionsChainMetadata]:
@@ -67,6 +73,7 @@ class YFinanceOptionsProvider:
             source="yfinance",
             mode="Live/Delayed",
             timestamp=now,
+            max_quote_age_days=self.max_quote_age_days,
         )
 
         if not YFINANCE_AVAILABLE:
@@ -104,9 +111,13 @@ class YFinanceOptionsProvider:
 
             raw = pd.concat(frames, ignore_index=True)
             meta.raw_rows = len(raw)
-            clean = self._normalize(raw, key, spot_price, now)
+            clean = self._normalize(raw, key, spot_price, now, max_quote_age_days=self.max_quote_age_days)
             meta.valid_rows = len(clean)
             meta.rejected_rows = max(0, meta.raw_rows - meta.valid_rows)
+            meta.stale_quote_count = int(clean.attrs.get("stale_quote_count", 0))
+            meta.last_only_quote_count = int(clean.attrs.get("last_only_quote_count", 0))
+            meta.zero_bid_ask_count = int(clean.attrs.get("zero_bid_ask_count", 0))
+            meta.stale_last_only_rejected_count = int(clean.attrs.get("stale_last_only_rejected_count", 0))
             if "bidAskSpreadPct" in clean and not clean.empty:
                 meta.median_spread_pct = float(clean["bidAskSpreadPct"].median())
 
@@ -153,7 +164,13 @@ class YFinanceOptionsProvider:
         return frame
 
     @staticmethod
-    def _normalize(raw: pd.DataFrame, symbol: str, spot_price: float, now: datetime) -> pd.DataFrame:
+    def _normalize(
+        raw: pd.DataFrame,
+        symbol: str,
+        spot_price: float,
+        now: datetime,
+        max_quote_age_days: int = 5,
+    ) -> pd.DataFrame:
         df = raw.copy()
         df["symbol"] = symbol
         df["expiration"] = pd.to_datetime(df["expiration"], errors="coerce")
@@ -186,9 +203,32 @@ class YFinanceOptionsProvider:
         for col in ("bid", "ask", "last", "volume", "openInterest", "impliedVolatility"):
             if col not in df.columns:
                 df[col] = np.nan
+        if "quoteTimestamp" not in df.columns:
+            df["quoteTimestamp"] = pd.NaT
 
+        quote_ts = pd.to_datetime(df["quoteTimestamp"], errors="coerce", utc=True).dt.tz_convert(None)
+        quote_age = now - quote_ts
+        max_quote_age = timedelta(days=max_quote_age_days)
+        df["quoteAgeSeconds"] = quote_age.dt.total_seconds()
+        df.loc[quote_ts.isna(), "quoteAgeSeconds"] = np.nan
+        df["isStaleQuote"] = quote_ts.notna() & (quote_age > max_quote_age)
+
+        valid_bid_ask = (df["bid"] > 0) & (df["ask"] > df["bid"])
+        last_only = ~valid_bid_ask & (df["last"] > 0)
+        zero_bid_ask = df["bid"].fillna(0) <= 0
+        zero_bid_ask &= df["ask"].fillna(0) <= 0
+        df["quoteQuality"] = np.select(
+            [
+                valid_bid_ask & df["isStaleQuote"],
+                valid_bid_ask,
+                last_only & df["isStaleQuote"],
+                last_only,
+            ],
+            ["stale_bid_ask", "bid_ask", "stale_last_only", "last_only"],
+            default="invalid",
+        )
         df["mid"] = np.where(
-            (df["bid"] > 0) & (df["ask"] > df["bid"]),
+            valid_bid_ask,
             (df["bid"] + df["ask"]) / 2,
             df["last"],
         )
@@ -210,7 +250,14 @@ class YFinanceOptionsProvider:
             ((clean["bid"] > 0) & (clean["ask"] > clean["bid"]) & (clean["bidAskSpreadPct"] < 1.5))
             | clean["bidAskSpreadPct"].isna()
         )
+        fresh_enough = clean["quoteQuality"] != "stale_last_only"
         clean = clean[liquid].copy()
+        stale_last_only_rejected = int((~fresh_enough & liquid).sum())
+        clean = clean[clean["quoteQuality"] != "stale_last_only"].copy()
+        clean.attrs["stale_quote_count"] = int(clean["isStaleQuote"].sum()) if "isStaleQuote" in clean else 0
+        clean.attrs["last_only_quote_count"] = int((clean["quoteQuality"] == "last_only").sum())
+        clean.attrs["zero_bid_ask_count"] = int(zero_bid_ask.sum())
+        clean.attrs["stale_last_only_rejected_count"] = stale_last_only_rejected
 
         ordered_cols = [
             "symbol",
@@ -229,8 +276,13 @@ class YFinanceOptionsProvider:
             "impliedVolatility",
             "bidAskSpread",
             "bidAskSpreadPct",
+            "quoteQuality",
+            "isStaleQuote",
+            "quoteAgeSeconds",
             "quoteTimestamp",
             "time_to_expiry",
         ]
         available = [col for col in ordered_cols if col in clean.columns]
-        return clean[available].sort_values(["expiration", "strike", "type"]).reset_index(drop=True)
+        result = clean[available].sort_values(["expiration", "strike", "type"]).reset_index(drop=True)
+        result.attrs.update(clean.attrs)
+        return result

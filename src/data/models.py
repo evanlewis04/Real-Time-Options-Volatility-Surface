@@ -35,7 +35,16 @@ class OptionQuote:
     theta: Optional[float] = None
     vega: Optional[float] = None
     rho: Optional[float] = None
+    risk_free_rate: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    effective_dividend_yield: Optional[float] = None
+    discrete_dividend_amount: Optional[float] = None
+    discrete_dividend_pv: Optional[float] = None
+    discrete_dividend_count: Optional[int] = None
     quote_timestamp: Optional[datetime] = None
+    quote_age_seconds: Optional[float] = None
+    is_stale_quote: Optional[bool] = None
+    quote_quality: Optional[str] = None
     moneyness: Optional[float] = None
     bid_ask_spread: Optional[float] = None
     bid_ask_spread_pct: Optional[float] = None
@@ -67,7 +76,16 @@ class OptionQuote:
             theta=_float_or_none(row.get("theta")),
             vega=_float_or_none(row.get("vega")),
             rho=_float_or_none(row.get("rho")),
+            risk_free_rate=_float_or_none(row.get("riskFreeRate")),
+            dividend_yield=_float_or_none(row.get("dividendYield")),
+            effective_dividend_yield=_float_or_none(row.get("effectiveDividendYield")),
+            discrete_dividend_amount=_float_or_none(row.get("discreteDividendAmount")),
+            discrete_dividend_pv=_float_or_none(row.get("discreteDividendPV")),
+            discrete_dividend_count=_int_or_none(row.get("discreteDividendCount")),
             quote_timestamp=quote_ts.to_pydatetime() if pd.notna(quote_ts) else None,
+            quote_age_seconds=_float_or_none(row.get("quoteAgeSeconds")),
+            is_stale_quote=_bool_or_none(row.get("isStaleQuote")),
+            quote_quality=_str_or_none(row.get("quoteQuality")),
             moneyness=_float_or_none(row.get("moneyness")),
             bid_ask_spread=_float_or_none(row.get("bidAskSpread")),
             bid_ask_spread_pct=_float_or_none(row.get("bidAskSpreadPct")),
@@ -95,7 +113,16 @@ class OptionQuote:
             "theta": self.theta,
             "vega": self.vega,
             "rho": self.rho,
+            "riskFreeRate": self.risk_free_rate,
+            "dividendYield": self.dividend_yield,
+            "effectiveDividendYield": self.effective_dividend_yield,
+            "discreteDividendAmount": self.discrete_dividend_amount,
+            "discreteDividendPV": self.discrete_dividend_pv,
+            "discreteDividendCount": self.discrete_dividend_count,
             "quoteTimestamp": self.quote_timestamp,
+            "quoteAgeSeconds": self.quote_age_seconds,
+            "isStaleQuote": self.is_stale_quote,
+            "quoteQuality": self.quote_quality,
             "bidAskSpread": self.bid_ask_spread,
             "bidAskSpreadPct": self.bid_ask_spread_pct,
             "time_to_expiry": self.dte / 365.0 if self.dte else np.nan,
@@ -117,6 +144,41 @@ class MarketDataSnapshot:
     cache_age: Optional[timedelta] = None
     fallback_reason: Optional[str] = None
     mode: str = "Unknown"
+    risk_free_rate_source: Optional[str] = None
+    risk_free_rate_mode: Optional[str] = None
+    risk_free_rate_timestamp: Optional[datetime] = None
+    risk_free_rate_fallback_reason: Optional[str] = None
+    risk_free_rate_curve: tuple[tuple[int, float], ...] = field(default_factory=tuple)
+    expiry_rates: tuple[tuple[str, float], ...] = field(default_factory=tuple)
+    risk_free_rate_30d: Optional[float] = None
+    risk_free_rate_min: Optional[float] = None
+    risk_free_rate_max: Optional[float] = None
+    risk_free_rate_median: Optional[float] = None
+    dividend_source: Optional[str] = None
+    dividend_mode: Optional[str] = None
+    dividend_timestamp: Optional[datetime] = None
+    dividend_fallback_reason: Optional[str] = None
+    annual_dividend_yield: Optional[float] = None
+    dividend_events: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    expiry_dividends: tuple[tuple[str, dict[str, float | int]], ...] = field(default_factory=tuple)
+    effective_dividend_yield_30d: Optional[float] = None
+    effective_dividend_yield_min: Optional[float] = None
+    effective_dividend_yield_max: Optional[float] = None
+    effective_dividend_yield_median: Optional[float] = None
+    corporate_action_source: Optional[str] = None
+    corporate_action_mode: Optional[str] = None
+    corporate_action_timestamp: Optional[datetime] = None
+    corporate_action_fallback_reason: Optional[str] = None
+    corporate_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    upcoming_corporate_actions: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    expiry_corporate_actions: tuple[tuple[str, list[dict[str, Any]]], ...] = field(default_factory=tuple)
+    corporate_action_warning_count: int = 0
+    corporate_action_warnings: tuple[str, ...] = field(default_factory=tuple)
+    stale_quote_count: int = 0
+    last_only_quote_count: int = 0
+    zero_bid_ask_count: int = 0
+    stale_last_only_rejected_count: int = 0
+    max_quote_age_days: Optional[int] = None
     raw_rows: int = 0
     valid_rows: int = 0
     rejected_rows: int = 0
@@ -146,6 +208,41 @@ class MarketDataSnapshot:
             cache_age=timedelta(seconds=int(cache_age_seconds)) if cache_age_seconds is not None else None,
             fallback_reason=metadata.get("fallback_reason"),
             mode=str(metadata.get("mode") or "Unknown"),
+            risk_free_rate_source=metadata.get("risk_free_rate_source"),
+            risk_free_rate_mode=metadata.get("risk_free_rate_mode"),
+            risk_free_rate_timestamp=_datetime_or_none(metadata.get("risk_free_rate_timestamp")),
+            risk_free_rate_fallback_reason=metadata.get("risk_free_rate_fallback_reason"),
+            risk_free_rate_curve=_rate_curve_tuple(metadata.get("risk_free_rate_curve")),
+            expiry_rates=_expiry_rates_tuple(metadata.get("expiry_rates")),
+            risk_free_rate_30d=_float_or_none(metadata.get("risk_free_rate_30d")),
+            risk_free_rate_min=_float_or_none(metadata.get("risk_free_rate_min")),
+            risk_free_rate_max=_float_or_none(metadata.get("risk_free_rate_max")),
+            risk_free_rate_median=_float_or_none(metadata.get("risk_free_rate_median")),
+            dividend_source=metadata.get("dividend_source"),
+            dividend_mode=metadata.get("dividend_mode"),
+            dividend_timestamp=_datetime_or_none(metadata.get("dividend_timestamp")),
+            dividend_fallback_reason=metadata.get("dividend_fallback_reason"),
+            annual_dividend_yield=_float_or_none(metadata.get("annual_dividend_yield")),
+            dividend_events=_dict_tuple(metadata.get("dividend_events")),
+            expiry_dividends=_nested_metadata_tuple(metadata.get("expiry_dividends")),
+            effective_dividend_yield_30d=_float_or_none(metadata.get("effective_dividend_yield_30d")),
+            effective_dividend_yield_min=_float_or_none(metadata.get("effective_dividend_yield_min")),
+            effective_dividend_yield_max=_float_or_none(metadata.get("effective_dividend_yield_max")),
+            effective_dividend_yield_median=_float_or_none(metadata.get("effective_dividend_yield_median")),
+            corporate_action_source=metadata.get("corporate_action_source"),
+            corporate_action_mode=metadata.get("corporate_action_mode"),
+            corporate_action_timestamp=_datetime_or_none(metadata.get("corporate_action_timestamp")),
+            corporate_action_fallback_reason=metadata.get("corporate_action_fallback_reason"),
+            corporate_actions=_dict_tuple(metadata.get("corporate_actions")),
+            upcoming_corporate_actions=_dict_tuple(metadata.get("upcoming_corporate_actions")),
+            expiry_corporate_actions=_list_metadata_tuple(metadata.get("expiry_corporate_actions")),
+            corporate_action_warning_count=int(metadata.get("corporate_action_warning_count") or 0),
+            corporate_action_warnings=tuple(str(item) for item in metadata.get("corporate_action_warnings") or ()),
+            stale_quote_count=int(metadata.get("stale_quote_count") or 0),
+            last_only_quote_count=int(metadata.get("last_only_quote_count") or 0),
+            zero_bid_ask_count=int(metadata.get("zero_bid_ask_count") or 0),
+            stale_last_only_rejected_count=int(metadata.get("stale_last_only_rejected_count") or 0),
+            max_quote_age_days=_int_or_none(metadata.get("max_quote_age_days")),
             raw_rows=int(metadata.get("raw_rows") or 0),
             valid_rows=int(metadata.get("valid_rows") or len(quotes)),
             rejected_rows=int(metadata.get("rejected_rows") or 0),
@@ -170,6 +267,43 @@ class MarketDataSnapshot:
             "rejected_rows": self.rejected_rows,
             "cache_age_seconds": int(self.cache_age.total_seconds()) if self.cache_age is not None else None,
             "fallback_reason": self.fallback_reason,
+            "risk_free_rate_source": self.risk_free_rate_source,
+            "risk_free_rate_mode": self.risk_free_rate_mode,
+            "risk_free_rate_timestamp": self.risk_free_rate_timestamp,
+            "risk_free_rate_fallback_reason": self.risk_free_rate_fallback_reason,
+            "risk_free_rate_curve": [
+                {"tenor_days": tenor_days, "rate": rate} for tenor_days, rate in self.risk_free_rate_curve
+            ],
+            "expiry_rates": dict(self.expiry_rates),
+            "risk_free_rate_30d": self.risk_free_rate_30d,
+            "risk_free_rate_min": self.risk_free_rate_min,
+            "risk_free_rate_max": self.risk_free_rate_max,
+            "risk_free_rate_median": self.risk_free_rate_median,
+            "dividend_source": self.dividend_source,
+            "dividend_mode": self.dividend_mode,
+            "dividend_timestamp": self.dividend_timestamp,
+            "dividend_fallback_reason": self.dividend_fallback_reason,
+            "annual_dividend_yield": self.annual_dividend_yield,
+            "dividend_events": list(self.dividend_events),
+            "expiry_dividends": dict(self.expiry_dividends),
+            "effective_dividend_yield_30d": self.effective_dividend_yield_30d,
+            "effective_dividend_yield_min": self.effective_dividend_yield_min,
+            "effective_dividend_yield_max": self.effective_dividend_yield_max,
+            "effective_dividend_yield_median": self.effective_dividend_yield_median,
+            "corporate_action_source": self.corporate_action_source,
+            "corporate_action_mode": self.corporate_action_mode,
+            "corporate_action_timestamp": self.corporate_action_timestamp,
+            "corporate_action_fallback_reason": self.corporate_action_fallback_reason,
+            "corporate_actions": list(self.corporate_actions),
+            "upcoming_corporate_actions": list(self.upcoming_corporate_actions),
+            "expiry_corporate_actions": dict(self.expiry_corporate_actions),
+            "corporate_action_warning_count": self.corporate_action_warning_count,
+            "corporate_action_warnings": list(self.corporate_action_warnings),
+            "stale_quote_count": self.stale_quote_count,
+            "last_only_quote_count": self.last_only_quote_count,
+            "zero_bid_ask_count": self.zero_bid_ask_count,
+            "stale_last_only_rejected_count": self.stale_last_only_rejected_count,
+            "max_quote_age_days": self.max_quote_age_days,
             "warnings": list(self.warnings),
         }
 
@@ -202,6 +336,18 @@ def _int_or_none(value: Any) -> Optional[int]:
     return int(value)
 
 
+def _bool_or_none(value: Any) -> Optional[bool]:
+    if value is None or pd.isna(value):
+        return None
+    return bool(value)
+
+
+def _str_or_none(value: Any) -> Optional[str]:
+    if value is None or pd.isna(value):
+        return None
+    return str(value)
+
+
 def _datetime_or_none(value: Any) -> Optional[datetime]:
     converted = pd.to_datetime(value, errors="coerce")
     return converted.to_pydatetime() if pd.notna(converted) else None
@@ -212,3 +358,51 @@ def _source_delay(mode: Any) -> Optional[timedelta]:
     if "delayed" in text:
         return timedelta(minutes=15)
     return None
+
+
+def _rate_curve_tuple(value: Any) -> tuple[tuple[int, float], ...]:
+    if not value:
+        return ()
+    points = []
+    for item in value:
+        if isinstance(item, dict):
+            tenor = item.get("tenor_days")
+            rate = item.get("rate")
+        else:
+            tenor, rate = item
+        if tenor is not None and rate is not None:
+            points.append((int(tenor), float(rate)))
+    return tuple(points)
+
+
+def _expiry_rates_tuple(value: Any) -> tuple[tuple[str, float], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    return tuple((str(expiry), float(rate)) for expiry, rate in items)
+
+
+def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    if not value:
+        return ()
+    return tuple(dict(item) for item in value)
+
+
+def _nested_metadata_tuple(value: Any) -> tuple[tuple[str, dict[str, float | int]], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    out = []
+    for key, payload in items:
+        out.append((str(key), dict(payload)))
+    return tuple(out)
+
+
+def _list_metadata_tuple(value: Any) -> tuple[tuple[str, list[dict[str, Any]]], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    out = []
+    for key, payload in items:
+        out.append((str(key), [dict(item) for item in payload]))
+    return tuple(out)

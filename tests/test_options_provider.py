@@ -21,6 +21,7 @@ def test_yfinance_options_normalize_filters_and_shapes_rows():
                 "volume": 120,
                 "openInterest": 500,
                 "impliedVolatility": 0.24,
+                "lastTradeDate": now - timedelta(hours=1),
                 "type": "call",
                 "expiration": expiration,
             },
@@ -48,6 +49,67 @@ def test_yfinance_options_normalize_filters_and_shapes_rows():
     assert row["moneyness"] == 0.975
     assert row["mid"] == 8.2
     assert row["bidAskSpreadPct"] == (8.4 - 8.0) / 8.2
+    assert row["quoteQuality"] == "bid_ask"
+    assert row["isStaleQuote"] == False
+    assert row["quoteAgeSeconds"] == 3600.0
+
+
+def test_yfinance_options_normalize_marks_stale_and_last_only_quotes():
+    now = datetime(2026, 5, 2, 12, 0, 0)
+    expiration = (now + timedelta(days=30)).strftime("%Y-%m-%d")
+    raw = pd.DataFrame(
+        [
+            {
+                "contractSymbol": "AAPL260601C00195000",
+                "strike": 195.0,
+                "lastPrice": 8.2,
+                "bid": 8.0,
+                "ask": 8.4,
+                "volume": 120,
+                "openInterest": 500,
+                "impliedVolatility": 0.24,
+                "lastTradeDate": now - timedelta(days=10),
+                "type": "call",
+                "expiration": expiration,
+            },
+            {
+                "contractSymbol": "AAPL260601P00195000",
+                "strike": 195.0,
+                "lastPrice": 7.5,
+                "bid": None,
+                "ask": None,
+                "volume": 80,
+                "openInterest": 400,
+                "impliedVolatility": 0.25,
+                "lastTradeDate": now - timedelta(days=1),
+                "type": "put",
+                "expiration": expiration,
+            },
+            {
+                "contractSymbol": "AAPL260601C00200000",
+                "strike": 200.0,
+                "lastPrice": 6.1,
+                "bid": None,
+                "ask": None,
+                "volume": 10,
+                "openInterest": 100,
+                "impliedVolatility": 0.26,
+                "lastTradeDate": now - timedelta(days=10),
+                "type": "call",
+                "expiration": expiration,
+            },
+        ]
+    )
+
+    clean = YFinanceOptionsProvider._normalize(raw, "AAPL", 200.0, now, max_quote_age_days=5)
+
+    assert clean["contractSymbol"].tolist() == ["AAPL260601C00195000", "AAPL260601P00195000"]
+    assert clean.iloc[0]["quoteQuality"] == "stale_bid_ask"
+    assert clean.iloc[0]["isStaleQuote"] == True
+    assert clean.iloc[1]["quoteQuality"] == "last_only"
+    assert clean.attrs["stale_quote_count"] == 1
+    assert clean.attrs["last_only_quote_count"] == 1
+    assert clean.attrs["stale_last_only_rejected_count"] == 1
 
 
 def test_yfinance_options_provider_caches_by_symbol_and_expiry(monkeypatch):

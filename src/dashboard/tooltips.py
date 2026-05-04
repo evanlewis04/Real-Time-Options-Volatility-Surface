@@ -31,6 +31,9 @@ COLUMN_HELP = {
     "30D IV": "Approximate 30-day annualized implied volatility.",
     "60D IV": "Approximate 60-day annualized implied volatility.",
     "90D IV": "Approximate 90-day annualized implied volatility.",
+    "30D Rate": "Interpolated annualized risk-free rate for a 30 calendar-day maturity.",
+    "30D Div Yield": "Effective dividend yield for a 30 calendar-day maturity.",
+    "Action Warnings": "Upcoming splits, dividends, or other corporate actions surfaced in data warnings.",
     "Delta": "Approximate option delta, dollars of option per dollar of spot.",
     "Gamma": "Approximate delta change per dollar of spot.",
     "Theta/day": "Approximate option time decay in dollars per calendar day.",
@@ -50,6 +53,11 @@ COLUMN_HELP = {
     "last": "Last reported trade price in dollars.",
     "openInterest": "Open contracts reported by the data provider.",
     "impliedVolatility": "Provider implied volatility, annualized.",
+    "riskFreeRate": "Interpolated annualized risk-free rate for this contract expiry.",
+    "effectiveDividendYield": "Continuous dividend yield used by BSM for this expiry, including discrete dividend adjustment.",
+    "discreteDividendAmount": "Undiscounted cash dividends with ex-dates before this contract expires.",
+    "quoteQuality": "Provider quote quality label such as bid_ask, stale_bid_ask, or last_only.",
+    "quoteAgeSeconds": "Seconds between provider quote timestamp and snapshot normalization time.",
     "bidAskSpreadPct": "Bid-ask spread divided by mid price.",
 }
 

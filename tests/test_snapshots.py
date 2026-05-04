@@ -23,6 +23,15 @@ def _snapshot() -> MarketDataSnapshot:
                 "volume": 120,
                 "openInterest": 500,
                 "impliedVolatility": 0.24,
+                "riskFreeRate": 0.051,
+                "dividendYield": 0.005,
+                "effectiveDividendYield": 0.015,
+                "discreteDividendAmount": 0.26,
+                "discreteDividendPV": 0.259,
+                "discreteDividendCount": 1,
+                "quoteQuality": "bid_ask",
+                "isStaleQuote": False,
+                "quoteAgeSeconds": 3600,
                 "bidAskSpread": 0.4,
                 "bidAskSpreadPct": 0.04878,
             }
@@ -40,6 +49,84 @@ def _snapshot() -> MarketDataSnapshot:
         source_delay=timedelta(minutes=15),
         cache_age=timedelta(seconds=7),
         mode="Live/Delayed",
+        risk_free_rate_source="local:config/risk_free_curve.csv",
+        risk_free_rate_mode="Local",
+        risk_free_rate_timestamp=datetime(2026, 5, 3, 9, 59, 0),
+        risk_free_rate_curve=((30, 0.051), (90, 0.0495)),
+        expiry_rates=(("2026-06-19", 0.0505),),
+        risk_free_rate_30d=0.051,
+        risk_free_rate_min=0.0505,
+        risk_free_rate_max=0.0505,
+        risk_free_rate_median=0.0505,
+        dividend_source="local:config/dividends.csv",
+        dividend_mode="Local",
+        dividend_timestamp=datetime(2026, 5, 3, 9, 58, 0),
+        annual_dividend_yield=0.005,
+        dividend_events=({"ex_date": "2026-05-15", "amount": 0.26, "currency": "USD"},),
+        expiry_dividends=(
+            (
+                "2026-06-19",
+                {
+                    "annual_yield": 0.005,
+                    "effective_yield": 0.015,
+                    "discrete_amount": 0.26,
+                    "discrete_present_value": 0.259,
+                    "discrete_count": 1,
+                },
+            ),
+        ),
+        effective_dividend_yield_30d=0.012,
+        effective_dividend_yield_min=0.005,
+        effective_dividend_yield_max=0.015,
+        effective_dividend_yield_median=0.015,
+        corporate_action_source="local:config/corporate_actions.csv",
+        corporate_action_mode="Local",
+        corporate_action_timestamp=datetime(2026, 5, 3, 9, 57, 0),
+        corporate_actions=(
+            {
+                "symbol": "AAPL",
+                "action_type": "dividend",
+                "effective_date": "2026-05-15",
+                "description": "Cash dividend",
+                "value": 0.26,
+                "ratio": None,
+                "source": "fixture",
+            },
+        ),
+        upcoming_corporate_actions=(
+            {
+                "symbol": "AAPL",
+                "action_type": "dividend",
+                "effective_date": "2026-05-15",
+                "description": "Cash dividend",
+                "value": 0.26,
+                "ratio": None,
+                "source": "fixture",
+            },
+        ),
+        expiry_corporate_actions=(
+            (
+                "2026-06-19",
+                [
+                    {
+                        "symbol": "AAPL",
+                        "action_type": "dividend",
+                        "effective_date": "2026-05-15",
+                        "description": "Cash dividend",
+                        "value": 0.26,
+                        "ratio": None,
+                        "source": "fixture",
+                    }
+                ],
+            ),
+        ),
+        corporate_action_warning_count=1,
+        corporate_action_warnings=("AAPL dividend on 2026-05-15: Cash dividend (0.26)",),
+        stale_quote_count=0,
+        last_only_quote_count=0,
+        zero_bid_ask_count=0,
+        stale_last_only_rejected_count=1,
+        max_quote_age_days=5,
         raw_rows=1,
         valid_rows=1,
     )
@@ -56,6 +143,18 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.cache_age == timedelta(seconds=7)
     assert len(loaded.options) == 1
     assert loaded.options[0].contract == "AAPL260619C00200000"
+    assert loaded.options[0].risk_free_rate == 0.051
+    assert loaded.risk_free_rate_source == "local:config/risk_free_curve.csv"
+    assert loaded.expiry_rates == (("2026-06-19", 0.0505),)
+    assert loaded.risk_free_rate_30d == 0.051
+    assert loaded.options[0].effective_dividend_yield == 0.015
+    assert loaded.annual_dividend_yield == 0.005
+    assert loaded.expiry_dividends[0][1]["discrete_count"] == 1
+    assert loaded.corporate_action_warning_count == 1
+    assert loaded.expiry_corporate_actions[0][1][0]["action_type"] == "dividend"
+    assert loaded.options[0].quote_quality == "bid_ask"
+    assert loaded.stale_last_only_rejected_count == 1
+    assert loaded.max_quote_age_days == 5
 
 
 def test_list_and_load_latest_snapshot(tmp_path):

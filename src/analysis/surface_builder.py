@@ -21,14 +21,15 @@ from src.data.synthetic_options import get_symbol_vol_characteristics
 
 logger = logging.getLogger(__name__)
 
-RISK_FREE_RATE = 0.05
+DEFAULT_RISK_FREE_RATE = 0.05
 
 
 # ----------------------------------------------------------------------
 # Public entry point
 # ----------------------------------------------------------------------
 
-def build_surface(options_data: pd.DataFrame, spot_price: float, symbol: str
+def build_surface(options_data: pd.DataFrame, spot_price: float, symbol: str,
+                  risk_free_rate: float | None = None
                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Fit a vol surface for ``symbol`` from ``options_data``.
 
@@ -44,7 +45,7 @@ def build_surface(options_data: pd.DataFrame, spot_price: float, symbol: str
         return _parametric_fallback(symbol, spot_price)
 
     try:
-        surface = VolatilitySurface(clean, spot_price, RISK_FREE_RATE)
+        surface = VolatilitySurface(clean, spot_price, _surface_rate(clean, risk_free_rate))
         result = surface.construct_surface(method='linear')
         if 'combined' in result:
             data = result['combined']
@@ -113,6 +114,17 @@ def _prepare_data(options_data: pd.DataFrame, spot_price: float) -> pd.DataFrame
 
     df = df.sort_values(['time_to_expiry', 'moneyness'])
     return df.drop('exp_group', axis=1, errors='ignore')
+
+
+def _surface_rate(clean: pd.DataFrame, explicit_rate: float | None = None) -> float:
+    """Select the rate used by model-backed surface construction."""
+    if explicit_rate is not None and np.isfinite(explicit_rate):
+        return float(explicit_rate)
+    if "riskFreeRate" in clean.columns:
+        rates = pd.to_numeric(clean["riskFreeRate"], errors="coerce").dropna()
+        if not rates.empty:
+            return float(rates.median())
+    return DEFAULT_RISK_FREE_RATE
 
 
 # ----------------------------------------------------------------------

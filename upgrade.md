@@ -217,17 +217,17 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
   - Suggested: `pandas_market_calendars`.
   - Acceptance: app knows market open, close, holidays, and delayed/weekend states.
 
-- [ ] Add risk-free rate source.
+- [x] Add risk-free rate source.
   - Suggested: Treasury curve/FRED or a configurable curve file.
   - Acceptance: IV calculations use expiry-specific rates, not one hard-coded 5 percent value.
 
-- [ ] Add dividend yield and discrete dividend support.
+- [x] Add dividend yield and discrete dividend support.
   - Acceptance: equity option IVs can incorporate dividends by symbol/expiry.
 
-- [ ] Add corporate action awareness.
+- [x] Add corporate action awareness.
   - Acceptance: splits/dividends can be surfaced in data warnings.
 
-- [ ] Add stale quote filtering.
+- [x] Add stale quote filtering.
   - Acceptance: old or zero bid/ask quotes are excluded or marked.
 
 - [ ] Add liquidity filters.

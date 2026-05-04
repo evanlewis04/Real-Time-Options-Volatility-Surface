@@ -75,6 +75,8 @@ def run_dashboard() -> None:
                 "gamma": 0.018,
                 "theta": -0.08,
                 "vega": 0.22,
+                "dividend_yield_30d": 0.0,
+                "corporate_action_warning_count": 0,
                 "bid_ask_spread": None,
                 "contracts": None,
                 "market_status": self.get_market_status().get("session_state"),
@@ -352,6 +354,13 @@ def run_dashboard() -> None:
         market {market_status.get("reason", "unknown")};
         delay {fmt_int(market_status.get("data_delay_minutes"))} min;
         fallback reason {surface_meta.get("fallback_reason") or "none"}.
+        risk-free curve {surface_meta.get("risk_free_rate_source") or "unknown"};
+        30D rate {fmt_pct(surface_meta.get("risk_free_rate_30d"))};
+        dividend source {surface_meta.get("dividend_source") or "unknown"};
+        30D dividend yield {fmt_pct(surface_meta.get("effective_dividend_yield_30d"))};
+        corporate actions {fmt_int(surface_meta.get("corporate_action_warning_count"))} warning(s).
+        stale quotes {fmt_int(surface_meta.get("stale_quote_count"))};
+        last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -368,6 +377,9 @@ def run_dashboard() -> None:
                     "30D IV": data.get("iv_30d"),
                     "60D IV": data.get("iv_60d"),
                     "90D IV": data.get("iv_90d"),
+                    "30D Rate": data.get("risk_free_rate_30d"),
+                    "30D Div Yield": data.get("dividend_yield_30d"),
+                    "Action Warnings": data.get("corporate_action_warning_count"),
                     "Delta": data.get("delta"),
                     "Gamma": data.get("gamma"),
                     "Theta/day": data.get("theta"),
@@ -482,6 +494,15 @@ def run_dashboard() -> None:
                 "30D IV": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["30D IV"]),
                 "60D IV": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["60D IV"]),
                 "90D IV": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["90D IV"]),
+                "30D Rate": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["30D Rate"]),
+                "30D Div Yield": st.column_config.NumberColumn(
+                    format="%.2%",
+                    help=COLUMN_HELP["30D Div Yield"],
+                ),
+                "Action Warnings": st.column_config.NumberColumn(
+                    format="%d",
+                    help=COLUMN_HELP["Action Warnings"],
+                ),
                 "Delta": st.column_config.NumberColumn(format="%.4f", help=COLUMN_HELP["Delta"]),
                 "Gamma": st.column_config.NumberColumn(format="%.4f", help=COLUMN_HELP["Gamma"]),
                 "Theta/day": st.column_config.NumberColumn(format="$%.4f", help=COLUMN_HELP["Theta/day"]),
@@ -572,6 +593,11 @@ def run_dashboard() -> None:
                 "volume",
                 "openInterest",
                 "impliedVolatility",
+                "riskFreeRate",
+                "effectiveDividendYield",
+                "discreteDividendAmount",
+                "quoteQuality",
+                "quoteAgeSeconds",
                 "bidAskSpreadPct",
             ]
             display_cols = [col for col in display_cols if col in filtered.columns]
@@ -605,6 +631,30 @@ def run_dashboard() -> None:
                         "IV",
                         format="%.2%",
                         help=COLUMN_HELP["impliedVolatility"],
+                    ),
+                    "riskFreeRate": st.column_config.NumberColumn(
+                        "Rate",
+                        format="%.2%",
+                        help=COLUMN_HELP["riskFreeRate"],
+                    ),
+                    "effectiveDividendYield": st.column_config.NumberColumn(
+                        "Div Yield",
+                        format="%.2%",
+                        help=COLUMN_HELP["effectiveDividendYield"],
+                    ),
+                    "discreteDividendAmount": st.column_config.NumberColumn(
+                        "Div $",
+                        format="$%.2f",
+                        help=COLUMN_HELP["discreteDividendAmount"],
+                    ),
+                    "quoteQuality": st.column_config.TextColumn(
+                        "Quote Quality",
+                        help=COLUMN_HELP["quoteQuality"],
+                    ),
+                    "quoteAgeSeconds": st.column_config.NumberColumn(
+                        "Quote Age Sec",
+                        format="%.0f",
+                        help=COLUMN_HELP["quoteAgeSeconds"],
                     ),
                     "bidAskSpreadPct": st.column_config.NumberColumn(
                         "Spread %",

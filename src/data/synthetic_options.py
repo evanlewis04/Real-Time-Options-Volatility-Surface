@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -74,8 +74,15 @@ class SyntheticOptionsGenerator:
 
     RISK_FREE_RATE = 0.05
 
-    def __init__(self, price_provider: RealTimePriceProvider):
+    def __init__(
+        self,
+        price_provider: RealTimePriceProvider,
+        rate_provider: Optional[Any] = None,
+        dividend_provider: Optional[Any] = None,
+    ):
         self.price_provider = price_provider
+        self.rate_provider = rate_provider
+        self.dividend_provider = dividend_provider
         self.bs = BlackScholesModel()
         self.iv_calc = ImpliedVolatilityCalculator()
 
@@ -90,19 +97,24 @@ class SyntheticOptionsGenerator:
 
         strikes = self._build_strikes(spot)
         expirations = self._build_expirations()
+        rate_curve = self.rate_provider.get_curve() if self.rate_provider is not None else None
+        dividend_assumption = self.dividend_provider.get(symbol) if self.dividend_provider is not None else None
 
         rows = []
         today = datetime.now()
         for exp in expirations:
             T = (exp - today).days / 365.0
+            r = self._risk_free_rate((exp - today).days, rate_curve)
+            q = self._dividend_yield(exp, spot, r, dividend_assumption)
             for K in strikes:
                 vol = self._iv_at(spot, K, T, params)
-                call = max(0.01, self.bs.call_price(S=spot, K=K, T=T, r=self.RISK_FREE_RATE, sigma=vol))
-                put = max(0.01, self.bs.put_price(S=spot, K=K, T=T, r=self.RISK_FREE_RATE, sigma=vol))
+                call = max(0.01, self.bs.call_price(S=spot, K=K, T=T, r=r, sigma=vol, q=q))
+                put = max(0.01, self.bs.put_price(S=spot, K=K, T=T, r=r, sigma=vol, q=q))
                 base_volume = self._base_volume(spot, K, T, params['volume_mult'])
                 rows.extend(self._option_rows(
                     symbol=symbol, exp=exp, spot=spot, strike=K, T=T,
-                    vol=vol, call_price=call, put_price=put,
+                    vol=vol, call_price=call, put_price=put, risk_free_rate=r,
+                    dividend_yield=q,
                     base_volume=base_volume, today=today,
                 ))
 
@@ -118,22 +130,29 @@ class SyntheticOptionsGenerator:
     # Greeks
     # ------------------------------------------------------------------
 
-    def calculate_greeks(self, symbol: str, spot_price: float) -> Dict[str, float]:
+    def calculate_greeks(
+        self,
+        symbol: str,
+        spot_price: float,
+        risk_free_rate: Optional[float] = None,
+        dividend_yield: Optional[float] = None,
+    ) -> Dict[str, float]:
         """Compute representative ATM Greeks at 30 DTE for ``symbol``."""
         characteristics = get_symbol_vol_characteristics(symbol)
         base_iv = characteristics['base_vol']
         iv_60d = base_iv * (1.0 + 0.05 * np.sqrt(60 / 30))
         iv_90d = base_iv * (1.0 + 0.08 * np.sqrt(90 / 30))
         T = 30 / 365
-        r = self.RISK_FREE_RATE
+        r = self.RISK_FREE_RATE if risk_free_rate is None else float(risk_free_rate)
+        q = 0.0 if dividend_yield is None else float(dividend_yield)
 
         try:
-            delta_call = OptionGreeks.delta(spot_price, spot_price, T, r, base_iv, 'call')
-            delta_put = OptionGreeks.delta(spot_price, spot_price, T, r, base_iv, 'put')
-            gamma = OptionGreeks.gamma(spot_price, spot_price, T, r, base_iv)
-            theta_call = OptionGreeks.theta(spot_price, spot_price, T, r, base_iv, 'call')
-            theta_put = OptionGreeks.theta(spot_price, spot_price, T, r, base_iv, 'put')
-            vega = OptionGreeks.vega(spot_price, spot_price, T, r, base_iv)
+            delta_call = OptionGreeks.delta(spot_price, spot_price, T, r, base_iv, 'call', q=q)
+            delta_put = OptionGreeks.delta(spot_price, spot_price, T, r, base_iv, 'put', q=q)
+            gamma = OptionGreeks.gamma(spot_price, spot_price, T, r, base_iv, q=q)
+            theta_call = OptionGreeks.theta(spot_price, spot_price, T, r, base_iv, 'call', q=q)
+            theta_put = OptionGreeks.theta(spot_price, spot_price, T, r, base_iv, 'put', q=q)
+            vega = OptionGreeks.vega(spot_price, spot_price, T, r, base_iv, q=q)
 
             if not (0.01 <= vega <= 100):
                 manual = self._vega_manual(spot_price, spot_price, T, r, base_iv)
@@ -205,6 +224,8 @@ class SyntheticOptionsGenerator:
 
     @staticmethod
     def _option_rows(*, symbol, exp, spot, strike, T, vol, call_price, put_price,
+                     risk_free_rate,
+                     dividend_yield,
                      base_volume, today):
         moneyness = spot / strike
         rows = []
@@ -226,11 +247,29 @@ class SyntheticOptionsGenerator:
                 'volume': int(base_volume * vol_factor),
                 'openInterest': int(base_volume * oi_factor),
                 'impliedVolatility': round(vol, 4),
+                'riskFreeRate': risk_free_rate,
+                'dividendYield': dividend_yield,
+                'effectiveDividendYield': dividend_yield,
+                'discreteDividendAmount': 0.0,
+                'discreteDividendPV': 0.0,
+                'discreteDividendCount': 0,
                 'timestamp': today.strftime('%Y-%m-%d'),
                 'moneyness': moneyness,
                 'time_to_expiry': T,
             })
         return rows
+
+    @classmethod
+    def _risk_free_rate(cls, days_to_expiration: int, rate_curve: Optional[Any]) -> float:
+        if rate_curve is None:
+            return cls.RISK_FREE_RATE
+        return float(rate_curve.rate_for_dte(days_to_expiration).rate)
+
+    @staticmethod
+    def _dividend_yield(expiry: Any, spot: float, risk_free_rate: float, assumption: Optional[Any]) -> float:
+        if assumption is None:
+            return 0.0
+        return float(assumption.effective_yield(expiry, spot, risk_free_rate))
 
     @staticmethod
     def _vega_manual(S: float, K: float, T: float, r: float, sigma: float) -> float:
