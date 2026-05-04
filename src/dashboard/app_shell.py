@@ -403,6 +403,7 @@ def run_dashboard() -> None:
         stale quotes {fmt_int(surface_meta.get("stale_quote_count"))};
         last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))};
         crossed/locked markets {fmt_int(surface_meta.get("crossed_locked_rejected_count"))};
+        parity violations {fmt_int(surface_meta.get("parity_violation_count"))};
         filters OI >= {fmt_int(surface_meta.get("min_open_interest"))},
         volume >= {fmt_int(surface_meta.get("min_volume"))},
         spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
@@ -647,6 +648,8 @@ def run_dashboard() -> None:
                 "openInterest",
                 "impliedVolatility",
                 "computedIV",
+                "parityViolation",
+                "parityError",
                 "riskFreeRate",
                 "effectiveDividendYield",
                 "discreteDividendAmount",
@@ -702,6 +705,15 @@ def run_dashboard() -> None:
                         "Computed IV",
                         format="%.2%",
                         help=COLUMN_HELP["computedIV"],
+                    ),
+                    "parityViolation": st.column_config.CheckboxColumn(
+                        "Parity Flag",
+                        help=COLUMN_HELP["parityViolation"],
+                    ),
+                    "parityError": st.column_config.NumberColumn(
+                        "Parity Error",
+                        format="$%.2f",
+                        help=COLUMN_HELP["parityError"],
                     ),
                     "riskFreeRate": st.column_config.NumberColumn(
                         "Rate",

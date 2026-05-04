@@ -454,9 +454,11 @@ class DashboardConnector:
         df = apply_dividends_to_options(df, dividend_assumption, spot_price)
         corporate_actions = self.corporate_action_provider.get(symbol)
         df, price_meta = self._apply_option_price_source(df, spot_price)
+        df, parity_meta = self._apply_parity_checks(df, spot_price)
         meta.update(self._rate_metadata(rate_curve, df))
         meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
         meta.update(price_meta)
+        meta.update(parity_meta)
         corporate_meta = self._corporate_action_metadata(corporate_actions, df)
         meta.update(corporate_meta)
         meta["warnings"] = self._merge_warnings(
@@ -648,6 +650,92 @@ class DashboardConnector:
         out = out[computed.notna()].copy()
         out["impliedVolatility"] = pd.to_numeric(out["computedIV"], errors="coerce")
         return out
+
+    @staticmethod
+    def _apply_parity_checks(chain: pd.DataFrame, spot: float) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """Flag obvious put-call parity violations by expiration and strike."""
+        if chain.empty:
+            return chain.copy(), {
+                "parity_pairs_checked": 0,
+                "parity_violation_count": 0,
+                "parity_violation_rows": 0,
+                "parity_violations": [],
+            }
+
+        df = chain.copy()
+        df["parityViolation"] = False
+        df["parityError"] = np.nan
+        df["parityTheoreticalDiff"] = np.nan
+        df["parityObservedDiff"] = np.nan
+
+        required = {"type", "strike", "expiration", "selectedMarketPrice"}
+        if not required.issubset(df.columns):
+            return df, {
+                "parity_pairs_checked": 0,
+                "parity_violation_count": 0,
+                "parity_violation_rows": 0,
+                "parity_violations": [],
+            }
+
+        work = df.copy()
+        work["expiration_norm"] = pd.to_datetime(work["expiration"], errors="coerce").dt.normalize()
+        work["strike_num"] = pd.to_numeric(work["strike"], errors="coerce")
+        work["selected_price_num"] = pd.to_numeric(work["selectedMarketPrice"], errors="coerce")
+
+        pairs_checked = 0
+        violations: List[Dict[str, Any]] = []
+        for (expiration, strike), group in work.groupby(["expiration_norm", "strike_num"], dropna=True):
+            calls = group[group["type"].astype(str).str.lower() == "call"]
+            puts = group[group["type"].astype(str).str.lower() == "put"]
+            if calls.empty or puts.empty:
+                continue
+            call_price = float(calls["selected_price_num"].dropna().median()) if calls["selected_price_num"].notna().any() else np.nan
+            put_price = float(puts["selected_price_num"].dropna().median()) if puts["selected_price_num"].notna().any() else np.nan
+            if not np.isfinite(call_price) or not np.isfinite(put_price):
+                continue
+
+            representative = group.iloc[0]
+            time_to_expiry = _float_or_nan(representative.get("time_to_expiry"))
+            if not np.isfinite(time_to_expiry):
+                days_to_expiry = _float_or_nan(representative.get("daysToExpiration"))
+                time_to_expiry = days_to_expiry / 365.0 if np.isfinite(days_to_expiry) else np.nan
+            rate = _float_or_nan(representative.get("riskFreeRate"))
+            dividend = _float_or_nan(representative.get("effectiveDividendYield"))
+            if not np.isfinite(dividend):
+                dividend = _float_or_nan(representative.get("dividendYield"))
+            if not all(np.isfinite(value) for value in (time_to_expiry, rate, dividend)):
+                continue
+
+            pairs_checked += 1
+            observed = call_price - put_price
+            theoretical = spot * np.exp(-dividend * time_to_expiry) - float(strike) * np.exp(-rate * time_to_expiry)
+            error = observed - theoretical
+            tolerance = max(1.0, 0.20 * max(abs(call_price), abs(put_price), abs(theoretical), 1.0))
+            pair_index = group.index
+            df.loc[pair_index, "parityError"] = error
+            df.loc[pair_index, "parityTheoreticalDiff"] = theoretical
+            df.loc[pair_index, "parityObservedDiff"] = observed
+            if abs(error) > tolerance:
+                df.loc[pair_index, "parityViolation"] = True
+                violations.append(
+                    {
+                        "expiration": expiration.date().isoformat() if pd.notna(expiration) else None,
+                        "strike": float(strike),
+                        "call_price": call_price,
+                        "put_price": put_price,
+                        "observed_call_put_diff": observed,
+                        "theoretical_call_put_diff": theoretical,
+                        "parity_error": error,
+                        "tolerance": tolerance,
+                    }
+                )
+
+        return df, {
+            "parity_pairs_checked": pairs_checked,
+            "parity_violation_count": len(violations),
+            "parity_violation_rows": int(df["parityViolation"].sum()),
+            "parity_violations": violations[:20],
+        }
 
     def _safe_fallback(self, symbol: str) -> Dict[str, Any]:
         try:

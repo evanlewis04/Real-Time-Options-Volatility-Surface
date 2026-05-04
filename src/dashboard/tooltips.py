@@ -60,6 +60,8 @@ COLUMN_HELP = {
     "openInterest": "Open contracts reported by the data provider.",
     "impliedVolatility": "Provider implied volatility, annualized.",
     "computedIV": "Implied volatility recomputed from the selected market price, rate, and dividend assumptions.",
+    "parityViolation": "Call and put at the same expiry/strike fail the put-call parity sanity tolerance.",
+    "parityError": "Observed call-minus-put price difference minus theoretical parity difference.",
     "riskFreeRate": "Interpolated annualized risk-free rate for this contract expiry.",
     "effectiveDividendYield": "Continuous dividend yield used by BSM for this expiry, including discrete dividend adjustment.",
     "discreteDividendAmount": "Undiscounted cash dividends with ex-dates before this contract expires.",

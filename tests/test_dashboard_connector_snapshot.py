@@ -78,6 +78,10 @@ class StubOptionsProvider:
             "crossed_market_count": 0,
             "locked_market_count": 0,
             "crossed_locked_rejected_count": 0,
+            "parity_pairs_checked": 0,
+            "parity_violation_count": 0,
+            "parity_violation_rows": 0,
+            "parity_violations": [],
             "rejection_reasons": {},
         }
         return frame, meta
@@ -110,6 +114,7 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.min_open_interest == 0
     assert snapshot.liquidity_filtered_count == 0
     assert snapshot.crossed_locked_rejected_count == 0
+    assert snapshot.parity_violation_count == 0
 
 
 def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
@@ -141,6 +146,7 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert any("dividend" in warning for warning in meta["corporate_action_warnings"])
     assert meta["liquidity_filtered_count"] == 0
     assert meta["crossed_locked_rejected_count"] == 0
+    assert meta["parity_violation_count"] == 0
     assert meta["rejection_reasons"] == {}
 
 
@@ -205,6 +211,60 @@ def test_connector_option_price_source_drives_computed_iv():
     assert last_chain.iloc[0]["selectedPriceSource"] == "last"
     assert abs(last_chain.iloc[0]["computedIV"] - 0.40) < 1e-4
     assert last_meta["option_price_source"] == "last"
+
+
+def test_connector_flags_obvious_put_call_parity_violations():
+    connector = DashboardConnector()
+    expiry = pd.Timestamp("2026-06-19")
+    chain = pd.DataFrame(
+        [
+            {
+                "type": "call",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 100.0,
+                "selectedMarketPrice": 12.0,
+                "riskFreeRate": 0.0,
+                "effectiveDividendYield": 0.0,
+            },
+            {
+                "type": "put",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 100.0,
+                "selectedMarketPrice": 2.0,
+                "riskFreeRate": 0.0,
+                "effectiveDividendYield": 0.0,
+            },
+            {
+                "type": "call",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 110.0,
+                "selectedMarketPrice": 2.0,
+                "riskFreeRate": 0.0,
+                "effectiveDividendYield": 0.0,
+            },
+            {
+                "type": "put",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 110.0,
+                "selectedMarketPrice": 12.0,
+                "riskFreeRate": 0.0,
+                "effectiveDividendYield": 0.0,
+            },
+        ]
+    )
+
+    checked, meta = connector._apply_parity_checks(chain, 100.0)
+
+    assert meta["parity_pairs_checked"] == 2
+    assert meta["parity_violation_count"] == 1
+    assert meta["parity_violation_rows"] == 2
+    assert checked.loc[checked["strike"] == 100.0, "parityViolation"].all()
+    assert not checked.loc[checked["strike"] == 110.0, "parityViolation"].any()
+    assert meta["parity_violations"][0]["strike"] == 100.0
 
 
 def test_connector_exposes_market_calendar_status():

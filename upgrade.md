@@ -240,7 +240,7 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
 - [x] Add crossed/locked market detection.
   - Acceptance: invalid bid/ask rows are flagged and excluded.
 
-- [ ] Add parity sanity checks across calls and puts.
+- [x] Add parity sanity checks across calls and puts.
   - Acceptance: obvious put-call parity violations are flagged by expiry/strike.
 
 - [ ] Add data quality score per expiry and per surface.

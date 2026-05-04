@@ -34,6 +34,10 @@ class OptionQuote:
     selected_market_price: Optional[float] = None
     selected_price_source: Optional[str] = None
     iv_input: Optional[str] = None
+    parity_violation: Optional[bool] = None
+    parity_error: Optional[float] = None
+    parity_theoretical_diff: Optional[float] = None
+    parity_observed_diff: Optional[float] = None
     delta: Optional[float] = None
     gamma: Optional[float] = None
     theta: Optional[float] = None
@@ -81,6 +85,10 @@ class OptionQuote:
             selected_market_price=_float_or_none(row.get("selectedMarketPrice")),
             selected_price_source=_str_or_none(row.get("selectedPriceSource")),
             iv_input=_str_or_none(row.get("ivInput")),
+            parity_violation=_bool_or_none(row.get("parityViolation")),
+            parity_error=_float_or_none(row.get("parityError")),
+            parity_theoretical_diff=_float_or_none(row.get("parityTheoreticalDiff")),
+            parity_observed_diff=_float_or_none(row.get("parityObservedDiff")),
             delta=_float_or_none(row.get("delta")),
             gamma=_float_or_none(row.get("gamma")),
             theta=_float_or_none(row.get("theta")),
@@ -124,6 +132,10 @@ class OptionQuote:
             "selectedMarketPrice": self.selected_market_price,
             "selectedPriceSource": self.selected_price_source,
             "ivInput": self.iv_input,
+            "parityViolation": self.parity_violation,
+            "parityError": self.parity_error,
+            "parityTheoreticalDiff": self.parity_theoretical_diff,
+            "parityObservedDiff": self.parity_observed_diff,
             "delta": self.delta,
             "gamma": self.gamma,
             "theta": self.theta,
@@ -212,6 +224,10 @@ class MarketDataSnapshot:
     option_price_source: str = "mark"
     computed_iv_count: int = 0
     computed_iv_failed_count: int = 0
+    parity_pairs_checked: int = 0
+    parity_violation_count: int = 0
+    parity_violation_rows: int = 0
+    parity_violations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     raw_rows: int = 0
     valid_rows: int = 0
     rejected_rows: int = 0
@@ -291,6 +307,10 @@ class MarketDataSnapshot:
             option_price_source=str(metadata.get("option_price_source") or "mark"),
             computed_iv_count=int(metadata.get("computed_iv_count") or 0),
             computed_iv_failed_count=int(metadata.get("computed_iv_failed_count") or 0),
+            parity_pairs_checked=int(metadata.get("parity_pairs_checked") or 0),
+            parity_violation_count=int(metadata.get("parity_violation_count") or 0),
+            parity_violation_rows=int(metadata.get("parity_violation_rows") or 0),
+            parity_violations=_dict_tuple(metadata.get("parity_violations")),
             raw_rows=int(metadata.get("raw_rows") or 0),
             valid_rows=int(metadata.get("valid_rows") or len(quotes)),
             rejected_rows=int(metadata.get("rejected_rows") or 0),
@@ -367,6 +387,10 @@ class MarketDataSnapshot:
             "option_price_source": self.option_price_source,
             "computed_iv_count": self.computed_iv_count,
             "computed_iv_failed_count": self.computed_iv_failed_count,
+            "parity_pairs_checked": self.parity_pairs_checked,
+            "parity_violation_count": self.parity_violation_count,
+            "parity_violation_rows": self.parity_violation_rows,
+            "parity_violations": list(self.parity_violations),
             "warnings": list(self.warnings),
         }
 

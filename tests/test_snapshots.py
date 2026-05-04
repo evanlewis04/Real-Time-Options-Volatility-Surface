@@ -28,6 +28,10 @@ def _snapshot() -> MarketDataSnapshot:
                 "selectedMarketPrice": 8.2,
                 "selectedPriceSource": "mark",
                 "ivInput": "computed",
+                "parityViolation": False,
+                "parityError": 0.05,
+                "parityTheoreticalDiff": 0.10,
+                "parityObservedDiff": 0.15,
                 "riskFreeRate": 0.051,
                 "dividendYield": 0.005,
                 "effectiveDividendYield": 0.015,
@@ -147,6 +151,16 @@ def _snapshot() -> MarketDataSnapshot:
         option_price_source="mark",
         computed_iv_count=1,
         computed_iv_failed_count=0,
+        parity_pairs_checked=1,
+        parity_violation_count=1,
+        parity_violation_rows=2,
+        parity_violations=(
+            {
+                "expiration": "2026-06-19",
+                "strike": 200.0,
+                "parity_error": 2.5,
+            },
+        ),
         raw_rows=1,
         valid_rows=1,
     )
@@ -178,6 +192,8 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.options[0].mark == 8.2
     assert loaded.options[0].computed_iv == 0.241
     assert loaded.options[0].selected_market_price == 8.2
+    assert loaded.options[0].parity_violation is False
+    assert loaded.options[0].parity_error == 0.05
     assert loaded.stale_last_only_rejected_count == 1
     assert loaded.min_open_interest == 100
     assert loaded.min_volume == 10
@@ -195,6 +211,10 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.option_price_source == "mark"
     assert loaded.computed_iv_count == 1
     assert loaded.computed_iv_failed_count == 0
+    assert loaded.parity_pairs_checked == 1
+    assert loaded.parity_violation_count == 1
+    assert loaded.parity_violation_rows == 2
+    assert loaded.parity_violations[0]["strike"] == 200.0
 
 
 def test_list_and_load_latest_snapshot(tmp_path):

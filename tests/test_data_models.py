@@ -27,6 +27,10 @@ def _sample_chain() -> pd.DataFrame:
                 "selectedMarketPrice": 8.2,
                 "selectedPriceSource": "mark",
                 "ivInput": "computed",
+                "parityViolation": False,
+                "parityError": 0.05,
+                "parityTheoreticalDiff": 0.10,
+                "parityObservedDiff": 0.15,
                 "riskFreeRate": 0.051,
                 "dividendYield": 0.005,
                 "effectiveDividendYield": 0.015,
@@ -60,6 +64,8 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert quote.selected_market_price == 8.2
     assert quote.selected_price_source == "mark"
     assert quote.iv_input == "computed"
+    assert quote.parity_violation is False
+    assert quote.parity_error == 0.05
     assert quote.risk_free_rate == 0.051
     assert quote.effective_dividend_yield == 0.015
     assert quote.discrete_dividend_count == 1
@@ -75,6 +81,8 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert frame.iloc[0]["impliedVolatility"] == quote.raw_iv
     assert frame.iloc[0]["computedIV"] == quote.computed_iv
     assert frame.iloc[0]["selectedMarketPrice"] == quote.selected_market_price
+    assert frame.iloc[0]["parityViolation"] == False
+    assert frame.iloc[0]["parityError"] == 0.05
     assert frame.iloc[0]["riskFreeRate"] == quote.risk_free_rate
     assert frame.iloc[0]["effectiveDividendYield"] == quote.effective_dividend_yield
     assert frame.iloc[0]["quoteQuality"] == "bid_ask"
@@ -192,6 +200,16 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
             "option_price_source": "mark",
             "computed_iv_count": 1,
             "computed_iv_failed_count": 0,
+            "parity_pairs_checked": 1,
+            "parity_violation_count": 1,
+            "parity_violation_rows": 2,
+            "parity_violations": [
+                {
+                    "expiration": "2026-06-19",
+                    "strike": 200.0,
+                    "parity_error": 2.5,
+                }
+            ],
         },
     )
 
@@ -226,6 +244,10 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
     assert snapshot.metadata_dict()["option_price_source"] == "mark"
     assert snapshot.metadata_dict()["computed_iv_count"] == 1
     assert snapshot.metadata_dict()["computed_iv_failed_count"] == 0
+    assert snapshot.metadata_dict()["parity_pairs_checked"] == 1
+    assert snapshot.metadata_dict()["parity_violation_count"] == 1
+    assert snapshot.metadata_dict()["parity_violation_rows"] == 2
+    assert snapshot.metadata_dict()["parity_violations"][0]["strike"] == 200.0
 
 
 def test_empty_snapshot_returns_empty_options_frame():
