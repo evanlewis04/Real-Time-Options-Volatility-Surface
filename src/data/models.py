@@ -48,6 +48,8 @@ class OptionQuote:
     quote_timestamp: Optional[datetime] = None
     quote_age_seconds: Optional[float] = None
     is_stale_quote: Optional[bool] = None
+    is_crossed_market: Optional[bool] = None
+    is_locked_market: Optional[bool] = None
     quote_quality: Optional[str] = None
     moneyness: Optional[float] = None
     bid_ask_spread: Optional[float] = None
@@ -93,6 +95,8 @@ class OptionQuote:
             quote_timestamp=quote_ts.to_pydatetime() if pd.notna(quote_ts) else None,
             quote_age_seconds=_float_or_none(row.get("quoteAgeSeconds")),
             is_stale_quote=_bool_or_none(row.get("isStaleQuote")),
+            is_crossed_market=_bool_or_none(row.get("isCrossedMarket")),
+            is_locked_market=_bool_or_none(row.get("isLockedMarket")),
             quote_quality=_str_or_none(row.get("quoteQuality")),
             moneyness=_float_or_none(row.get("moneyness")),
             bid_ask_spread=_float_or_none(row.get("bidAskSpread")),
@@ -134,6 +138,8 @@ class OptionQuote:
             "quoteTimestamp": self.quote_timestamp,
             "quoteAgeSeconds": self.quote_age_seconds,
             "isStaleQuote": self.is_stale_quote,
+            "isCrossedMarket": self.is_crossed_market,
+            "isLockedMarket": self.is_locked_market,
             "quoteQuality": self.quote_quality,
             "bidAskSpread": self.bid_ask_spread,
             "bidAskSpreadPct": self.bid_ask_spread_pct,
@@ -189,6 +195,9 @@ class MarketDataSnapshot:
     stale_quote_count: int = 0
     last_only_quote_count: int = 0
     zero_bid_ask_count: int = 0
+    crossed_market_count: int = 0
+    locked_market_count: int = 0
+    crossed_locked_rejected_count: int = 0
     stale_last_only_rejected_count: int = 0
     min_open_interest: int = 0
     min_volume: int = 0
@@ -265,6 +274,9 @@ class MarketDataSnapshot:
             stale_quote_count=int(metadata.get("stale_quote_count") or 0),
             last_only_quote_count=int(metadata.get("last_only_quote_count") or 0),
             zero_bid_ask_count=int(metadata.get("zero_bid_ask_count") or 0),
+            crossed_market_count=int(metadata.get("crossed_market_count") or 0),
+            locked_market_count=int(metadata.get("locked_market_count") or 0),
+            crossed_locked_rejected_count=int(metadata.get("crossed_locked_rejected_count") or 0),
             stale_last_only_rejected_count=int(metadata.get("stale_last_only_rejected_count") or 0),
             min_open_interest=int(metadata.get("min_open_interest") or 0),
             min_volume=int(metadata.get("min_volume") or 0),
@@ -338,6 +350,9 @@ class MarketDataSnapshot:
             "stale_quote_count": self.stale_quote_count,
             "last_only_quote_count": self.last_only_quote_count,
             "zero_bid_ask_count": self.zero_bid_ask_count,
+            "crossed_market_count": self.crossed_market_count,
+            "locked_market_count": self.locked_market_count,
+            "crossed_locked_rejected_count": self.crossed_locked_rejected_count,
             "stale_last_only_rejected_count": self.stale_last_only_rejected_count,
             "min_open_interest": self.min_open_interest,
             "min_volume": self.min_volume,

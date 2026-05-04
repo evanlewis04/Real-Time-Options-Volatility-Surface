@@ -237,7 +237,7 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
 - [x] Add midpoint, mark, and last-price selection.
   - Acceptance: user can choose which market price drives computed IV.
 
-- [ ] Add crossed/locked market detection.
+- [x] Add crossed/locked market detection.
   - Acceptance: invalid bid/ask rows are flagged and excluded.
 
 - [ ] Add parity sanity checks across calls and puts.

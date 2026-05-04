@@ -60,6 +60,8 @@ class StubOptionsProvider:
                     "discreteDividendCount": 1,
                     "bidAskSpread": 0.4,
                     "bidAskSpreadPct": 0.04878,
+                    "isCrossedMarket": False,
+                    "isLockedMarket": False,
                 }
             ]
         )
@@ -73,6 +75,9 @@ class StubOptionsProvider:
             "rejected_rows": 0,
             **self.settings,
             "liquidity_filtered_count": 0,
+            "crossed_market_count": 0,
+            "locked_market_count": 0,
+            "crossed_locked_rejected_count": 0,
             "rejection_reasons": {},
         }
         return frame, meta
@@ -104,6 +109,7 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.expiry_corporate_actions
     assert snapshot.min_open_interest == 0
     assert snapshot.liquidity_filtered_count == 0
+    assert snapshot.crossed_locked_rejected_count == 0
 
 
 def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
@@ -134,6 +140,7 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert "2026-06-19" in meta["expiry_corporate_actions"]
     assert any("dividend" in warning for warning in meta["corporate_action_warnings"])
     assert meta["liquidity_filtered_count"] == 0
+    assert meta["crossed_locked_rejected_count"] == 0
     assert meta["rejection_reasons"] == {}
 
 

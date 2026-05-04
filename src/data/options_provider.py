@@ -48,6 +48,9 @@ class OptionsChainMetadata:
     stale_quote_count: int = 0
     last_only_quote_count: int = 0
     zero_bid_ask_count: int = 0
+    crossed_market_count: int = 0
+    locked_market_count: int = 0
+    crossed_locked_rejected_count: int = 0
     stale_last_only_rejected_count: int = 0
     liquidity_filtered_count: int = 0
     low_open_interest_rejected_count: int = 0
@@ -182,6 +185,9 @@ class YFinanceOptionsProvider:
             meta.stale_quote_count = int(clean.attrs.get("stale_quote_count", 0))
             meta.last_only_quote_count = int(clean.attrs.get("last_only_quote_count", 0))
             meta.zero_bid_ask_count = int(clean.attrs.get("zero_bid_ask_count", 0))
+            meta.crossed_market_count = int(clean.attrs.get("crossed_market_count", 0))
+            meta.locked_market_count = int(clean.attrs.get("locked_market_count", 0))
+            meta.crossed_locked_rejected_count = int(clean.attrs.get("crossed_locked_rejected_count", 0))
             meta.stale_last_only_rejected_count = int(clean.attrs.get("stale_last_only_rejected_count", 0))
             meta.liquidity_filtered_count = int(clean.attrs.get("liquidity_filtered_count", 0))
             meta.low_open_interest_rejected_count = int(clean.attrs.get("low_open_interest_rejected_count", 0))
@@ -288,18 +294,26 @@ class YFinanceOptionsProvider:
         df.loc[quote_ts.isna(), "quoteAgeSeconds"] = np.nan
         df["isStaleQuote"] = quote_ts.notna() & (quote_age > max_quote_age)
 
-        valid_bid_ask = (df["bid"] > 0) & (df["ask"] > df["bid"])
-        last_only = ~valid_bid_ask & (df["last"] > 0)
+        positive_bid_ask = (df["bid"] > 0) & (df["ask"] > 0)
+        crossed_market = positive_bid_ask & (df["bid"] > df["ask"])
+        locked_market = positive_bid_ask & (df["bid"] == df["ask"])
+        crossed_locked_market = crossed_market | locked_market
+        df["isCrossedMarket"] = crossed_market
+        df["isLockedMarket"] = locked_market
+        valid_bid_ask = positive_bid_ask & (df["ask"] > df["bid"])
+        last_only = ~valid_bid_ask & ~crossed_locked_market & (df["last"] > 0)
         zero_bid_ask = df["bid"].fillna(0) <= 0
         zero_bid_ask &= df["ask"].fillna(0) <= 0
         df["quoteQuality"] = np.select(
             [
+                crossed_market,
+                locked_market,
                 valid_bid_ask & df["isStaleQuote"],
                 valid_bid_ask,
                 last_only & df["isStaleQuote"],
                 last_only,
             ],
-            ["stale_bid_ask", "bid_ask", "stale_last_only", "last_only"],
+            ["crossed_market", "locked_market", "stale_bid_ask", "bid_ask", "stale_last_only", "last_only"],
             default="invalid",
         )
         df["mid"] = np.where(
@@ -340,6 +354,12 @@ class YFinanceOptionsProvider:
             "base_quality": int((~base_mask).sum()),
         }
 
+        clean, crossed_locked_rejected = _apply_row_filter(
+            clean,
+            ~(clean["isCrossedMarket"] | clean["isLockedMarket"]),
+            "crossed_locked_market",
+            rejection_reasons,
+        )
         clean, stale_last_only_rejected = _apply_row_filter(
             clean,
             clean["quoteQuality"] != "stale_last_only",
@@ -382,6 +402,9 @@ class YFinanceOptionsProvider:
         clean.attrs["stale_quote_count"] = int(clean["isStaleQuote"].sum()) if "isStaleQuote" in clean else 0
         clean.attrs["last_only_quote_count"] = int((clean["quoteQuality"] == "last_only").sum())
         clean.attrs["zero_bid_ask_count"] = int(zero_bid_ask.sum())
+        clean.attrs["crossed_market_count"] = int(crossed_market.sum())
+        clean.attrs["locked_market_count"] = int(locked_market.sum())
+        clean.attrs["crossed_locked_rejected_count"] = crossed_locked_rejected
         clean.attrs["stale_last_only_rejected_count"] = stale_last_only_rejected
         clean.attrs["old_quote_rejected_count"] = old_quote_rejected
         clean.attrs["low_open_interest_rejected_count"] = low_oi_rejected
@@ -410,6 +433,8 @@ class YFinanceOptionsProvider:
             "bidAskSpread",
             "bidAskSpreadPct",
             "quoteQuality",
+            "isCrossedMarket",
+            "isLockedMarket",
             "isStaleQuote",
             "quoteAgeSeconds",
             "quoteTimestamp",

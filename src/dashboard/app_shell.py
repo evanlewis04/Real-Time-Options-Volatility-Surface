@@ -402,6 +402,7 @@ def run_dashboard() -> None:
         corporate actions {fmt_int(surface_meta.get("corporate_action_warning_count"))} warning(s).
         stale quotes {fmt_int(surface_meta.get("stale_quote_count"))};
         last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))};
+        crossed/locked markets {fmt_int(surface_meta.get("crossed_locked_rejected_count"))};
         filters OI >= {fmt_int(surface_meta.get("min_open_interest"))},
         volume >= {fmt_int(surface_meta.get("min_volume"))},
         spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
@@ -650,6 +651,8 @@ def run_dashboard() -> None:
                 "effectiveDividendYield",
                 "discreteDividendAmount",
                 "quoteQuality",
+                "isCrossedMarket",
+                "isLockedMarket",
                 "quoteAgeSeconds",
                 "bidAskSpreadPct",
             ]
@@ -718,6 +721,14 @@ def run_dashboard() -> None:
                     "quoteQuality": st.column_config.TextColumn(
                         "Quote Quality",
                         help=COLUMN_HELP["quoteQuality"],
+                    ),
+                    "isCrossedMarket": st.column_config.CheckboxColumn(
+                        "Crossed",
+                        help=COLUMN_HELP["isCrossedMarket"],
+                    ),
+                    "isLockedMarket": st.column_config.CheckboxColumn(
+                        "Locked",
+                        help=COLUMN_HELP["isLockedMarket"],
                     ),
                     "quoteAgeSeconds": st.column_config.NumberColumn(
                         "Quote Age Sec",

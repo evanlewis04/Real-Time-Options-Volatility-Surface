@@ -64,6 +64,8 @@ COLUMN_HELP = {
     "effectiveDividendYield": "Continuous dividend yield used by BSM for this expiry, including discrete dividend adjustment.",
     "discreteDividendAmount": "Undiscounted cash dividends with ex-dates before this contract expires.",
     "quoteQuality": "Provider quote quality label such as bid_ask, stale_bid_ask, or last_only.",
+    "isCrossedMarket": "Bid is greater than ask; these rows are flagged and excluded before surface fitting.",
+    "isLockedMarket": "Bid equals ask with both sides positive; these rows are flagged and excluded before surface fitting.",
     "quoteAgeSeconds": "Seconds between provider quote timestamp and snapshot normalization time.",
     "bidAskSpreadPct": "Bid-ask spread divided by mid price.",
 }

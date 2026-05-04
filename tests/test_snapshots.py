@@ -36,6 +36,8 @@ def _snapshot() -> MarketDataSnapshot:
                 "discreteDividendCount": 1,
                 "quoteQuality": "bid_ask",
                 "isStaleQuote": False,
+                "isCrossedMarket": False,
+                "isLockedMarket": False,
                 "quoteAgeSeconds": 3600,
                 "bidAskSpread": 0.4,
                 "bidAskSpreadPct": 0.04878,
@@ -130,6 +132,9 @@ def _snapshot() -> MarketDataSnapshot:
         stale_quote_count=0,
         last_only_quote_count=0,
         zero_bid_ask_count=0,
+        crossed_market_count=1,
+        locked_market_count=1,
+        crossed_locked_rejected_count=2,
         stale_last_only_rejected_count=1,
         min_open_interest=100,
         min_volume=10,
@@ -137,7 +142,7 @@ def _snapshot() -> MarketDataSnapshot:
         liquidity_filtered_count=2,
         low_open_interest_rejected_count=1,
         low_volume_rejected_count=1,
-        rejection_reasons=(("low_open_interest", 1), ("low_volume", 1)),
+        rejection_reasons=(("crossed_locked_market", 2), ("low_open_interest", 1), ("low_volume", 1)),
         max_quote_age_days=5,
         option_price_source="mark",
         computed_iv_count=1,
@@ -168,6 +173,8 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.corporate_action_warning_count == 1
     assert loaded.expiry_corporate_actions[0][1][0]["action_type"] == "dividend"
     assert loaded.options[0].quote_quality == "bid_ask"
+    assert loaded.options[0].is_crossed_market is False
+    assert loaded.options[0].is_locked_market is False
     assert loaded.options[0].mark == 8.2
     assert loaded.options[0].computed_iv == 0.241
     assert loaded.options[0].selected_market_price == 8.2
@@ -176,7 +183,14 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.min_volume == 10
     assert loaded.max_bid_ask_spread_pct == 0.5
     assert loaded.liquidity_filtered_count == 2
-    assert loaded.rejection_reasons == (("low_open_interest", 1), ("low_volume", 1))
+    assert loaded.crossed_market_count == 1
+    assert loaded.locked_market_count == 1
+    assert loaded.crossed_locked_rejected_count == 2
+    assert loaded.rejection_reasons == (
+        ("crossed_locked_market", 2),
+        ("low_open_interest", 1),
+        ("low_volume", 1),
+    )
     assert loaded.max_quote_age_days == 5
     assert loaded.option_price_source == "mark"
     assert loaded.computed_iv_count == 1

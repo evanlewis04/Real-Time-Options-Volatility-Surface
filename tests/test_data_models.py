@@ -35,6 +35,8 @@ def _sample_chain() -> pd.DataFrame:
                 "discreteDividendCount": 1,
                 "quoteQuality": "bid_ask",
                 "isStaleQuote": False,
+                "isCrossedMarket": False,
+                "isLockedMarket": False,
                 "quoteAgeSeconds": 3600,
                 "bidAskSpread": 0.4,
                 "bidAskSpreadPct": 0.04878,
@@ -63,6 +65,8 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert quote.discrete_dividend_count == 1
     assert quote.quote_quality == "bid_ask"
     assert quote.is_stale_quote is False
+    assert quote.is_crossed_market is False
+    assert quote.is_locked_market is False
     assert quote.quote_age_seconds == 3600
     assert quote.open_interest == 500
 
@@ -74,6 +78,8 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert frame.iloc[0]["riskFreeRate"] == quote.risk_free_rate
     assert frame.iloc[0]["effectiveDividendYield"] == quote.effective_dividend_yield
     assert frame.iloc[0]["quoteQuality"] == "bid_ask"
+    assert frame.iloc[0]["isCrossedMarket"] == False
+    assert frame.iloc[0]["isLockedMarket"] == False
     assert frame.iloc[0]["time_to_expiry"] == quote.dte / 365.0
 
 
@@ -164,6 +170,9 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
             "stale_quote_count": 0,
             "last_only_quote_count": 0,
             "zero_bid_ask_count": 0,
+            "crossed_market_count": 1,
+            "locked_market_count": 1,
+            "crossed_locked_rejected_count": 2,
             "stale_last_only_rejected_count": 1,
             "min_open_interest": 100,
             "min_volume": 10,
@@ -177,6 +186,7 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
                 "low_open_interest": 1,
                 "low_volume": 1,
                 "wide_bid_ask_spread": 1,
+                "crossed_locked_market": 2,
             },
             "max_quote_age_days": 5,
             "option_price_source": "mark",
@@ -202,12 +212,16 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
     assert snapshot.metadata_dict()["expiry_dividends"]["2026-06-19"]["discrete_count"] == 1
     assert snapshot.metadata_dict()["corporate_action_warning_count"] == 1
     assert snapshot.metadata_dict()["expiry_corporate_actions"]["2026-06-19"][0]["action_type"] == "dividend"
+    assert snapshot.metadata_dict()["crossed_market_count"] == 1
+    assert snapshot.metadata_dict()["locked_market_count"] == 1
+    assert snapshot.metadata_dict()["crossed_locked_rejected_count"] == 2
     assert snapshot.metadata_dict()["stale_last_only_rejected_count"] == 1
     assert snapshot.metadata_dict()["min_open_interest"] == 100
     assert snapshot.metadata_dict()["min_volume"] == 10
     assert snapshot.metadata_dict()["max_bid_ask_spread_pct"] == 0.50
     assert snapshot.metadata_dict()["liquidity_filtered_count"] == 3
     assert snapshot.metadata_dict()["rejection_reasons"]["low_volume"] == 1
+    assert snapshot.metadata_dict()["rejection_reasons"]["crossed_locked_market"] == 2
     assert snapshot.metadata_dict()["max_quote_age_days"] == 5
     assert snapshot.metadata_dict()["option_price_source"] == "mark"
     assert snapshot.metadata_dict()["computed_iv_count"] == 1

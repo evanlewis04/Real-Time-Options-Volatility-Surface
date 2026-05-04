@@ -167,6 +167,36 @@ def test_yfinance_options_normalize_applies_liquidity_thresholds():
     }
 
 
+def test_yfinance_options_normalize_flags_and_rejects_crossed_locked_markets():
+    now = datetime(2026, 5, 2, 12, 0, 0)
+    expiration = (now + timedelta(days=30)).strftime("%Y-%m-%d")
+    base = {
+        "strike": 200.0,
+        "lastPrice": 8.2,
+        "volume": 100,
+        "openInterest": 500,
+        "impliedVolatility": 0.24,
+        "lastTradeDate": now - timedelta(hours=1),
+        "type": "call",
+        "expiration": expiration,
+    }
+    raw = pd.DataFrame(
+        [
+            {**base, "contractSymbol": "AAPL260601C00200000", "bid": 8.0, "ask": 8.4},
+            {**base, "contractSymbol": "AAPL260601C00205000", "bid": 8.8, "ask": 8.4},
+            {**base, "contractSymbol": "AAPL260601C00210000", "bid": 8.4, "ask": 8.4},
+        ]
+    )
+
+    clean = YFinanceOptionsProvider._normalize(raw, "AAPL", 200.0, now)
+
+    assert clean["contractSymbol"].tolist() == ["AAPL260601C00200000"]
+    assert clean.attrs["crossed_market_count"] == 1
+    assert clean.attrs["locked_market_count"] == 1
+    assert clean.attrs["crossed_locked_rejected_count"] == 2
+    assert clean.attrs["rejection_reasons"] == {"crossed_locked_market": 2}
+
+
 def test_yfinance_options_provider_caches_by_symbol_and_expiry(monkeypatch):
     calls = pd.DataFrame(
         [
