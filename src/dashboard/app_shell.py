@@ -107,6 +107,18 @@ def run_dashboard() -> None:
                 "raw_rows": 0,
                 "valid_rows": 0,
                 "rejected_rows": 0,
+                "data_quality_score": 0.0,
+                "surface_quality_score": 0.0,
+                "quality_reason_buckets": {},
+                "expiry_quality": {},
+                "surface_quality": {
+                    "score": 0.0,
+                    "valid_quotes": 0,
+                    "rejected_quotes": 0,
+                    "surface_quotes": 96,
+                    "reason_buckets": {},
+                    "expiries": {},
+                },
                 "fallback_reason": "DashboardConnector could not be imported",
                 "surface_points": 96,
             }
@@ -349,6 +361,11 @@ def run_dashboard() -> None:
 
     surface_mode = surface_meta.get("surface_mode") or current_data.get("data_mode", "Unknown")
     source_label = surface_meta.get("surface_source") or current_data.get("price_source", "Unknown")
+    quality_score = surface_meta.get("surface_quality_score") or surface_meta.get("data_quality_score")
+    reason_buckets = surface_meta.get("quality_reason_buckets") or surface_meta.get("rejection_reasons") or {}
+    reason_bucket_text = ", ".join(
+        f"{reason}: {fmt_int(count)}" for reason, count in sorted(reason_buckets.items()) if count
+    ) or "none"
 
     st.markdown(
         f"""
@@ -377,7 +394,7 @@ def run_dashboard() -> None:
         ("Term Spread", fmt_pct(stats.get("term_spread")), "back minus front"),
         ("Surface Points", fmt_int(stats.get("points")), surface_mode),
         ("Contracts", fmt_int(surface_meta.get("valid_rows") or current_data.get("contracts")), "valid rows"),
-        ("Median Spread", fmt_pct(surface_meta.get("median_spread_pct"), 2), "option chain"),
+        ("Quality Score", f"{quality_score:.1f}/100" if quality_score is not None else "n/a", "surface"),
     ]
     for col, (label, value, delta) in zip(kpi_cols, kpis):
         with col:
@@ -387,9 +404,11 @@ def run_dashboard() -> None:
         f"""
     <div class="quality-row">
         <strong>Data quality:</strong>
+        score {f"{quality_score:.1f}/100" if quality_score is not None else "n/a"};
         raw rows {fmt_int(surface_meta.get("raw_rows"))};
         valid rows {fmt_int(surface_meta.get("valid_rows"))};
         rejected rows {fmt_int(surface_meta.get("rejected_rows"))};
+        reason buckets {reason_bucket_text};
         liquidity rejects {fmt_int(surface_meta.get("liquidity_filtered_count"))};
         cache age {fmt_int(surface_meta.get("cache_age_seconds"))}s;
         market {market_status.get("reason", "unknown")};
@@ -913,6 +932,32 @@ def run_dashboard() -> None:
 
         st.markdown("#### Latest Surface Metadata")
         st.json({k: str(v) if isinstance(v, datetime) else v for k, v in surface_meta.items()})
+        expiry_quality = surface_meta.get("expiry_quality") or {}
+        if expiry_quality:
+            quality_rows = []
+            for expiry, payload in sorted(expiry_quality.items()):
+                buckets = payload.get("reason_buckets") or {}
+                quality_rows.append(
+                    {
+                        "Expiry": expiry,
+                        "Score": payload.get("score"),
+                        "Raw Quotes": payload.get("raw_quotes"),
+                        "Valid Quotes": payload.get("valid_quotes"),
+                        "Rejected Quotes": payload.get("rejected_quotes"),
+                        "Surface Quotes": payload.get("surface_quotes"),
+                        "Reason Buckets": ", ".join(
+                            f"{reason}: {count}" for reason, count in sorted(buckets.items()) if count
+                        )
+                        or "none",
+                    }
+                )
+            st.markdown("#### Expiry Data Quality")
+            st.dataframe(pd.DataFrame(quality_rows), width="stretch", hide_index=True)
+
+        surface_quality = surface_meta.get("surface_quality") or {}
+        if surface_quality:
+            st.markdown("#### Surface Quality")
+            st.json(surface_quality)
         warnings_list = surface_meta.get("warnings") or []
         if warnings_list:
             st.warning(" | ".join(str(item) for item in warnings_list[:4]))

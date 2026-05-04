@@ -115,6 +115,8 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.liquidity_filtered_count == 0
     assert snapshot.crossed_locked_rejected_count == 0
     assert snapshot.parity_violation_count == 0
+    assert snapshot.data_quality_score == 100.0
+    assert dict(snapshot.expiry_quality)["2026-06-19"]["valid_quotes"] == 1
 
 
 def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
@@ -148,6 +150,10 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert meta["crossed_locked_rejected_count"] == 0
     assert meta["parity_violation_count"] == 0
     assert meta["rejection_reasons"] == {}
+    assert meta["data_quality_score"] == 100.0
+    assert meta["quality_reason_buckets"] == {}
+    assert meta["expiry_quality"]["2026-06-19"]["valid_quotes"] == 1
+    assert meta["expiry_quality"]["2026-06-19"]["score"] == 100.0
 
 
 def test_connector_configures_liquidity_filters_and_clears_cache(tmp_path):
@@ -265,6 +271,57 @@ def test_connector_flags_obvious_put_call_parity_violations():
     assert checked.loc[checked["strike"] == 100.0, "parityViolation"].all()
     assert not checked.loc[checked["strike"] == 110.0, "parityViolation"].any()
     assert meta["parity_violations"][0]["strike"] == 100.0
+
+
+def test_connector_quality_score_penalizes_rejections_computed_iv_and_parity():
+    connector = DashboardConnector()
+    expiry = pd.Timestamp("2026-06-19")
+    chain = pd.DataFrame(
+        [
+            {
+                "type": "call",
+                "expiration": expiry,
+                "computedIV": 0.20,
+                "parityViolation": False,
+            },
+            {
+                "type": "put",
+                "expiration": expiry,
+                "computedIV": None,
+                "parityViolation": True,
+            },
+        ]
+    )
+    metadata = {
+        "valid_rows": 2,
+        "rejected_rows": 2,
+        "rejection_reasons": {"low_volume": 2},
+        "computed_iv_failed_count": 1,
+        "parity_violation_rows": 1,
+        "expiry_quality": {
+            "2026-06-19": {
+                "raw_quotes": 4,
+                "valid_quotes": 2,
+                "rejected_quotes": 2,
+                "reason_buckets": {"low_volume": 2},
+            }
+        },
+    }
+
+    quality = connector._data_quality_metadata(chain, metadata)
+
+    assert quality["quality_reason_buckets"] == {
+        "low_volume": 2,
+        "computed_iv_failed": 1,
+        "parity_violation": 1,
+    }
+    assert quality["data_quality_score"] == 32.5
+    assert quality["expiry_quality"]["2026-06-19"]["reason_buckets"] == {
+        "low_volume": 2,
+        "computed_iv_failed": 1,
+        "parity_violation": 1,
+    }
+    assert quality["expiry_quality"]["2026-06-19"]["score"] == 32.5
 
 
 def test_connector_exposes_market_calendar_status():

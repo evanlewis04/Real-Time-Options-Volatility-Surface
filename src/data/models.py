@@ -220,6 +220,10 @@ class MarketDataSnapshot:
     wide_spread_rejected_count: int = 0
     old_quote_rejected_count: int = 0
     rejection_reasons: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    data_quality_score: Optional[float] = None
+    quality_score: Optional[float] = None
+    quality_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    expiry_quality: tuple[tuple[str, dict[str, Any]], ...] = field(default_factory=tuple)
     max_quote_age_days: Optional[int] = None
     option_price_source: str = "mark"
     computed_iv_count: int = 0
@@ -303,6 +307,10 @@ class MarketDataSnapshot:
             wide_spread_rejected_count=int(metadata.get("wide_spread_rejected_count") or 0),
             old_quote_rejected_count=int(metadata.get("old_quote_rejected_count") or 0),
             rejection_reasons=_int_metadata_tuple(metadata.get("rejection_reasons")),
+            data_quality_score=_float_or_none(metadata.get("data_quality_score")),
+            quality_score=_float_or_none(metadata.get("quality_score")),
+            quality_reason_buckets=_int_metadata_tuple(metadata.get("quality_reason_buckets")),
+            expiry_quality=_nested_any_metadata_tuple(metadata.get("expiry_quality")),
             max_quote_age_days=_int_or_none(metadata.get("max_quote_age_days")),
             option_price_source=str(metadata.get("option_price_source") or "mark"),
             computed_iv_count=int(metadata.get("computed_iv_count") or 0),
@@ -383,6 +391,10 @@ class MarketDataSnapshot:
             "wide_spread_rejected_count": self.wide_spread_rejected_count,
             "old_quote_rejected_count": self.old_quote_rejected_count,
             "rejection_reasons": dict(self.rejection_reasons),
+            "data_quality_score": self.data_quality_score,
+            "quality_score": self.quality_score,
+            "quality_reason_buckets": dict(self.quality_reason_buckets),
+            "expiry_quality": dict(self.expiry_quality),
             "max_quote_age_days": self.max_quote_age_days,
             "option_price_source": self.option_price_source,
             "computed_iv_count": self.computed_iv_count,
@@ -476,6 +488,16 @@ def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
 
 
 def _nested_metadata_tuple(value: Any) -> tuple[tuple[str, dict[str, float | int]], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    out = []
+    for key, payload in items:
+        out.append((str(key), dict(payload)))
+    return tuple(out)
+
+
+def _nested_any_metadata_tuple(value: Any) -> tuple[tuple[str, dict[str, Any]], ...]:
     if not value:
         return ()
     items = value.items() if isinstance(value, dict) else value

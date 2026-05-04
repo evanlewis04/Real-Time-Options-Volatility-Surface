@@ -58,6 +58,8 @@ class OptionsChainMetadata:
     wide_spread_rejected_count: int = 0
     old_quote_rejected_count: int = 0
     rejection_reasons: Dict[str, int] = field(default_factory=dict)
+    data_quality_score: Optional[float] = None
+    expiry_quality: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     max_quote_age_days: int = 5
     fallback_reason: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
@@ -195,6 +197,8 @@ class YFinanceOptionsProvider:
             meta.wide_spread_rejected_count = int(clean.attrs.get("wide_spread_rejected_count", 0))
             meta.old_quote_rejected_count = int(clean.attrs.get("old_quote_rejected_count", 0))
             meta.rejection_reasons = dict(clean.attrs.get("rejection_reasons", {}))
+            meta.data_quality_score = clean.attrs.get("data_quality_score")
+            meta.expiry_quality = dict(clean.attrs.get("expiry_quality", {}))
             if "bidAskSpreadPct" in clean and not clean.empty:
                 meta.median_spread_pct = float(clean["bidAskSpreadPct"].median())
 
@@ -338,6 +342,8 @@ class YFinanceOptionsProvider:
         )
         df["bidAskSpread"] = df["ask"] - df["bid"]
         df["bidAskSpreadPct"] = df["bidAskSpread"] / df["mid"].replace(0, np.nan)
+        expiry_raw_counts = _expiry_counts(df)
+        expiry_rejection_reasons: Dict[str, Dict[str, int]] = {}
 
         base_mask = (
             (df["strike"] > 0)
@@ -349,6 +355,7 @@ class YFinanceOptionsProvider:
             & (df["moneyness"] > 0.35)
             & (df["moneyness"] < 2.5)
         )
+        _record_expiry_rejections(df, base_mask, "base_quality", expiry_rejection_reasons)
         clean = df[base_mask].copy()
         rejection_reasons: Dict[str, int] = {
             "base_quality": int((~base_mask).sum()),
@@ -359,30 +366,35 @@ class YFinanceOptionsProvider:
             ~(clean["isCrossedMarket"] | clean["isLockedMarket"]),
             "crossed_locked_market",
             rejection_reasons,
+            expiry_rejection_reasons,
         )
         clean, stale_last_only_rejected = _apply_row_filter(
             clean,
             clean["quoteQuality"] != "stale_last_only",
             "stale_last_only",
             rejection_reasons,
+            expiry_rejection_reasons,
         )
         clean, old_quote_rejected = _apply_row_filter(
             clean,
             ~(pd.to_numeric(clean["quoteAgeSeconds"], errors="coerce") > max_quote_age.total_seconds()),
             "old_quote",
             rejection_reasons,
+            expiry_rejection_reasons,
         )
         clean, low_oi_rejected = _apply_row_filter(
             clean,
             pd.to_numeric(clean["openInterest"], errors="coerce").fillna(0) >= max(0, int(min_open_interest)),
             "low_open_interest",
             rejection_reasons,
+            expiry_rejection_reasons,
         )
         clean, low_volume_rejected = _apply_row_filter(
             clean,
             pd.to_numeric(clean["volume"], errors="coerce").fillna(0) >= max(0, int(min_volume)),
             "low_volume",
             rejection_reasons,
+            expiry_rejection_reasons,
         )
         spread_pct = pd.to_numeric(clean["bidAskSpreadPct"], errors="coerce")
         spread_ok = spread_pct.isna() | (spread_pct <= max(0.0, float(max_bid_ask_spread_pct)))
@@ -391,6 +403,7 @@ class YFinanceOptionsProvider:
             spread_ok,
             "wide_bid_ask_spread",
             rejection_reasons,
+            expiry_rejection_reasons,
         )
         liquidity_filtered_count = (
             stale_last_only_rejected
@@ -412,6 +425,8 @@ class YFinanceOptionsProvider:
         clean.attrs["wide_spread_rejected_count"] = wide_spread_rejected
         clean.attrs["liquidity_filtered_count"] = liquidity_filtered_count
         clean.attrs["rejection_reasons"] = {key: value for key, value in rejection_reasons.items() if value}
+        clean.attrs["expiry_quality"] = _expiry_quality_summary(clean, expiry_raw_counts, expiry_rejection_reasons)
+        clean.attrs["data_quality_score"] = _quality_score(len(clean), int(sum(rejection_reasons.values())), clean.attrs["rejection_reasons"])
 
         ordered_cols = [
             "symbol",
@@ -451,12 +466,83 @@ def _apply_row_filter(
     keep_mask: pd.Series,
     reason: str,
     rejection_reasons: Dict[str, int],
+    expiry_rejection_reasons: Optional[Dict[str, Dict[str, int]]] = None,
 ) -> Tuple[pd.DataFrame, int]:
     """Apply one sequential row filter and track its rejection reason."""
     if frame.empty:
         rejection_reasons[reason] = 0
         return frame.copy(), 0
     aligned = keep_mask.reindex(frame.index).fillna(False).astype(bool)
+    if expiry_rejection_reasons is not None:
+        _record_expiry_rejections(frame, aligned, reason, expiry_rejection_reasons)
     rejected = int((~aligned).sum())
     rejection_reasons[reason] = rejected
     return frame[aligned].copy(), rejected
+
+
+def _expiry_key(value: Any) -> str:
+    expiry = pd.to_datetime(value, errors="coerce")
+    return expiry.date().isoformat() if pd.notna(expiry) else "unknown"
+
+
+def _expiry_counts(frame: pd.DataFrame) -> Dict[str, int]:
+    if frame.empty or "expiration" not in frame:
+        return {}
+    expirations = frame["expiration"].map(_expiry_key)
+    return {str(expiry): int(count) for expiry, count in expirations.value_counts().items()}
+
+
+def _record_expiry_rejections(
+    frame: pd.DataFrame,
+    keep_mask: pd.Series,
+    reason: str,
+    expiry_rejection_reasons: Dict[str, Dict[str, int]],
+) -> None:
+    if frame.empty or "expiration" not in frame:
+        return
+    aligned = keep_mask.reindex(frame.index).fillna(False).astype(bool)
+    rejected = frame[~aligned]
+    if rejected.empty:
+        return
+    for expiry, count in _expiry_counts(rejected).items():
+        buckets = expiry_rejection_reasons.setdefault(expiry, {})
+        buckets[reason] = buckets.get(reason, 0) + int(count)
+
+
+def _expiry_quality_summary(
+    clean: pd.DataFrame,
+    expiry_raw_counts: Dict[str, int],
+    expiry_rejection_reasons: Dict[str, Dict[str, int]],
+) -> Dict[str, Dict[str, Any]]:
+    valid_counts = _expiry_counts(clean)
+    out: Dict[str, Dict[str, Any]] = {}
+    for expiry in sorted(set(expiry_raw_counts) | set(valid_counts) | set(expiry_rejection_reasons)):
+        reason_buckets = {
+            reason: int(count)
+            for reason, count in expiry_rejection_reasons.get(expiry, {}).items()
+            if count
+        }
+        valid = int(valid_counts.get(expiry, 0))
+        rejected = int(sum(reason_buckets.values()))
+        raw = int(expiry_raw_counts.get(expiry, valid + rejected))
+        out[expiry] = {
+            "score": _quality_score(valid, rejected, reason_buckets),
+            "raw_quotes": raw,
+            "valid_quotes": valid,
+            "rejected_quotes": rejected,
+            "reason_buckets": reason_buckets,
+        }
+    return out
+
+
+def _quality_score(valid_quotes: int, rejected_quotes: int, reason_buckets: Dict[str, int]) -> float:
+    valid = max(0, int(valid_quotes or 0))
+    rejected = max(0, int(rejected_quotes or 0))
+    total = valid + rejected
+    if total <= 0:
+        return 0.0
+
+    score = 100.0 * valid / total
+    score -= 20.0 * int(reason_buckets.get("computed_iv_failed", 0)) / max(valid, 1)
+    score -= 15.0 * int(reason_buckets.get("parity_violation", 0)) / max(valid, 1)
+    return round(float(min(100.0, max(0.0, score))), 1)

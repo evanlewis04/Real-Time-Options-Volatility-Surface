@@ -165,6 +165,17 @@ def test_yfinance_options_normalize_applies_liquidity_thresholds():
         "low_volume": 1,
         "wide_bid_ask_spread": 1,
     }
+    expiry_quality = clean.attrs["expiry_quality"][expiration]
+    assert expiry_quality["raw_quotes"] == 4
+    assert expiry_quality["valid_quotes"] == 1
+    assert expiry_quality["rejected_quotes"] == 3
+    assert expiry_quality["reason_buckets"] == {
+        "low_open_interest": 1,
+        "low_volume": 1,
+        "wide_bid_ask_spread": 1,
+    }
+    assert expiry_quality["score"] == 25.0
+    assert clean.attrs["data_quality_score"] == 25.0
 
 
 def test_yfinance_options_normalize_flags_and_rejects_crossed_locked_markets():
@@ -300,3 +311,6 @@ def test_yfinance_options_provider_exposes_filter_settings_and_counts(monkeypatc
     assert meta.low_volume_rejected_count == 1
     assert meta.liquidity_filtered_count == 1
     assert meta.rejection_reasons == {"low_volume": 1}
+    assert meta.data_quality_score == 50.0
+    assert meta.expiry_quality["2099-06-19"]["valid_quotes"] == 1
+    assert meta.expiry_quality["2099-06-19"]["rejected_quotes"] == 1

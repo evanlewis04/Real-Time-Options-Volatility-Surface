@@ -240,6 +240,9 @@ class DashboardConnector:
                 "surface_dividend_yield": surface_dividend,
                 "surface_iv_input": "computedIV",
             }
+            self.surface_metadata[key].update(
+                self._surface_quality_metadata(surface_chain, self.surface_metadata[key])
+            )
             return strikes, expiries, vols
         except Exception as exc:
             logger.warning("Real chain surface failed for %s: %s", key, exc)
@@ -280,6 +283,9 @@ class DashboardConnector:
                 **dividend_meta,
                 **corporate_meta,
             }
+            self.surface_metadata[key].update(
+                self._surface_quality_metadata(chain, self.surface_metadata[key])
+            )
             return strikes, expiries, vols
 
     def get_surface_metadata(self, symbol: str) -> Dict[str, Any]:
@@ -459,6 +465,7 @@ class DashboardConnector:
         meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
         meta.update(price_meta)
         meta.update(parity_meta)
+        meta.update(self._data_quality_metadata(df, meta))
         corporate_meta = self._corporate_action_metadata(corporate_actions, df)
         meta.update(corporate_meta)
         meta["warnings"] = self._merge_warnings(
@@ -737,6 +744,101 @@ class DashboardConnector:
             "parity_violations": violations[:20],
         }
 
+    @staticmethod
+    def _data_quality_metadata(chain: pd.DataFrame, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Build expiry-level and chain-level quality diagnostics."""
+        expiry_quality = _copy_expiry_quality(metadata.get("expiry_quality"))
+        if not chain.empty and "expiration" in chain.columns:
+            expirations = pd.to_datetime(chain["expiration"], errors="coerce").dt.normalize()
+            for expiry, group in chain.groupby(expirations, dropna=True):
+                key = expiry.date().isoformat()
+                entry = expiry_quality.setdefault(
+                    key,
+                    {"valid_quotes": 0, "rejected_quotes": 0, "reason_buckets": {}},
+                )
+                entry["valid_quotes"] = int(len(group))
+                reason_buckets = dict(entry.get("reason_buckets") or {})
+
+                if "computedIV" in group:
+                    computed = pd.to_numeric(group["computedIV"], errors="coerce")
+                    failed = int(computed.isna().sum())
+                    if failed:
+                        reason_buckets["computed_iv_failed"] = failed
+                    entry["computed_iv_count"] = int(computed.notna().sum())
+
+                if "parityViolation" in group:
+                    parity_rows = int(group["parityViolation"].fillna(False).astype(bool).sum())
+                    if parity_rows:
+                        reason_buckets["parity_violation"] = parity_rows
+
+                entry["reason_buckets"] = {
+                    reason: int(count) for reason, count in reason_buckets.items() if count
+                }
+                entry["rejected_quotes"] = int(entry.get("rejected_quotes") or 0)
+                entry["score"] = _quality_score(
+                    entry["valid_quotes"],
+                    entry["rejected_quotes"],
+                    entry["reason_buckets"],
+                )
+
+        valid_rows = int(metadata.get("valid_rows") or (len(chain) if not chain.empty else 0))
+        rejected_rows = int(metadata.get("rejected_rows") or 0)
+        reason_buckets = dict(metadata.get("rejection_reasons") or {})
+        computed_failed = int(metadata.get("computed_iv_failed_count") or 0)
+        if computed_failed:
+            reason_buckets["computed_iv_failed"] = computed_failed
+        parity_rows = int(metadata.get("parity_violation_rows") or 0)
+        if parity_rows:
+            reason_buckets["parity_violation"] = parity_rows
+        score = _quality_score(valid_rows, rejected_rows, reason_buckets)
+        return {
+            "data_quality_score": score,
+            "quality_score": score,
+            "quality_reason_buckets": {
+                reason: int(count) for reason, count in reason_buckets.items() if count
+            },
+            "expiry_quality": dict(sorted(expiry_quality.items())),
+        }
+
+    @staticmethod
+    def _surface_quality_metadata(surface_chain: pd.DataFrame, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Summarize the quotes actually used to fit the displayed surface."""
+        expiry_quality = _copy_expiry_quality(metadata.get("expiry_quality"))
+        surface_expiry_counts: Dict[str, int] = {}
+        if not surface_chain.empty and "expiration" in surface_chain.columns:
+            expirations = pd.to_datetime(surface_chain["expiration"], errors="coerce").dt.normalize()
+            for expiry, group in surface_chain.groupby(expirations, dropna=True):
+                key = expiry.date().isoformat()
+                surface_expiry_counts[key] = int(len(group))
+                entry = expiry_quality.setdefault(
+                    key,
+                    {"valid_quotes": 0, "rejected_quotes": 0, "reason_buckets": {}},
+                )
+                entry["surface_quotes"] = int(len(group))
+                entry["score"] = _quality_score(
+                    int(entry.get("valid_quotes") or 0),
+                    int(entry.get("rejected_quotes") or 0),
+                    dict(entry.get("reason_buckets") or {}),
+                )
+
+        valid_rows = int(metadata.get("valid_rows") or len(surface_chain))
+        rejected_rows = int(metadata.get("rejected_rows") or 0)
+        reason_buckets = dict(metadata.get("quality_reason_buckets") or metadata.get("rejection_reasons") or {})
+        score = _quality_score(valid_rows, rejected_rows, reason_buckets)
+        surface_quality = {
+            "score": score,
+            "valid_quotes": valid_rows,
+            "rejected_quotes": rejected_rows,
+            "surface_quotes": int(len(surface_chain)),
+            "reason_buckets": {reason: int(count) for reason, count in reason_buckets.items() if count},
+            "expiries": surface_expiry_counts,
+        }
+        return {
+            "surface_quality_score": score,
+            "surface_quality": surface_quality,
+            "expiry_quality": dict(sorted(expiry_quality.items())),
+        }
+
     def _safe_fallback(self, symbol: str) -> Dict[str, Any]:
         try:
             price = self.price_provider.get_live_price(symbol)
@@ -803,3 +905,34 @@ def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     if column not in frame:
         return pd.Series(np.nan, index=frame.index, dtype="float64")
     return pd.to_numeric(frame[column], errors="coerce")
+
+
+def _copy_expiry_quality(value: Any) -> Dict[str, Dict[str, Any]]:
+    if not value:
+        return {}
+    items = value.items() if isinstance(value, dict) else value
+    out: Dict[str, Dict[str, Any]] = {}
+    for expiry, payload in items:
+        entry = dict(payload or {})
+        entry["valid_quotes"] = int(entry.get("valid_quotes") or 0)
+        entry["rejected_quotes"] = int(entry.get("rejected_quotes") or 0)
+        entry["reason_buckets"] = {
+            str(reason): int(count)
+            for reason, count in dict(entry.get("reason_buckets") or {}).items()
+            if count
+        }
+        out[str(expiry)] = entry
+    return out
+
+
+def _quality_score(valid_quotes: int, rejected_quotes: int, reason_buckets: Dict[str, int]) -> float:
+    valid = max(0, int(valid_quotes or 0))
+    rejected = max(0, int(rejected_quotes or 0))
+    total = valid + rejected
+    if total <= 0:
+        return 0.0
+
+    score = 100.0 * valid / total
+    score -= 20.0 * int(reason_buckets.get("computed_iv_failed", 0)) / max(valid, 1)
+    score -= 15.0 * int(reason_buckets.get("parity_violation", 0)) / max(valid, 1)
+    return round(float(min(100.0, max(0.0, score))), 1)

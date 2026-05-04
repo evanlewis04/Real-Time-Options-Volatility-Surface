@@ -243,7 +243,7 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
 - [x] Add parity sanity checks across calls and puts.
   - Acceptance: obvious put-call parity violations are flagged by expiry/strike.
 
-- [ ] Add data quality score per expiry and per surface.
+- [x] Add data quality score per expiry and per surface.
   - Acceptance: UI displays number of valid quotes, rejected quotes, and reason buckets.
 
 ## Phase 3: Quant Accuracy Upgrades
