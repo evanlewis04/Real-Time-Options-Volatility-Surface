@@ -25,9 +25,17 @@ def _run(name: str, fn: Callable[[], str]) -> CheckResult:
 def check_imports() -> str:
     import dashboard_connector  # noqa: F401
     from src.dashboard import run_dashboard  # noqa: F401
+    from src.dashboard.loading import LoadingState, render_loading_state  # noqa: F401
     from src.dashboard.surface_view import surface_stats  # noqa: F401
+    from src.dashboard.tables import filter_option_chain  # noqa: F401
     from src.dashboard.theme import apply_chart_layout  # noqa: F401
+    from src.dashboard.tooltips import COLUMN_HELP, CONTROL_HELP  # noqa: F401
+    from src.data.historical import HistoricalPriceLoader  # noqa: F401
+    from src.data.market_calendar import MarketCalendar  # noqa: F401
+    from src.data.models import MarketDataSnapshot, OptionQuote  # noqa: F401
     from src.data.options_provider import YFinanceOptionsProvider  # noqa: F401
+    from src.data.retry import call_with_backoff  # noqa: F401
+    from src.data.snapshots import save_snapshot  # noqa: F401
     from src.pricing.black_scholes import BlackScholesModel  # noqa: F401
     from src.pricing.implied_vol import ImpliedVolatilityCalculator  # noqa: F401
 
@@ -72,7 +80,14 @@ def check_connector() -> str:
     if missing:
         raise AssertionError(f"missing connector fields: {sorted(missing)}")
     health = connector.get_system_health()
-    return f"mode={data['data_mode']}, yfinance={health['overall'].get('yfinance_available')}"
+    snapshot = connector.get_market_data_snapshot("AAPL")
+    if snapshot.symbol != "AAPL":
+        raise AssertionError("snapshot symbol mismatch")
+    market_status = connector.get_market_status()
+    return (
+        f"mode={data['data_mode']}, yfinance={health['overall'].get('yfinance_available')}, "
+        f"snapshot_options={len(snapshot.options)}, market={market_status.get('session_state')}"
+    )
 
 
 def check_streamlit_testing() -> str:

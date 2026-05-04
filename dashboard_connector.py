@@ -9,15 +9,21 @@ surfaces are explicitly marked as such for the dashboard.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from src.analysis.surface_builder import build_surface
+from src.data.historical import HistoricalPriceLoader
+from src.data.market_calendar import MarketCalendar
+from src.data.models import MarketDataSnapshot
 from src.data.options_provider import OptionsChainMetadata, YFinanceOptionsProvider
-from src.data.price_provider import RealTimePriceProvider, YFINANCE_AVAILABLE
+from src.data.price_provider import RealTimePriceProvider
+from src.data.snapshots import load_latest_snapshot, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
 
 logger = logging.getLogger(__name__)
@@ -30,7 +36,10 @@ class DashboardConnector:
         self.config_file = config_file
         self.price_provider = RealTimePriceProvider()
         self.options_provider = YFinanceOptionsProvider(max_expirations=8)
+        self.historical_loader = HistoricalPriceLoader()
+        self.market_calendar = MarketCalendar()
         self.options_generator = SyntheticOptionsGenerator(self.price_provider)
+        self.snapshot_dir = Path("data/snapshots")
         self.real_time_active = False
         self.update_interval = 30
         self.chain_cache_ttl = timedelta(minutes=5)
@@ -47,6 +56,7 @@ class DashboardConnector:
         now = datetime.now()
         try:
             spot = self.price_provider.get_live_price(key)
+            market_status = self.get_market_status()
             greeks = self.options_generator.calculate_greeks(key, spot)
             chain, chain_meta = self._cached_chain_if_present(key)
             chain_summary = self._summarize_chain(chain, spot) if chain is not None and not chain.empty else {}
@@ -73,6 +83,9 @@ class DashboardConnector:
                 "vega": greeks["vega"],
                 "bid_ask_spread": chain_summary.get("median_spread_pct"),
                 "contracts": chain_summary.get("contracts"),
+                "market_status": market_status.get("session_state"),
+                "market_reason": market_status.get("reason"),
+                "data_delay_minutes": market_status.get("data_delay_minutes"),
                 "timestamp": now,
             }
         except Exception as exc:
@@ -81,8 +94,40 @@ class DashboardConnector:
 
     def get_options_chain_snapshot(self, symbol: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """Return normalized option-chain data and metadata for ``symbol``."""
+        snapshot = self.get_market_data_snapshot(symbol)
+        return snapshot.options_frame(), snapshot.metadata_dict()
+
+    def get_market_data_snapshot(self, symbol: str) -> MarketDataSnapshot:
+        """Return the canonical snapshot model for ``symbol``."""
         key = symbol.upper()
-        return self._get_options_chain(key)
+        spot_timestamp = datetime.now()
+        spot = self.price_provider.get_live_price(key)
+        chain, meta = self._get_options_chain(key, spot)
+        if chain.empty:
+            persisted = self.get_latest_persisted_snapshot(key)
+            if persisted is not None:
+                return replace(
+                    persisted,
+                    fallback_reason=meta.get("fallback_reason") or "Using latest persisted snapshot",
+                    mode="Fallback",
+                    cache_age=datetime.now() - persisted.spot_timestamp,
+                )
+
+        snapshot = MarketDataSnapshot.from_chain_frame(key, spot, spot_timestamp, chain, meta)
+        if snapshot.options:
+            try:
+                save_snapshot(snapshot, self.snapshot_dir)
+            except Exception as exc:
+                logger.debug("Snapshot persistence failed for %s: %s", key, exc)
+        return snapshot
+
+    def get_latest_persisted_snapshot(self, symbol: str) -> Optional[MarketDataSnapshot]:
+        """Load the latest local snapshot for replay/offline fallback."""
+        return load_latest_snapshot(symbol.upper(), self.snapshot_dir)
+
+    def get_market_status(self) -> Dict[str, Any]:
+        """Return current market calendar state."""
+        return self.market_calendar.status().as_dict()
 
     def get_vol_surface_data(self, symbol: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return strikes, expiries in days, and IVs for the surface plot."""
@@ -153,23 +198,10 @@ class DashboardConnector:
     def get_correlation_matrix(self, symbols: Optional[Iterable[str]] = None, period: str = "6mo") -> pd.DataFrame:
         """Calculate realized-return correlations from historical closes."""
         symbols = [s.upper() for s in (symbols or []) if s]
-        if len(symbols) < 2 or not YFINANCE_AVAILABLE:
+        if len(symbols) < 2:
             return pd.DataFrame()
 
-        returns: Dict[str, pd.Series] = {}
-        for symbol in symbols:
-            try:
-                import yfinance as yf
-
-                hist = yf.Ticker(symbol).history(period=period, auto_adjust=True)
-                if hist.empty or "Close" not in hist:
-                    continue
-                series = hist["Close"].pct_change().dropna()
-                if len(series) >= 20:
-                    returns[symbol] = series.rename(symbol)
-            except Exception as exc:
-                logger.debug("Correlation history failed for %s: %s", symbol, exc)
-
+        returns = self.historical_loader.load_many_returns(symbols, period=period, min_points=20)
         if len(returns) < 2:
             return pd.DataFrame()
         frame = pd.concat(returns.values(), axis=1).dropna(how="all")
@@ -178,31 +210,24 @@ class DashboardConnector:
     def get_historical_metrics(self, symbol: str, period: str = "1y") -> Dict[str, Any]:
         """Return historical realized-vol and return series for analytics panels."""
         key = symbol.upper()
-        if not YFINANCE_AVAILABLE:
-            return {"available": False, "reason": "yfinance is not installed"}
-        try:
-            import yfinance as yf
-
-            hist = yf.Ticker(key).history(period=period, auto_adjust=True)
-            if hist.empty or "Close" not in hist:
-                return {"available": False, "reason": "No historical closes returned"}
-            close = hist["Close"].dropna()
-            returns = close.pct_change().dropna()
-            realized_20d = returns.rolling(20).std() * np.sqrt(252)
-            realized_60d = returns.rolling(60).std() * np.sqrt(252)
-            return {
-                "available": True,
-                "source": "yfinance historical closes",
-                "close": close,
-                "returns": returns,
-                "realized_20d": realized_20d,
-                "realized_60d": realized_60d,
-                "last_close": float(close.iloc[-1]),
-                "realized_20d_latest": float(realized_20d.dropna().iloc[-1]) if realized_20d.notna().any() else None,
-                "realized_60d_latest": float(realized_60d.dropna().iloc[-1]) if realized_60d.notna().any() else None,
-            }
-        except Exception as exc:
-            return {"available": False, "reason": str(exc)}
+        result = self.historical_loader.load(key, period)
+        if not result.available:
+            return {"available": False, "reason": result.fallback_reason or "No historical closes returned"}
+        close = result.close()
+        returns = result.returns()
+        realized_20d = result.realized_vol(20)
+        realized_60d = result.realized_vol(60)
+        return {
+            "available": True,
+            "source": result.source,
+            "close": close,
+            "returns": returns,
+            "realized_20d": realized_20d,
+            "realized_60d": realized_60d,
+            "last_close": float(close.iloc[-1]),
+            "realized_20d_latest": float(realized_20d.dropna().iloc[-1]) if realized_20d.notna().any() else None,
+            "realized_60d_latest": float(realized_60d.dropna().iloc[-1]) if realized_60d.notna().any() else None,
+        }
 
     # ------------------------------------------------------------------
     # System / lifecycle
@@ -210,6 +235,7 @@ class DashboardConnector:
 
     def get_system_health(self) -> Dict[str, Any]:
         cache_status = getattr(self.price_provider, "get_cache_status", lambda: {})()
+        market_status = self.get_market_status()
         return {
             "overall": {
                 "pricing_models_available": True,
@@ -221,6 +247,11 @@ class DashboardConnector:
                 "last_update": datetime.now(),
                 "cached_symbols": cache_status.get("cached_symbols", 0),
                 "option_chain_cache_entries": len(self.chain_cache),
+                "option_expiry_cache_entries": self.options_provider.cache_status().get("entries"),
+                "historical_cache_entries": len(self.historical_loader.cache),
+                "market_state": market_status.get("session_state"),
+                "market_reason": market_status.get("reason"),
+                "next_market_open": market_status.get("next_open"),
             },
             "performance": {
                 "real_time_active": self.real_time_active,
@@ -231,6 +262,8 @@ class DashboardConnector:
                 "price_provider": "yfinance" if self.price_provider.yfinance_working else "simulated fallback",
                 "options_provider": "yfinance delayed chains",
                 "fallback_provider": "Black-Scholes synthetic chain",
+                "calendar_provider": market_status.get("market"),
+                "data_delay_minutes": market_status.get("data_delay_minutes"),
             },
         }
 
@@ -238,6 +271,8 @@ class DashboardConnector:
         try:
             self.price_provider.clear_cache()
             self.chain_cache.clear()
+            self.options_provider.clear_cache()
+            self.historical_loader.clear_cache()
             self.surface_metadata.clear()
             return {
                 "status": "success",
@@ -328,6 +363,7 @@ class DashboardConnector:
             price = self.price_provider.current_market_prices.get(symbol.upper(), 100.0)
 
         greeks = self.options_generator.calculate_greeks(symbol, price)
+        market_status = self.get_market_status()
         return {
             "symbol": symbol.upper(),
             "price": price,
@@ -345,5 +381,8 @@ class DashboardConnector:
             "vega": greeks["vega"],
             "bid_ask_spread": None,
             "contracts": None,
+            "market_status": market_status.get("session_state"),
+            "market_reason": market_status.get("reason"),
+            "data_delay_minutes": market_status.get("data_delay_minutes"),
             "timestamp": datetime.now(),
         }

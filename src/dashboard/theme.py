@@ -70,6 +70,123 @@ CSS = """
         color: var(--muted);
         font-size: 0.85rem;
     }
+    .loading-panel, .empty-panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 0.85rem 0.95rem;
+        margin: 0.45rem 0 0.7rem 0;
+    }
+    .loading-panel-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+    .loading-stage {
+        color: var(--accent);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+    }
+    .loading-title, .empty-title {
+        color: var(--ink);
+        font-size: 0.95rem;
+        font-weight: 750;
+        line-height: 1.25;
+    }
+    .loading-detail, .empty-detail {
+        color: var(--muted);
+        font-size: 0.82rem;
+        margin-top: 0.15rem;
+    }
+    .loading-pulse {
+        border: 1px solid #b7d7df;
+        border-radius: 999px;
+        color: var(--accent);
+        background: #edf8fa;
+        font-size: 0.68rem;
+        font-weight: 800;
+        padding: 0.15rem 0.45rem;
+    }
+    .skeleton-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.45rem;
+        margin-top: 0.8rem;
+    }
+    .skeleton-line {
+        height: 0.82rem;
+        border-radius: 5px;
+        background: linear-gradient(90deg, #eef1f5 25%, #f8fafc 45%, #eef1f5 65%);
+        background-size: 220% 100%;
+        animation: skeleton-shimmer 1.15s ease-in-out infinite;
+    }
+    .skeleton-line-1 { grid-column: span 1; }
+    .skeleton-line-2 { grid-column: span 2; }
+    .skeleton-line-3 { grid-column: span 3; }
+    .skeleton-line-4 { grid-column: span 4; }
+    .empty-panel {
+        border-style: dashed;
+        color: var(--muted);
+    }
+    .empty-action {
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 700;
+        margin-top: 0.45rem;
+    }
+    @keyframes skeleton-shimmer {
+        0% { background-position: 120% 0; }
+        100% { background-position: -120% 0; }
+    }
+    @media (max-width: 1024px) {
+        .block-container {
+            padding-left: 0.9rem;
+            padding-right: 0.9rem;
+        }
+        .workstation-header {
+            padding: 0.75rem 0.8rem;
+        }
+        .workstation-title {
+            font-size: 1.12rem;
+        }
+        .workstation-subtitle, .quality-row, .small-note {
+            font-size: 0.78rem;
+        }
+        .skeleton-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 640px) {
+        .block-container {
+            padding-left: 0.55rem;
+            padding-right: 0.55rem;
+            padding-top: 0.75rem;
+        }
+        .workstation-header, .quality-row, .loading-panel, .empty-panel {
+            border-radius: 6px;
+        }
+        .workstation-title {
+            font-size: 1rem;
+        }
+        .status-pill {
+            margin-top: 0.25rem;
+            padding: 0.16rem 0.42rem;
+            font-size: 0.72rem;
+        }
+        .loading-panel-top {
+            display: block;
+        }
+        .loading-pulse {
+            display: inline-block;
+            margin-top: 0.45rem;
+        }
+        .skeleton-grid {
+            grid-template-columns: 1fr;
+        }
+    }
     div[data-testid="stMetric"] {
         border: 1px solid var(--line);
         border-radius: 8px;

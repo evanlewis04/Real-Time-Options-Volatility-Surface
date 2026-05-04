@@ -15,8 +15,11 @@ def run_dashboard() -> None:
     import plotly.graph_objects as go
     import streamlit as st
     from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
+    from src.dashboard.loading import LoadingState, load_with_status, render_empty_state
     from src.dashboard.surface_view import extract_smile, surface_mesh, surface_stats
+    from src.dashboard.tables import dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
     from src.dashboard.theme import apply_chart_layout, inject_theme, status_pill
+    from src.dashboard.tooltips import COLUMN_HELP, CONTROL_HELP, KPI_HELP
 
     warnings.filterwarnings("ignore")
 
@@ -74,6 +77,9 @@ def run_dashboard() -> None:
                 "vega": 0.22,
                 "bid_ask_spread": None,
                 "contracts": None,
+                "market_status": self.get_market_status().get("session_state"),
+                "market_reason": self.get_market_status().get("reason"),
+                "data_delay_minutes": self.get_market_status().get("data_delay_minutes"),
                 "timestamp": self.timestamp,
             }
 
@@ -106,6 +112,20 @@ def run_dashboard() -> None:
         def get_options_chain_snapshot(self, symbol: str):
             return pd.DataFrame(), self.get_surface_metadata(symbol)
 
+        def get_market_data_snapshot(self, symbol: str):
+            from src.data.models import MarketDataSnapshot
+
+            data = self.get_current_data(symbol)
+            return MarketDataSnapshot(
+                symbol=symbol.upper(),
+                spot=float(data["price"]),
+                spot_timestamp=self.timestamp,
+                chain_timestamp=self.timestamp,
+                source="static local fallback",
+                fallback_reason="DashboardConnector could not be imported",
+                mode="Fallback",
+            )
+
         def get_portfolio_metrics(self):
             return {"configured": False, "message": "No position book configured"}
 
@@ -115,11 +135,21 @@ def run_dashboard() -> None:
         def get_historical_metrics(self, symbol: str, period: str = "1y"):
             return {"available": False, "reason": "No historical provider in fallback mode"}
 
+        def get_market_status(self):
+            from src.data.market_calendar import MarketCalendar
+
+            return MarketCalendar().status(self.timestamp).as_dict()
+
         def get_system_health(self):
             return {
-                "overall": {"yfinance_available": False, "last_update": self.timestamp, "option_chain_cache_entries": 0},
+                "overall": {
+                    "yfinance_available": False,
+                    "last_update": self.timestamp,
+                    "option_chain_cache_entries": 0,
+                    "market_state": self.get_market_status().get("session_state"),
+                },
                 "performance": {"real_time_active": False, "update_interval": 30},
-                "data_contract": {"price_provider": "static fallback"},
+                "data_contract": {"price_provider": "static fallback", "calendar_provider": "XNYS fallback"},
             }
 
         def trigger_data_refresh(self):
@@ -163,6 +193,11 @@ def run_dashboard() -> None:
         return connector.get_options_chain_snapshot(symbol)
 
 
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_market_snapshot_cached(symbol: str):
+        return connector.get_market_data_snapshot(symbol)
+
+
     @st.cache_data(ttl=900, show_spinner=False)
     def get_correlation_matrix_cached(symbols_key: Tuple[str, ...]):
         return connector.get_correlation_matrix(list(symbols_key))
@@ -171,6 +206,11 @@ def run_dashboard() -> None:
     @st.cache_data(ttl=900, show_spinner=False)
     def get_historical_metrics_cached(symbol: str):
         return connector.get_historical_metrics(symbol)
+
+
+    @st.cache_data(ttl=60, show_spinner=False)
+    def get_market_status_cached():
+        return connector.get_market_status()
 
 
     available_symbols = [
@@ -192,16 +232,36 @@ def run_dashboard() -> None:
             "Universe",
             options=available_symbols,
             default=["AAPL", "MSFT", "TSLA", "NVDA", "SPY"],
-            help="Symbols used for tables, correlation, and comparison panels.",
+            help=CONTROL_HELP["universe"],
         )
-        show_3d_surface = st.checkbox("3D surface", value=True)
-        show_correlations = st.checkbox("Realized correlation", value=True)
-        show_chain = st.checkbox("Option chain", value=True)
-        auto_refresh = st.checkbox("Auto refresh", value=False)
-        refresh_interval = st.slider("Refresh interval seconds", 15, 180, 60, 15)
+        show_3d_surface = st.checkbox("3D surface", value=True, help=CONTROL_HELP["show_3d_surface"])
+        show_correlations = st.checkbox("Realized correlation", value=True, help=CONTROL_HELP["show_correlations"])
+        show_chain = st.checkbox("Option chain", value=True, help=CONTROL_HELP["show_chain"])
+        auto_refresh = st.checkbox("Auto refresh", value=False, help=CONTROL_HELP["auto_refresh"])
+        refresh_interval = st.slider(
+            "Refresh interval seconds",
+            15,
+            180,
+            60,
+            15,
+            help=CONTROL_HELP["refresh_interval"],
+        )
         st.markdown("### Data Filters")
-        max_spread_pct = st.slider("Max spread percent", 0.05, 1.50, 0.75, 0.05)
-        min_open_interest = st.number_input("Min open interest", min_value=0, value=0, step=10)
+        max_spread_pct = st.slider(
+            "Max spread percent",
+            0.05,
+            1.50,
+            0.75,
+            0.05,
+            help=CONTROL_HELP["max_spread_pct"],
+        )
+        min_open_interest = st.number_input(
+            "Min open interest",
+            min_value=0,
+            value=0,
+            step=10,
+            help=CONTROL_HELP["min_open_interest"],
+        )
         if st.button("Refresh data", width="stretch"):
             result = connector.trigger_data_refresh()
             st.cache_data.clear()
@@ -218,14 +278,32 @@ def run_dashboard() -> None:
         "Primary underlying",
         selected_symbols,
         index=0,
-        help="Main symbol used for the volatility surface workspace.",
+        help=CONTROL_HELP["primary_underlying"],
     )
 
-    with st.spinner(f"Loading {surface_symbol} market data and surface..."):
-        current_data = get_current_data_cached(surface_symbol)
-        strikes, expiries, vol_surface = get_vol_surface_data_cached(surface_symbol)
-        surface_meta = get_surface_metadata_cached(surface_symbol)
-        stats = surface_stats(strikes, expiries, vol_surface, current_data["price"])
+    current_data = load_with_status(
+        st,
+        LoadingState(
+            title=f"{surface_symbol} price snapshot",
+            detail="Fetching yfinance underlying price, data mode, and representative IV fields.",
+            stage="underlying",
+            rows=4,
+        ),
+        lambda: get_current_data_cached(surface_symbol),
+    )
+    strikes, expiries, vol_surface = load_with_status(
+        st,
+        LoadingState(
+            title=f"{surface_symbol} volatility surface",
+            detail="Loading option-chain inputs and fitting the annualized IV surface.",
+            stage="surface",
+            rows=6,
+        ),
+        lambda: get_vol_surface_data_cached(surface_symbol),
+    )
+    surface_meta = get_surface_metadata_cached(surface_symbol)
+    stats = surface_stats(strikes, expiries, vol_surface, current_data["price"])
+    market_status = get_market_status_cached()
 
     surface_mode = surface_meta.get("surface_mode") or current_data.get("data_mode", "Unknown")
     source_label = surface_meta.get("surface_source") or current_data.get("price_source", "Unknown")
@@ -236,12 +314,14 @@ def run_dashboard() -> None:
         <div class="workstation-title">Options Volatility Surface Workstation</div>
         <div class="workstation-subtitle">
             {surface_symbol} | Spot {fmt_money(current_data.get("price"))} |
-            Source {source_label} | Updated {datetime.now().strftime("%H:%M:%S")}
+            Source {source_label} | Market {market_status.get("session_state", "Unknown")} |
+            Updated {datetime.now().strftime("%H:%M:%S")}
         </div>
         <div style="margin-top:0.55rem;">
             {status_pill("Surface", surface_mode)}
             {status_pill("Price", current_data.get("data_mode", "Unknown"))}
             {status_pill("IV", current_data.get("iv_source", "Unknown"))}
+            {status_pill("Market", market_status.get("session_state", "Unknown"))}
         </div>
     </div>
     """,
@@ -259,7 +339,7 @@ def run_dashboard() -> None:
     ]
     for col, (label, value, delta) in zip(kpi_cols, kpis):
         with col:
-            st.metric(label, value, delta=delta if delta else None)
+            st.metric(label, value, delta=delta if delta else None, help=KPI_HELP.get(label))
 
     st.markdown(
         f"""
@@ -269,33 +349,47 @@ def run_dashboard() -> None:
         valid rows {fmt_int(surface_meta.get("valid_rows"))};
         rejected rows {fmt_int(surface_meta.get("rejected_rows"))};
         cache age {fmt_int(surface_meta.get("cache_age_seconds"))}s;
+        market {market_status.get("reason", "unknown")};
+        delay {fmt_int(market_status.get("data_delay_minutes"))} min;
         fallback reason {surface_meta.get("fallback_reason") or "none"}.
     </div>
     """,
         unsafe_allow_html=True,
     )
 
-    market_rows = []
-    for symbol in selected_symbols:
-        data = get_current_data_cached(symbol)
-        market_rows.append(
-            {
-                "Symbol": symbol,
-                "Spot": data.get("price"),
-                "30D IV": data.get("iv_30d"),
-                "60D IV": data.get("iv_60d"),
-                "90D IV": data.get("iv_90d"),
-                "Delta": data.get("delta"),
-                "Gamma": data.get("gamma"),
-                "Theta/day": data.get("theta"),
-                "Vega/1%": data.get("vega"),
-                "Contracts": data.get("contracts"),
-                "Volume": data.get("volume"),
-                "Mode": data.get("data_mode"),
-                "IV Source": data.get("iv_source"),
-            }
-        )
-    market_df = pd.DataFrame(market_rows)
+    def build_market_snapshot() -> pd.DataFrame:
+        market_rows = []
+        for symbol in selected_symbols:
+            data = get_current_data_cached(symbol)
+            market_rows.append(
+                {
+                    "Symbol": symbol,
+                    "Spot": data.get("price"),
+                    "30D IV": data.get("iv_30d"),
+                    "60D IV": data.get("iv_60d"),
+                    "90D IV": data.get("iv_90d"),
+                    "Delta": data.get("delta"),
+                    "Gamma": data.get("gamma"),
+                    "Theta/day": data.get("theta"),
+                    "Vega/1%": data.get("vega"),
+                    "Contracts": data.get("contracts"),
+                    "Volume": data.get("volume"),
+                    "Mode": data.get("data_mode"),
+                    "IV Source": data.get("iv_source"),
+                }
+            )
+        return pd.DataFrame(market_rows)
+
+    market_df = load_with_status(
+        st,
+        LoadingState(
+            title="Universe price grid",
+            detail="Fetching yfinance prices and cached chain summaries for the selected symbols.",
+            stage="price grid",
+            rows=max(3, min(len(selected_symbols), 8)),
+        ),
+        build_market_snapshot,
+    )
 
     surface_tab, chain_tab, skew_tab, risk_tab, diagnostics_tab = st.tabs(
         ["Surface", "Chain", "Skew & Term", "Risk", "Diagnostics"]
@@ -351,31 +445,119 @@ def run_dashboard() -> None:
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
 
         st.markdown('<div class="section-header">Market Snapshot</div>', unsafe_allow_html=True)
+        market_filter_cols = st.columns([1, 1, 1])
+        mode_options = sorted(str(mode) for mode in market_df["Mode"].dropna().unique()) if "Mode" in market_df else []
+        with market_filter_cols[0]:
+            market_modes = st.multiselect(
+                "Market mode",
+                mode_options,
+                default=mode_options,
+                help="Filter market rows by data provenance mode.",
+            )
+        with market_filter_cols[1]:
+            min_market_iv = st.slider(
+                "Min 30D IV",
+                0.0,
+                2.0,
+                0.0,
+                0.05,
+                format="%.2f",
+                help="Minimum displayed 30D annualized implied volatility.",
+            )
+        market_display = filter_market_snapshot(market_df, market_modes, min_market_iv)
+        with market_filter_cols[2]:
+            st.download_button(
+                "Export market CSV",
+                dataframe_to_csv_bytes(market_display),
+                file_name=f"{surface_symbol}_market_snapshot.csv",
+                mime="text/csv",
+                width="stretch",
+            )
         st.dataframe(
-            market_df,
+            market_display,
             width="stretch",
             hide_index=True,
             column_config={
-                "Spot": st.column_config.NumberColumn(format="$%.2f"),
-                "30D IV": st.column_config.NumberColumn(format="%.2f"),
-                "60D IV": st.column_config.NumberColumn(format="%.2f"),
-                "90D IV": st.column_config.NumberColumn(format="%.2f"),
-                "Delta": st.column_config.NumberColumn(format="%.4f"),
-                "Gamma": st.column_config.NumberColumn(format="%.4f"),
-                "Theta/day": st.column_config.NumberColumn(format="%.4f"),
-                "Vega/1%": st.column_config.NumberColumn(format="%.4f"),
+                "Spot": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["Spot"]),
+                "30D IV": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["30D IV"]),
+                "60D IV": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["60D IV"]),
+                "90D IV": st.column_config.NumberColumn(format="%.2%", help=COLUMN_HELP["90D IV"]),
+                "Delta": st.column_config.NumberColumn(format="%.4f", help=COLUMN_HELP["Delta"]),
+                "Gamma": st.column_config.NumberColumn(format="%.4f", help=COLUMN_HELP["Gamma"]),
+                "Theta/day": st.column_config.NumberColumn(format="$%.4f", help=COLUMN_HELP["Theta/day"]),
+                "Vega/1%": st.column_config.NumberColumn(format="$%.4f", help=COLUMN_HELP["Vega/1%"]),
+                "Contracts": st.column_config.NumberColumn(format="%d", help=COLUMN_HELP["Contracts"]),
+                "Volume": st.column_config.NumberColumn(format="%d", help=COLUMN_HELP["Volume"]),
+                "Mode": st.column_config.TextColumn(help=COLUMN_HELP["Mode"]),
+                "IV Source": st.column_config.TextColumn(help=COLUMN_HELP["IV Source"]),
             },
         )
 
     with chain_tab:
         st.markdown('<div class="section-header">Option Chain Explorer</div>', unsafe_allow_html=True)
-        chain_df, chain_meta = get_options_chain_cached(surface_symbol)
+        market_snapshot = load_with_status(
+            st,
+            LoadingState(
+                title=f"{surface_symbol} market snapshot",
+                detail="Fetching canonical price, option quotes, expirations, and provenance metadata.",
+                stage="snapshot",
+                rows=8,
+            ),
+            lambda: get_market_snapshot_cached(surface_symbol),
+        )
+        chain_df = market_snapshot.options_frame()
+        chain_meta = market_snapshot.metadata_dict()
         if show_chain and not chain_df.empty:
-            filtered = chain_df.copy()
-            if "bidAskSpreadPct" in filtered:
-                filtered = filtered[(filtered["bidAskSpreadPct"].isna()) | (filtered["bidAskSpreadPct"] <= max_spread_pct)]
-            if "openInterest" in filtered:
-                filtered = filtered[filtered["openInterest"].fillna(0) >= min_open_interest]
+            filter_cols = st.columns([1, 1, 1, 1])
+            type_options = sorted(str(value) for value in chain_df["type"].dropna().unique()) if "type" in chain_df else []
+            expiration_options = (
+                sorted(pd.to_datetime(chain_df["expiration"], errors="coerce").dropna().dt.date.unique())
+                if "expiration" in chain_df
+                else []
+            )
+            with filter_cols[0]:
+                selected_types = st.multiselect(
+                    "Type",
+                    type_options,
+                    default=type_options,
+                    help="Filter option-chain rows by call or put.",
+                )
+            with filter_cols[1]:
+                selected_expirations = st.multiselect(
+                    "Expiry",
+                    expiration_options,
+                    default=expiration_options[: min(4, len(expiration_options))],
+                    help="Filter option-chain rows by expiration date.",
+                )
+            with filter_cols[2]:
+                moneyness_band = st.slider(
+                    "Moneyness",
+                    0.35,
+                    2.50,
+                    (0.80, 1.20),
+                    0.05,
+                    help="Strike divided by spot.",
+                )
+            with filter_cols[3]:
+                iv_band = st.slider(
+                    "IV",
+                    0.00,
+                    5.00,
+                    (0.05, 2.00),
+                    0.05,
+                    format="%.2f",
+                    help="Annualized implied-volatility filter.",
+                )
+
+            filtered = filter_option_chain(
+                chain_df,
+                max_spread_pct=max_spread_pct,
+                min_open_interest=min_open_interest,
+                option_types=selected_types,
+                expirations=selected_expirations,
+                moneyness_range=moneyness_band,
+                iv_range=iv_band,
+            )
 
             display_cols = [
                 "type",
@@ -393,28 +575,65 @@ def run_dashboard() -> None:
                 "bidAskSpreadPct",
             ]
             display_cols = [col for col in display_cols if col in filtered.columns]
+            st.download_button(
+                "Export chain CSV",
+                dataframe_to_csv_bytes(filtered[display_cols]),
+                file_name=f"{surface_symbol}_option_chain.csv",
+                mime="text/csv",
+            )
             st.dataframe(
                 filtered[display_cols],
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "expiration": st.column_config.DateColumn("Expiration"),
-                    "strike": st.column_config.NumberColumn(format="$%.2f"),
-                    "moneyness": st.column_config.NumberColumn(format="%.3f"),
-                    "bid": st.column_config.NumberColumn(format="$%.2f"),
-                    "ask": st.column_config.NumberColumn(format="$%.2f"),
-                    "mid": st.column_config.NumberColumn(format="$%.2f"),
-                    "last": st.column_config.NumberColumn(format="$%.2f"),
-                    "impliedVolatility": st.column_config.NumberColumn("IV", format="%.2f"),
-                    "bidAskSpreadPct": st.column_config.NumberColumn("Spread %", format="%.2f"),
+                    "type": st.column_config.TextColumn("Type", help=COLUMN_HELP["type"]),
+                    "expiration": st.column_config.DateColumn("Expiration", help=COLUMN_HELP["expiration"]),
+                    "daysToExpiration": st.column_config.NumberColumn(
+                        "DTE",
+                        format="%d",
+                        help=COLUMN_HELP["daysToExpiration"],
+                    ),
+                    "strike": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["strike"]),
+                    "moneyness": st.column_config.NumberColumn(format="%.3f", help=COLUMN_HELP["moneyness"]),
+                    "bid": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["bid"]),
+                    "ask": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["ask"]),
+                    "mid": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["mid"]),
+                    "last": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["last"]),
+                    "volume": st.column_config.NumberColumn(format="%d", help=COLUMN_HELP["Volume"]),
+                    "openInterest": st.column_config.NumberColumn(format="%d", help=COLUMN_HELP["openInterest"]),
+                    "impliedVolatility": st.column_config.NumberColumn(
+                        "IV",
+                        format="%.2%",
+                        help=COLUMN_HELP["impliedVolatility"],
+                    ),
+                    "bidAskSpreadPct": st.column_config.NumberColumn(
+                        "Spread %",
+                        format="%.2%",
+                        help=COLUMN_HELP["bidAskSpreadPct"],
+                    ),
                 },
             )
             st.caption(
                 f"Showing {len(filtered):,} of {len(chain_df):,} valid contracts. "
                 f"Source: {chain_meta.get('source', 'unknown')}; mode: {chain_meta.get('mode', 'unknown')}."
             )
+        elif show_chain:
+            st.markdown(
+                render_empty_state(
+                    "Option chain unavailable",
+                    "No usable yfinance contracts were returned after normalization and liquidity filters.",
+                    "Use Refresh data, relax filters, or select another optionable symbol.",
+                ),
+                unsafe_allow_html=True,
+            )
         else:
-            st.info("No real option chain is available for this symbol. The surface may be using an explicit synthetic fallback.")
+            st.markdown(
+                render_empty_state(
+                    "Option chain panel idle",
+                    "Enable Option chain in the configuration rail to render this table.",
+                ),
+                unsafe_allow_html=True,
+            )
 
     with skew_tab:
         st.markdown('<div class="section-header">Smile And Term Structure</div>', unsafe_allow_html=True)
@@ -452,7 +671,16 @@ def run_dashboard() -> None:
             fig_term.update_layout(title=f"{surface_symbol} ATM Term Structure", xaxis_title="Days to expiry", yaxis_title="Annualized IV")
             st.plotly_chart(apply_chart_layout(fig_term, 430), width="stretch")
 
-        hist_metrics = get_historical_metrics_cached(surface_symbol)
+        hist_metrics = load_with_status(
+            st,
+            LoadingState(
+                title=f"{surface_symbol} historical volatility",
+                detail="Fetching yfinance historical closes for realized-volatility comparison.",
+                stage="history",
+                rows=4,
+            ),
+            lambda: get_historical_metrics_cached(surface_symbol),
+        )
         if hist_metrics.get("available"):
             r20 = hist_metrics.get("realized_20d_latest")
             r60 = hist_metrics.get("realized_60d_latest")
@@ -461,19 +689,39 @@ def run_dashboard() -> None:
                 f"20D {fmt_pct(r20)}, 60D {fmt_pct(r60)}."
             )
         else:
-            st.caption(f"Realized volatility unavailable: {hist_metrics.get('reason', 'unknown reason')}.")
+            st.markdown(
+                render_empty_state(
+                    "Historical volatility unavailable",
+                    f"Realized-vol fetch did not return enough usable closes: {hist_metrics.get('reason', 'unknown reason')}.",
+                    "Refresh data or switch to a symbol with liquid yfinance history.",
+                ),
+                unsafe_allow_html=True,
+            )
 
     with risk_tab:
         st.markdown('<div class="section-header">Portfolio And Cross-Asset Risk</div>', unsafe_allow_html=True)
         portfolio = connector.get_portfolio_metrics()
         if not portfolio.get("configured"):
-            st.info(
-                "No position book is configured yet. Random VaR, Sharpe, drawdown, and P&L have been removed from live mode. "
-                "Use this panel for realized correlations until a real position import is added."
+            st.markdown(
+                render_empty_state(
+                    "Portfolio book unavailable",
+                    "No configured positions. Portfolio P&L, VaR, Sharpe, and drawdown remain disabled.",
+                    "Use realized correlations here until position import is added.",
+                ),
+                unsafe_allow_html=True,
             )
 
         if show_correlations and len(selected_symbols) > 1:
-            corr = get_correlation_matrix_cached(tuple(sorted(selected_symbols)))
+            corr = load_with_status(
+                st,
+                LoadingState(
+                    title="Realized correlation matrix",
+                    detail="Fetching yfinance historical closes for the selected universe and calculating aligned returns.",
+                    stage="correlation",
+                    rows=max(3, min(len(selected_symbols), 8)),
+                ),
+                lambda: get_correlation_matrix_cached(tuple(sorted(selected_symbols))),
+            )
             if not corr.empty:
                 fig_corr = go.Figure(
                     data=go.Heatmap(
@@ -492,9 +740,22 @@ def run_dashboard() -> None:
                 fig_corr.update_layout(title="6M Realized Return Correlation")
                 st.plotly_chart(apply_chart_layout(fig_corr, 460), width="stretch")
             else:
-                st.warning("Not enough historical data was available to compute realized correlations.")
+                st.markdown(
+                    render_empty_state(
+                        "Correlation matrix unavailable",
+                        "Fewer than two selected symbols returned at least 20 aligned daily returns.",
+                        "Refresh data, reduce the universe, or choose symbols with longer yfinance history.",
+                    ),
+                    unsafe_allow_html=True,
+                )
         else:
-            st.caption("Select at least two symbols and enable realized correlation to use this panel.")
+            st.markdown(
+                render_empty_state(
+                    "Correlation panel idle",
+                    "Select at least two symbols and enable realized correlation to compute this panel.",
+                ),
+                unsafe_allow_html=True,
+            )
 
     with diagnostics_tab:
         st.markdown('<div class="section-header">Diagnostics And Data Provenance</div>', unsafe_allow_html=True)
@@ -504,6 +765,9 @@ def run_dashboard() -> None:
             st.json(health.get("overall", {}))
         with col2:
             st.json(health.get("data_contract", {}))
+
+        st.markdown("#### Market Calendar")
+        st.json({k: str(v) if isinstance(v, datetime) else v for k, v in market_status.items()})
 
         st.markdown("#### Latest Surface Metadata")
         st.json({k: str(v) if isinstance(v, datetime) else v for k, v in surface_meta.items()})

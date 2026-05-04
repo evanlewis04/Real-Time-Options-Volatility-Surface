@@ -11,6 +11,8 @@ from typing import Dict, Optional
 
 import numpy as np
 
+from src.data.retry import call_with_backoff
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -101,7 +103,11 @@ class RealTimePriceProvider:
         if not YFINANCE_AVAILABLE:
             return False
         try:
-            data = yf.Ticker("AAPL").history(period="1d")
+            data = call_with_backoff(
+                lambda: yf.Ticker("AAPL").history(period="1d"),
+                label="yfinance price smoke test",
+                attempts=2,
+            )
             return not data.empty and float(data['Close'].iloc[-1]) > 0
         except Exception as e:
             logger.warning(f"yfinance smoke test failed: {e}")
@@ -113,7 +119,11 @@ class RealTimePriceProvider:
             ticker = yf.Ticker(symbol)
 
             for kwargs in ({"period": "1d", "interval": "1m"}, {"period": "2d"}):
-                hist = ticker.history(**kwargs)
+                hist = call_with_backoff(
+                    lambda kwargs=kwargs: ticker.history(**kwargs),
+                    label=f"yfinance price history {symbol}",
+                    attempts=2,
+                )
                 if not hist.empty:
                     price = float(hist['Close'].iloc[-1])
                     if price > 0:

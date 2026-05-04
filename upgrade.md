@@ -147,27 +147,27 @@ Goal: make the first screen feel like a real quant workstation.
   - Use diverging colors for spreads and neutral sequential colors for vol levels.
   - Acceptance: no arbitrary rainbow charts for decision-critical views.
 
-- [ ] Add skeleton/loading states for slow data fetches.
+- [x] Add skeleton/loading states for slow data fetches.
   - Acceptance: UI never appears frozen during yfinance calls.
 
 - [x] Add empty/error states with clear recovery actions.
   - Acceptance: no raw exception dumps in normal user flow.
 
-- [ ] Add compact help tooltips instead of long in-app explanatory text.
+- [x] Add compact help tooltips instead of long in-app explanatory text.
   - Acceptance: Greeks explanations move into concise tooltips or docs panel.
 
-- [ ] Add responsive layout checks.
+- [x] Add responsive layout checks.
   - Acceptance: app remains usable at 1440px, 1024px, and mobile-width browser sizes.
 
-- [ ] Add visual regression screenshots for the main dashboard.
+- [x] Add visual regression screenshots for the main dashboard.
   - Suggested: use Streamlit AppTest for structural checks and Playwright when available.
   - Acceptance: automated test verifies key sections render without exceptions.
 
-- [ ] Make all tables sortable, filterable, and exportable.
+- [x] Make all tables sortable, filterable, and exportable.
   - Suggested: use `st.dataframe` column config or AgGrid where valuable.
   - Acceptance: chain and market tables can be filtered by expiry, moneyness, type, liquidity, and IV.
 
-- [ ] Add column formatting.
+- [x] Add column formatting.
   - Price: dollars, IV: percent, theta: dollars/day, rates: percent, spreads: bps or percent.
   - Acceptance: no ambiguous raw decimals in the UI.
 
@@ -181,11 +181,11 @@ Goal: make the first screen feel like a real quant workstation.
 
 Goal: graduate from synthetic dashboard demo to real market-data analysis with transparent fallbacks.
 
-- [ ] Add a canonical `MarketDataSnapshot` data model.
+- [x] Add a canonical `MarketDataSnapshot` data model.
   - Fields: symbol, spot, spot_timestamp, chain_timestamp, expirations, options, source, source_delay, cache_age, fallback_reason.
   - Acceptance: dashboard consumes this model instead of loose dictionaries.
 
-- [ ] Add a canonical `OptionQuote` model.
+- [x] Add a canonical `OptionQuote` model.
   - Fields: contract, type, strike, expiry, dte, bid, ask, mid, last, volume, open_interest, raw_iv, computed_iv, delta, gamma, theta, vega, rho, quote_timestamp.
   - Acceptance: calculations and UI use typed/validated quote fields.
 
@@ -200,20 +200,20 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
 - [x] Add data-source capability matrix.
   - Acceptance: UI shows which fields are available from each provider.
 
-- [ ] Cache option chains by symbol and expiry.
+- [x] Cache option chains by symbol and expiry.
   - Acceptance: repeated dashboard reruns do not hammer yfinance.
 
-- [ ] Persist snapshots locally.
+- [x] Persist snapshots locally.
   - Suggested: parquet files under `data/snapshots/`.
   - Acceptance: app can replay a previous snapshot offline.
 
-- [ ] Add a historical price loader.
+- [x] Add a historical price loader.
   - Acceptance: returns, realized vol, IV rank, and correlations use real history.
 
-- [ ] Add rate-limit handling and backoff.
+- [x] Add rate-limit handling and backoff.
   - Acceptance: provider failures produce graceful stale-data fallback with reason.
 
-- [ ] Add market calendar support.
+- [x] Add market calendar support.
   - Suggested: `pandas_market_calendars`.
   - Acceptance: app knows market open, close, holidays, and delayed/weekend states.
 

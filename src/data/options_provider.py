@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+from src.data.retry import call_with_backoff
 
 try:
     import yfinance as yf
@@ -52,8 +54,10 @@ class OptionsChainMetadata:
 class YFinanceOptionsProvider:
     """Fetch and normalize delayed option-chain data from yfinance."""
 
-    def __init__(self, max_expirations: int = 8):
+    def __init__(self, max_expirations: int = 8, cache_ttl_seconds: int = 300):
         self.max_expirations = max_expirations
+        self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
+        self.expiration_cache: Dict[Tuple[str, str], Tuple[pd.DataFrame, datetime]] = {}
 
     def fetch_chain(self, symbol: str, spot_price: float) -> Tuple[pd.DataFrame, OptionsChainMetadata]:
         now = datetime.now()
@@ -72,7 +76,12 @@ class YFinanceOptionsProvider:
 
         try:
             ticker = yf.Ticker(key)
-            expirations = list(ticker.options or [])
+            expirations = list(
+                call_with_backoff(
+                    lambda: ticker.options or [],
+                    label=f"yfinance expirations {key}",
+                )
+            )
             meta.expirations_requested = min(len(expirations), self.max_expirations)
             if not expirations:
                 meta.mode = "Unavailable"
@@ -82,14 +91,7 @@ class YFinanceOptionsProvider:
             frames = []
             for expiration in expirations[: self.max_expirations]:
                 try:
-                    chain = ticker.option_chain(expiration)
-                    calls = chain.calls.copy()
-                    calls["type"] = "call"
-                    calls["expiration"] = expiration
-                    puts = chain.puts.copy()
-                    puts["type"] = "put"
-                    puts["expiration"] = expiration
-                    frames.append(pd.concat([calls, puts], ignore_index=True))
+                    frames.append(self._fetch_expiration_frame(ticker, key, expiration, now))
                     meta.expirations_loaded += 1
                 except Exception as exc:
                     meta.warnings.append(f"{expiration}: {exc}")
@@ -117,6 +119,38 @@ class YFinanceOptionsProvider:
             meta.fallback_reason = str(exc)
             logger.warning("yfinance chain fetch failed for %s: %s", key, exc)
             return pd.DataFrame(), meta
+
+    def clear_cache(self) -> None:
+        """Clear cached expiration-level yfinance chains."""
+        self.expiration_cache.clear()
+
+    def cache_status(self) -> Dict[str, Any]:
+        """Return cache status for diagnostics."""
+        return {
+            "entries": len(self.expiration_cache),
+            "ttl_seconds": int(self.cache_ttl.total_seconds()),
+            "keys": [f"{symbol}:{expiration}" for symbol, expiration in sorted(self.expiration_cache)],
+        }
+
+    def _fetch_expiration_frame(self, ticker: Any, symbol: str, expiration: str, now: datetime) -> pd.DataFrame:
+        cache_key = (symbol, expiration)
+        cached = self.expiration_cache.get(cache_key)
+        if cached and now - cached[1] < self.cache_ttl:
+            return cached[0].copy()
+
+        chain = call_with_backoff(
+            lambda: ticker.option_chain(expiration),
+            label=f"yfinance option_chain {symbol} {expiration}",
+        )
+        calls = chain.calls.copy()
+        calls["type"] = "call"
+        calls["expiration"] = expiration
+        puts = chain.puts.copy()
+        puts["type"] = "put"
+        puts["expiration"] = expiration
+        frame = pd.concat([calls, puts], ignore_index=True)
+        self.expiration_cache[cache_key] = (frame.copy(), now)
+        return frame
 
     @staticmethod
     def _normalize(raw: pd.DataFrame, symbol: str, spot_price: float, now: datetime) -> pd.DataFrame:
