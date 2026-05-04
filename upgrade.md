@@ -230,11 +230,11 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
 - [x] Add stale quote filtering.
   - Acceptance: old or zero bid/ask quotes are excluded or marked.
 
-- [ ] Add liquidity filters.
+- [x] Add liquidity filters.
   - Filters: min open interest, min volume, max bid-ask spread percent, max quote age.
   - Acceptance: surface construction can be restricted to tradable quotes.
 
-- [ ] Add midpoint, mark, and last-price selection.
+- [x] Add midpoint, mark, and last-price selection.
   - Acceptance: user can choose which market price drives computed IV.
 
 - [ ] Add crossed/locked market detection.

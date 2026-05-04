@@ -32,6 +32,8 @@ def filter_option_chain(
     frame: pd.DataFrame,
     max_spread_pct: float,
     min_open_interest: int,
+    min_volume: int = 0,
+    max_quote_age_days: int | None = None,
     option_types: Iterable[str] | None = None,
     expirations: Iterable[object] | None = None,
     moneyness_range: Tuple[float, float] | None = None,
@@ -49,6 +51,15 @@ def filter_option_chain(
     if "openInterest" in filtered:
         oi = pd.to_numeric(filtered["openInterest"], errors="coerce").fillna(0)
         filtered = filtered[oi >= min_open_interest]
+
+    if "volume" in filtered:
+        volume = pd.to_numeric(filtered["volume"], errors="coerce").fillna(0)
+        filtered = filtered[volume >= min_volume]
+
+    if max_quote_age_days is not None and "quoteAgeSeconds" in filtered:
+        max_age_seconds = max_quote_age_days * 24 * 60 * 60
+        quote_age = pd.to_numeric(filtered["quoteAgeSeconds"], errors="coerce")
+        filtered = filtered[quote_age.isna() | (quote_age <= max_age_seconds)]
 
     types = [str(value) for value in (option_types or []) if value]
     if types and "type" in filtered:

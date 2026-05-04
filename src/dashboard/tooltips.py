@@ -13,6 +13,9 @@ CONTROL_HELP = {
     "refresh_interval": "Seconds between automatic reruns.",
     "max_spread_pct": "Exclude quotes with bid-ask spread above this fraction of mid.",
     "min_open_interest": "Minimum open interest required in the chain table.",
+    "min_volume": "Minimum reported contract volume required for surface and chain inputs.",
+    "max_quote_age_days": "Maximum quote age for rows with provider timestamps; untimestamped rows are kept.",
+    "option_price_source": "Market price used to recompute IV for surface construction.",
 }
 
 
@@ -49,10 +52,14 @@ COLUMN_HELP = {
     "moneyness": "Strike divided by spot.",
     "bid": "Best reported bid in dollars.",
     "ask": "Best reported ask in dollars.",
-    "mid": "Bid/ask midpoint, or last price when no valid market exists.",
+    "mid": "Strict bid/ask midpoint when the market has a positive bid and ask above bid.",
+    "mark": "Provider mark when available, otherwise midpoint or last price fallback.",
     "last": "Last reported trade price in dollars.",
+    "selectedMarketPrice": "Market price selected to recompute implied volatility.",
+    "selectedPriceSource": "Row-level source used for the selected market price.",
     "openInterest": "Open contracts reported by the data provider.",
     "impliedVolatility": "Provider implied volatility, annualized.",
+    "computedIV": "Implied volatility recomputed from the selected market price, rate, and dividend assumptions.",
     "riskFreeRate": "Interpolated annualized risk-free rate for this contract expiry.",
     "effectiveDividendYield": "Continuous dividend yield used by BSM for this expiry, including discrete dividend adjustment.",
     "discreteDividendAmount": "Undiscounted cash dividends with ex-dates before this contract expires.",

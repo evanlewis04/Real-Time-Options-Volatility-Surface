@@ -9,6 +9,7 @@ surfaces are explicitly marked as such for the dashboard.
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,11 +26,13 @@ from src.data.options_provider import OptionsChainMetadata, YFinanceOptionsProvi
 from src.data.price_provider import RealTimePriceProvider
 from src.data.snapshots import load_latest_snapshot, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
+from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 
 logger = logging.getLogger(__name__)
+OPTION_PRICE_SOURCES = {"midpoint", "mark", "last"}
 
 
 class DashboardConnector:
@@ -49,12 +52,49 @@ class DashboardConnector:
             rate_provider=self.rate_provider,
             dividend_provider=self.dividend_provider,
         )
+        self.iv_calculator = ImpliedVolatilityCalculator()
+        self.option_price_source = "mark"
         self.snapshot_dir = Path("data/snapshots")
         self.real_time_active = False
         self.update_interval = 30
         self.chain_cache_ttl = timedelta(minutes=5)
         self.chain_cache: Dict[str, Tuple[pd.DataFrame, Dict[str, Any], datetime]] = {}
         self.surface_metadata: Dict[str, Dict[str, Any]] = {}
+
+    def configure_liquidity_filters(
+        self,
+        *,
+        min_open_interest: Optional[int] = None,
+        min_volume: Optional[int] = None,
+        max_bid_ask_spread_pct: Optional[float] = None,
+        max_quote_age_days: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Update option-chain liquidity filters and invalidate normalized caches."""
+        configure = getattr(self.options_provider, "configure_liquidity_filters", None)
+        if configure is None:
+            return {}
+        changed = configure(
+            min_open_interest=min_open_interest,
+            min_volume=min_volume,
+            max_bid_ask_spread_pct=max_bid_ask_spread_pct,
+            max_quote_age_days=max_quote_age_days,
+        )
+        if changed:
+            self.chain_cache.clear()
+            self.surface_metadata.clear()
+        settings = getattr(self.options_provider, "liquidity_filter_settings", lambda: {})()
+        return dict(settings)
+
+    def configure_option_price_source(self, price_source: str) -> str:
+        """Select which market price drives computed IV and surface fitting."""
+        normalized = str(price_source or "mark").strip().lower()
+        if normalized not in OPTION_PRICE_SOURCES:
+            normalized = "mark"
+        if normalized != self.option_price_source:
+            self.option_price_source = normalized
+            self.chain_cache.clear()
+            self.surface_metadata.clear()
+        return self.option_price_source
 
     # ------------------------------------------------------------------
     # Symbol-level data
@@ -121,6 +161,13 @@ class DashboardConnector:
                 "vega": greeks["vega"],
                 "bid_ask_spread": chain_summary.get("median_spread_pct"),
                 "contracts": chain_summary.get("contracts"),
+                "liquidity_filtered_count": chain_meta.get("liquidity_filtered_count") if chain_meta else None,
+                "rejection_reasons": chain_meta.get("rejection_reasons") if chain_meta else {},
+                "option_price_source": (
+                    chain_meta.get("option_price_source") if chain_meta else self.option_price_source
+                ),
+                "computed_iv_count": chain_meta.get("computed_iv_count") if chain_meta else None,
+                "computed_iv_failed_count": chain_meta.get("computed_iv_failed_count") if chain_meta else None,
                 "market_status": market_status.get("session_state"),
                 "market_reason": market_status.get("reason"),
                 "data_delay_minutes": market_status.get("data_delay_minutes"),
@@ -178,7 +225,10 @@ class DashboardConnector:
 
             surface_rate = meta.get("risk_free_rate_median") or meta.get("risk_free_rate_30d")
             surface_dividend = meta.get("effective_dividend_yield_median") or meta.get("effective_dividend_yield_30d")
-            strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
+            surface_chain = self._surface_iv_chain(chain)
+            if surface_chain.empty:
+                raise ValueError("No usable computed IV rows after selected price source")
+            strikes, expiries, vols = build_surface(surface_chain, spot, key, risk_free_rate=surface_rate)
             self.surface_metadata[key] = {
                 **meta,
                 "surface_mode": meta.get("mode", "Live/Delayed"),
@@ -188,6 +238,7 @@ class DashboardConnector:
                 "spot_timestamp": datetime.now(),
                 "surface_risk_free_rate": surface_rate,
                 "surface_dividend_yield": surface_dividend,
+                "surface_iv_input": "computedIV",
             }
             return strikes, expiries, vols
         except Exception as exc:
@@ -223,6 +274,8 @@ class DashboardConnector:
                 "spot_timestamp": datetime.now(),
                 "surface_risk_free_rate": surface_rate,
                 "surface_dividend_yield": surface_dividend,
+                "option_price_source": self.option_price_source,
+                "surface_iv_input": "synthetic provider IV",
                 **rate_meta,
                 **dividend_meta,
                 **corporate_meta,
@@ -307,6 +360,8 @@ class DashboardConnector:
                 "cached_symbols": cache_status.get("cached_symbols", 0),
                 "option_chain_cache_entries": len(self.chain_cache),
                 "option_expiry_cache_entries": self.options_provider.cache_status().get("entries"),
+                "liquidity_filters": getattr(self.options_provider, "liquidity_filter_settings", lambda: {})(),
+                "option_price_source": self.option_price_source,
                 "historical_cache_entries": len(self.historical_loader.cache),
                 "risk_free_rate_source": self.rate_provider.get_curve().source,
                 "risk_free_rate_mode": self.rate_provider.get_curve().mode,
@@ -330,6 +385,8 @@ class DashboardConnector:
                 "corporate_actions_provider": self.corporate_action_provider.preferred_source,
                 "calendar_provider": market_status.get("market"),
                 "data_delay_minutes": market_status.get("data_delay_minutes"),
+                "liquidity_filters": getattr(self.options_provider, "liquidity_filter_settings", lambda: {})(),
+                "option_price_source": self.option_price_source,
             },
         }
 
@@ -396,8 +453,10 @@ class DashboardConnector:
         dividend_assumption = self.dividend_provider.get(symbol)
         df = apply_dividends_to_options(df, dividend_assumption, spot_price)
         corporate_actions = self.corporate_action_provider.get(symbol)
+        df, price_meta = self._apply_option_price_source(df, spot_price)
         meta.update(self._rate_metadata(rate_curve, df))
         meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
+        meta.update(price_meta)
         corporate_meta = self._corporate_action_metadata(corporate_actions, df)
         meta.update(corporate_meta)
         meta["warnings"] = self._merge_warnings(
@@ -426,8 +485,9 @@ class DashboardConnector:
             "volume": int(pd.to_numeric(chain.get("volume"), errors="coerce").fillna(0).sum()),
             "open_interest": int(pd.to_numeric(chain.get("openInterest"), errors="coerce").fillna(0).sum()),
             "median_spread_pct": float(chain["bidAskSpreadPct"].median()) if "bidAskSpreadPct" in chain else None,
-            "iv_source": "option chain",
+            "iv_source": "computed option chain" if "computedIV" in chain else "option chain",
         }
+        iv_column = "computedIV" if "computedIV" in chain else "impliedVolatility"
 
         for target, name in ((30, "iv_30d"), (60, "iv_60d"), (90, "iv_90d")):
             sub = chain[np.abs(chain["daysToExpiration"] - target) <= 10].copy()
@@ -435,7 +495,9 @@ class DashboardConnector:
                 continue
             sub["atm_distance"] = np.abs(sub["strike"] - spot)
             atm = sub.sort_values("atm_distance").head(6)
-            out[name] = float(atm["impliedVolatility"].median())
+            ivs = pd.to_numeric(atm[iv_column], errors="coerce").dropna()
+            if not ivs.empty:
+                out[name] = float(ivs.median())
         return out
 
     @staticmethod
@@ -491,6 +553,102 @@ class DashboardConnector:
                     out.append(text)
         return out
 
+    def _apply_option_price_source(self, chain: pd.DataFrame, spot: float) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """Compute IV from the configured market-price source."""
+        if chain.empty:
+            return chain.copy(), {
+                "option_price_source": self.option_price_source,
+                "computed_iv_count": 0,
+                "computed_iv_failed_count": 0,
+            }
+
+        df = chain.copy()
+        selected_price, selected_source = self._selected_market_price(df, self.option_price_source)
+        df["selectedMarketPrice"] = selected_price
+        df["selectedPriceSource"] = selected_source
+        df["ivInput"] = "computed"
+
+        computed: List[float] = []
+        failed = 0
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for _, row in df.iterrows():
+                market_price = _float_or_nan(row.get("selectedMarketPrice"))
+                strike = _float_or_nan(row.get("strike"))
+                time_to_expiry = _float_or_nan(row.get("time_to_expiry"))
+                if not np.isfinite(time_to_expiry):
+                    days_to_expiry = _float_or_nan(row.get("daysToExpiration"))
+                    time_to_expiry = days_to_expiry / 365.0 if np.isfinite(days_to_expiry) else np.nan
+                rate = _float_or_nan(row.get("riskFreeRate"))
+                dividend = _float_or_nan(row.get("effectiveDividendYield"))
+                if not np.isfinite(dividend):
+                    dividend = _float_or_nan(row.get("dividendYield"))
+                option_type = str(row.get("type", "")).lower()
+
+                if not all(np.isfinite(value) for value in (market_price, strike, time_to_expiry, rate)):
+                    computed.append(np.nan)
+                    failed += 1
+                    continue
+
+                iv, _ = self.iv_calculator.calculate_implied_vol(
+                    market_price,
+                    spot,
+                    strike,
+                    time_to_expiry,
+                    rate,
+                    option_type,
+                    q=dividend if np.isfinite(dividend) else 0.0,
+                    method="brent",
+                )
+                if iv is None or not np.isfinite(iv):
+                    computed.append(np.nan)
+                    failed += 1
+                else:
+                    computed.append(float(iv))
+
+        df["computedIV"] = computed
+        computed_count = int(pd.to_numeric(df["computedIV"], errors="coerce").notna().sum())
+        return df, {
+            "option_price_source": self.option_price_source,
+            "computed_iv_count": computed_count,
+            "computed_iv_failed_count": failed,
+        }
+
+    @staticmethod
+    def _selected_market_price(chain: pd.DataFrame, price_source: str) -> Tuple[pd.Series, pd.Series]:
+        """Return selected prices and row-level source labels."""
+        mid = _numeric_series(chain, "mid")
+        mark = _numeric_series(chain, "mark")
+        last = _numeric_series(chain, "last")
+
+        if price_source == "midpoint":
+            return mid.where(mid > 0), pd.Series("midpoint", index=chain.index)
+        if price_source == "last":
+            return last.where(last > 0), pd.Series("last", index=chain.index)
+
+        selected = mark.where(mark > 0)
+        selected = selected.where(selected.notna(), mid.where(mid > 0))
+        selected = selected.where(selected.notna(), last.where(last > 0))
+        if "markSource" in chain:
+            source = chain["markSource"].fillna("mark").astype(str)
+        else:
+            source = pd.Series("mark", index=chain.index)
+        source = source.where(selected.notna(), "unavailable")
+        source = source.where(~((mark.isna() | (mark <= 0)) & (mid > 0)), "midpoint")
+        source = source.where(~((mark.isna() | (mark <= 0)) & (mid.isna() | (mid <= 0)) & (last > 0)), "last")
+        return selected, source
+
+    @staticmethod
+    def _surface_iv_chain(chain: pd.DataFrame) -> pd.DataFrame:
+        """Return a copy with computed IV as the fitting input."""
+        if chain.empty or "computedIV" not in chain:
+            return pd.DataFrame()
+        out = chain.copy()
+        computed = pd.to_numeric(out["computedIV"], errors="coerce")
+        out = out[computed.notna()].copy()
+        out["impliedVolatility"] = pd.to_numeric(out["computedIV"], errors="coerce")
+        return out
+
     def _safe_fallback(self, symbol: str) -> Dict[str, Any]:
         try:
             price = self.price_provider.get_live_price(symbol)
@@ -532,8 +690,28 @@ class DashboardConnector:
             "vega": greeks["vega"],
             "bid_ask_spread": None,
             "contracts": None,
+            "liquidity_filtered_count": None,
+            "rejection_reasons": {},
+            "option_price_source": self.option_price_source,
+            "computed_iv_count": None,
+            "computed_iv_failed_count": None,
             "market_status": market_status.get("session_state"),
             "market_reason": market_status.get("reason"),
             "data_delay_minutes": market_status.get("data_delay_minutes"),
             "timestamp": datetime.now(),
         }
+
+
+def _float_or_nan(value: Any) -> float:
+    try:
+        if value is None or pd.isna(value):
+            return np.nan
+        return float(value)
+    except (TypeError, ValueError):
+        return np.nan
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame:
+        return pd.Series(np.nan, index=frame.index, dtype="float64")
+    return pd.to_numeric(frame[column], errors="coerce")

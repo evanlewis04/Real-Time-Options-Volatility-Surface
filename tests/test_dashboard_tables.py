@@ -28,8 +28,10 @@ def test_filter_option_chain_applies_quality_and_user_filters():
                 "strike": 100.0,
                 "moneyness": 1.0,
                 "openInterest": 200,
+                "volume": 50,
                 "impliedVolatility": 0.25,
                 "bidAskSpreadPct": 0.10,
+                "quoteAgeSeconds": 3600,
             },
             {
                 "type": "put",
@@ -37,8 +39,10 @@ def test_filter_option_chain_applies_quality_and_user_filters():
                 "strike": 140.0,
                 "moneyness": 1.4,
                 "openInterest": 10,
+                "volume": 2,
                 "impliedVolatility": 0.80,
                 "bidAskSpreadPct": 0.90,
+                "quoteAgeSeconds": 10 * 24 * 60 * 60,
             },
         ]
     )
@@ -47,6 +51,8 @@ def test_filter_option_chain_applies_quality_and_user_filters():
         frame,
         max_spread_pct=0.50,
         min_open_interest=100,
+        min_volume=10,
+        max_quote_age_days=5,
         option_types=["call"],
         expirations=[date(2026, 6, 19)],
         moneyness_range=(0.8, 1.2),

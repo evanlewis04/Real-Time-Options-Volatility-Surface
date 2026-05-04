@@ -142,6 +142,12 @@ def run_dashboard() -> None:
 
             return MarketCalendar().status(self.timestamp).as_dict()
 
+        def configure_liquidity_filters(self, **kwargs):
+            return {}
+
+        def configure_option_price_source(self, price_source: str):
+            return price_source
+
         def get_system_health(self):
             return {
                 "overall": {
@@ -176,27 +182,27 @@ def run_dashboard() -> None:
 
 
     @st.cache_data(ttl=120, show_spinner=False)
-    def get_current_data_cached(symbol: str):
+    def get_current_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
         return connector.get_current_data(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_vol_surface_data_cached(symbol: str):
+    def get_vol_surface_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
         return connector.get_vol_surface_data(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_surface_metadata_cached(symbol: str):
+    def get_surface_metadata_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
         return connector.get_surface_metadata(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_options_chain_cached(symbol: str):
+    def get_options_chain_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
         return connector.get_options_chain_snapshot(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_market_snapshot_cached(symbol: str):
+    def get_market_snapshot_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
         return connector.get_market_data_snapshot(symbol)
 
 
@@ -264,6 +270,26 @@ def run_dashboard() -> None:
             step=10,
             help=CONTROL_HELP["min_open_interest"],
         )
+        min_volume = st.number_input(
+            "Min volume",
+            min_value=0,
+            value=0,
+            step=5,
+            help=CONTROL_HELP["min_volume"],
+        )
+        max_quote_age_days = st.number_input(
+            "Max quote age days",
+            min_value=0,
+            value=5,
+            step=1,
+            help=CONTROL_HELP["max_quote_age_days"],
+        )
+        option_price_source = st.selectbox(
+            "IV price source",
+            options=["mark", "midpoint", "last"],
+            index=0,
+            help=CONTROL_HELP["option_price_source"],
+        )
         if st.button("Refresh data", width="stretch"):
             result = connector.trigger_data_refresh()
             st.cache_data.clear()
@@ -282,6 +308,20 @@ def run_dashboard() -> None:
         index=0,
         help=CONTROL_HELP["primary_underlying"],
     )
+    data_key = (
+        int(min_open_interest),
+        int(min_volume),
+        float(max_spread_pct),
+        int(max_quote_age_days),
+        str(option_price_source),
+    )
+    connector.configure_liquidity_filters(
+        min_open_interest=data_key[0],
+        min_volume=data_key[1],
+        max_bid_ask_spread_pct=data_key[2],
+        max_quote_age_days=data_key[3],
+    )
+    connector.configure_option_price_source(data_key[4])
 
     current_data = load_with_status(
         st,
@@ -291,7 +331,7 @@ def run_dashboard() -> None:
             stage="underlying",
             rows=4,
         ),
-        lambda: get_current_data_cached(surface_symbol),
+        lambda: get_current_data_cached(surface_symbol, data_key),
     )
     strikes, expiries, vol_surface = load_with_status(
         st,
@@ -301,9 +341,9 @@ def run_dashboard() -> None:
             stage="surface",
             rows=6,
         ),
-        lambda: get_vol_surface_data_cached(surface_symbol),
+        lambda: get_vol_surface_data_cached(surface_symbol, data_key),
     )
-    surface_meta = get_surface_metadata_cached(surface_symbol)
+    surface_meta = get_surface_metadata_cached(surface_symbol, data_key)
     stats = surface_stats(strikes, expiries, vol_surface, current_data["price"])
     market_status = get_market_status_cached()
 
@@ -350,6 +390,7 @@ def run_dashboard() -> None:
         raw rows {fmt_int(surface_meta.get("raw_rows"))};
         valid rows {fmt_int(surface_meta.get("valid_rows"))};
         rejected rows {fmt_int(surface_meta.get("rejected_rows"))};
+        liquidity rejects {fmt_int(surface_meta.get("liquidity_filtered_count"))};
         cache age {fmt_int(surface_meta.get("cache_age_seconds"))}s;
         market {market_status.get("reason", "unknown")};
         delay {fmt_int(market_status.get("data_delay_minutes"))} min;
@@ -360,7 +401,13 @@ def run_dashboard() -> None:
         30D dividend yield {fmt_pct(surface_meta.get("effective_dividend_yield_30d"))};
         corporate actions {fmt_int(surface_meta.get("corporate_action_warning_count"))} warning(s).
         stale quotes {fmt_int(surface_meta.get("stale_quote_count"))};
-        last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))}.
+        last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))};
+        filters OI >= {fmt_int(surface_meta.get("min_open_interest"))},
+        volume >= {fmt_int(surface_meta.get("min_volume"))},
+        spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
+        quote age <= {fmt_int(surface_meta.get("max_quote_age_days"))}d;
+        IV price source {surface_meta.get("option_price_source") or "mark"};
+        computed IV {fmt_int(surface_meta.get("computed_iv_count"))}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -369,7 +416,7 @@ def run_dashboard() -> None:
     def build_market_snapshot() -> pd.DataFrame:
         market_rows = []
         for symbol in selected_symbols:
-            data = get_current_data_cached(symbol)
+            data = get_current_data_cached(symbol, data_key)
             market_rows.append(
                 {
                     "Symbol": symbol,
@@ -524,7 +571,7 @@ def run_dashboard() -> None:
                 stage="snapshot",
                 rows=8,
             ),
-            lambda: get_market_snapshot_cached(surface_symbol),
+            lambda: get_market_snapshot_cached(surface_symbol, data_key),
         )
         chain_df = market_snapshot.options_frame()
         chain_meta = market_snapshot.metadata_dict()
@@ -574,6 +621,8 @@ def run_dashboard() -> None:
                 chain_df,
                 max_spread_pct=max_spread_pct,
                 min_open_interest=min_open_interest,
+                min_volume=min_volume,
+                max_quote_age_days=max_quote_age_days,
                 option_types=selected_types,
                 expirations=selected_expirations,
                 moneyness_range=moneyness_band,
@@ -589,10 +638,14 @@ def run_dashboard() -> None:
                 "bid",
                 "ask",
                 "mid",
+                "mark",
                 "last",
+                "selectedMarketPrice",
+                "selectedPriceSource",
                 "volume",
                 "openInterest",
                 "impliedVolatility",
+                "computedIV",
                 "riskFreeRate",
                 "effectiveDividendYield",
                 "discreteDividendAmount",
@@ -624,13 +677,28 @@ def run_dashboard() -> None:
                     "bid": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["bid"]),
                     "ask": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["ask"]),
                     "mid": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["mid"]),
+                    "mark": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["mark"]),
                     "last": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["last"]),
+                    "selectedMarketPrice": st.column_config.NumberColumn(
+                        "IV Price",
+                        format="$%.2f",
+                        help=COLUMN_HELP["selectedMarketPrice"],
+                    ),
+                    "selectedPriceSource": st.column_config.TextColumn(
+                        "IV Price Source",
+                        help=COLUMN_HELP["selectedPriceSource"],
+                    ),
                     "volume": st.column_config.NumberColumn(format="%d", help=COLUMN_HELP["Volume"]),
                     "openInterest": st.column_config.NumberColumn(format="%d", help=COLUMN_HELP["openInterest"]),
                     "impliedVolatility": st.column_config.NumberColumn(
-                        "IV",
+                        "Provider IV",
                         format="%.2%",
                         help=COLUMN_HELP["impliedVolatility"],
+                    ),
+                    "computedIV": st.column_config.NumberColumn(
+                        "Computed IV",
+                        format="%.2%",
+                        help=COLUMN_HELP["computedIV"],
                     ),
                     "riskFreeRate": st.column_config.NumberColumn(
                         "Rate",
@@ -665,7 +733,8 @@ def run_dashboard() -> None:
             )
             st.caption(
                 f"Showing {len(filtered):,} of {len(chain_df):,} valid contracts. "
-                f"Source: {chain_meta.get('source', 'unknown')}; mode: {chain_meta.get('mode', 'unknown')}."
+                f"Source: {chain_meta.get('source', 'unknown')}; mode: {chain_meta.get('mode', 'unknown')}; "
+                f"liquidity rejects: {chain_meta.get('liquidity_filtered_count', 0):,}."
             )
         elif show_chain:
             st.markdown(

@@ -19,10 +19,15 @@ def _snapshot() -> MarketDataSnapshot:
                 "bid": 8.0,
                 "ask": 8.4,
                 "mid": 8.2,
+                "mark": 8.2,
                 "last": 8.1,
                 "volume": 120,
                 "openInterest": 500,
                 "impliedVolatility": 0.24,
+                "computedIV": 0.241,
+                "selectedMarketPrice": 8.2,
+                "selectedPriceSource": "mark",
+                "ivInput": "computed",
                 "riskFreeRate": 0.051,
                 "dividendYield": 0.005,
                 "effectiveDividendYield": 0.015,
@@ -126,7 +131,17 @@ def _snapshot() -> MarketDataSnapshot:
         last_only_quote_count=0,
         zero_bid_ask_count=0,
         stale_last_only_rejected_count=1,
+        min_open_interest=100,
+        min_volume=10,
+        max_bid_ask_spread_pct=0.5,
+        liquidity_filtered_count=2,
+        low_open_interest_rejected_count=1,
+        low_volume_rejected_count=1,
+        rejection_reasons=(("low_open_interest", 1), ("low_volume", 1)),
         max_quote_age_days=5,
+        option_price_source="mark",
+        computed_iv_count=1,
+        computed_iv_failed_count=0,
         raw_rows=1,
         valid_rows=1,
     )
@@ -153,8 +168,19 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.corporate_action_warning_count == 1
     assert loaded.expiry_corporate_actions[0][1][0]["action_type"] == "dividend"
     assert loaded.options[0].quote_quality == "bid_ask"
+    assert loaded.options[0].mark == 8.2
+    assert loaded.options[0].computed_iv == 0.241
+    assert loaded.options[0].selected_market_price == 8.2
     assert loaded.stale_last_only_rejected_count == 1
+    assert loaded.min_open_interest == 100
+    assert loaded.min_volume == 10
+    assert loaded.max_bid_ask_spread_pct == 0.5
+    assert loaded.liquidity_filtered_count == 2
+    assert loaded.rejection_reasons == (("low_open_interest", 1), ("low_volume", 1))
     assert loaded.max_quote_age_days == 5
+    assert loaded.option_price_source == "mark"
+    assert loaded.computed_iv_count == 1
+    assert loaded.computed_iv_failed_count == 0
 
 
 def test_list_and_load_latest_snapshot(tmp_path):

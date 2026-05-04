@@ -25,11 +25,15 @@ class OptionQuote:
     bid: Optional[float] = None
     ask: Optional[float] = None
     mid: Optional[float] = None
+    mark: Optional[float] = None
     last: Optional[float] = None
     volume: Optional[int] = None
     open_interest: Optional[int] = None
     raw_iv: Optional[float] = None
     computed_iv: Optional[float] = None
+    selected_market_price: Optional[float] = None
+    selected_price_source: Optional[str] = None
+    iv_input: Optional[str] = None
     delta: Optional[float] = None
     gamma: Optional[float] = None
     theta: Optional[float] = None
@@ -66,11 +70,15 @@ class OptionQuote:
             bid=_float_or_none(row.get("bid")),
             ask=_float_or_none(row.get("ask")),
             mid=_float_or_none(row.get("mid")),
+            mark=_float_or_none(row.get("mark")),
             last=_float_or_none(row.get("last")),
             volume=_int_or_none(row.get("volume")),
             open_interest=_int_or_none(row.get("openInterest")),
             raw_iv=_float_or_none(row.get("impliedVolatility")),
             computed_iv=_float_or_none(row.get("computedIV")),
+            selected_market_price=_float_or_none(row.get("selectedMarketPrice")),
+            selected_price_source=_str_or_none(row.get("selectedPriceSource")),
+            iv_input=_str_or_none(row.get("ivInput")),
             delta=_float_or_none(row.get("delta")),
             gamma=_float_or_none(row.get("gamma")),
             theta=_float_or_none(row.get("theta")),
@@ -103,11 +111,15 @@ class OptionQuote:
             "bid": self.bid,
             "ask": self.ask,
             "mid": self.mid,
+            "mark": self.mark,
             "last": self.last,
             "volume": self.volume,
             "openInterest": self.open_interest,
             "impliedVolatility": self.raw_iv,
             "computedIV": self.computed_iv,
+            "selectedMarketPrice": self.selected_market_price,
+            "selectedPriceSource": self.selected_price_source,
+            "ivInput": self.iv_input,
             "delta": self.delta,
             "gamma": self.gamma,
             "theta": self.theta,
@@ -178,7 +190,19 @@ class MarketDataSnapshot:
     last_only_quote_count: int = 0
     zero_bid_ask_count: int = 0
     stale_last_only_rejected_count: int = 0
+    min_open_interest: int = 0
+    min_volume: int = 0
+    max_bid_ask_spread_pct: Optional[float] = None
+    liquidity_filtered_count: int = 0
+    low_open_interest_rejected_count: int = 0
+    low_volume_rejected_count: int = 0
+    wide_spread_rejected_count: int = 0
+    old_quote_rejected_count: int = 0
+    rejection_reasons: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     max_quote_age_days: Optional[int] = None
+    option_price_source: str = "mark"
+    computed_iv_count: int = 0
+    computed_iv_failed_count: int = 0
     raw_rows: int = 0
     valid_rows: int = 0
     rejected_rows: int = 0
@@ -242,7 +266,19 @@ class MarketDataSnapshot:
             last_only_quote_count=int(metadata.get("last_only_quote_count") or 0),
             zero_bid_ask_count=int(metadata.get("zero_bid_ask_count") or 0),
             stale_last_only_rejected_count=int(metadata.get("stale_last_only_rejected_count") or 0),
+            min_open_interest=int(metadata.get("min_open_interest") or 0),
+            min_volume=int(metadata.get("min_volume") or 0),
+            max_bid_ask_spread_pct=_float_or_none(metadata.get("max_bid_ask_spread_pct")),
+            liquidity_filtered_count=int(metadata.get("liquidity_filtered_count") or 0),
+            low_open_interest_rejected_count=int(metadata.get("low_open_interest_rejected_count") or 0),
+            low_volume_rejected_count=int(metadata.get("low_volume_rejected_count") or 0),
+            wide_spread_rejected_count=int(metadata.get("wide_spread_rejected_count") or 0),
+            old_quote_rejected_count=int(metadata.get("old_quote_rejected_count") or 0),
+            rejection_reasons=_int_metadata_tuple(metadata.get("rejection_reasons")),
             max_quote_age_days=_int_or_none(metadata.get("max_quote_age_days")),
+            option_price_source=str(metadata.get("option_price_source") or "mark"),
+            computed_iv_count=int(metadata.get("computed_iv_count") or 0),
+            computed_iv_failed_count=int(metadata.get("computed_iv_failed_count") or 0),
             raw_rows=int(metadata.get("raw_rows") or 0),
             valid_rows=int(metadata.get("valid_rows") or len(quotes)),
             rejected_rows=int(metadata.get("rejected_rows") or 0),
@@ -303,7 +339,19 @@ class MarketDataSnapshot:
             "last_only_quote_count": self.last_only_quote_count,
             "zero_bid_ask_count": self.zero_bid_ask_count,
             "stale_last_only_rejected_count": self.stale_last_only_rejected_count,
+            "min_open_interest": self.min_open_interest,
+            "min_volume": self.min_volume,
+            "max_bid_ask_spread_pct": self.max_bid_ask_spread_pct,
+            "liquidity_filtered_count": self.liquidity_filtered_count,
+            "low_open_interest_rejected_count": self.low_open_interest_rejected_count,
+            "low_volume_rejected_count": self.low_volume_rejected_count,
+            "wide_spread_rejected_count": self.wide_spread_rejected_count,
+            "old_quote_rejected_count": self.old_quote_rejected_count,
+            "rejection_reasons": dict(self.rejection_reasons),
             "max_quote_age_days": self.max_quote_age_days,
+            "option_price_source": self.option_price_source,
+            "computed_iv_count": self.computed_iv_count,
+            "computed_iv_failed_count": self.computed_iv_failed_count,
             "warnings": list(self.warnings),
         }
 
@@ -405,4 +453,15 @@ def _list_metadata_tuple(value: Any) -> tuple[tuple[str, list[dict[str, Any]]], 
     out = []
     for key, payload in items:
         out.append((str(key), [dict(item) for item in payload]))
+    return tuple(out)
+
+
+def _int_metadata_tuple(value: Any) -> tuple[tuple[str, int], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    out = []
+    for key, count in items:
+        if count is not None:
+            out.append((str(key), int(count)))
     return tuple(out)

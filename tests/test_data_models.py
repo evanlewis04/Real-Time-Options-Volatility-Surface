@@ -18,10 +18,15 @@ def _sample_chain() -> pd.DataFrame:
                 "bid": 8.0,
                 "ask": 8.4,
                 "mid": 8.2,
+                "mark": 8.2,
                 "last": 8.1,
                 "volume": 120,
                 "openInterest": 500,
                 "impliedVolatility": 0.24,
+                "computedIV": 0.241,
+                "selectedMarketPrice": 8.2,
+                "selectedPriceSource": "mark",
+                "ivInput": "computed",
                 "riskFreeRate": 0.051,
                 "dividendYield": 0.005,
                 "effectiveDividendYield": 0.015,
@@ -48,6 +53,11 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert quote.contract == "AAPL260619C00200000"
     assert quote.type == "call"
     assert quote.raw_iv == 0.24
+    assert quote.computed_iv == 0.241
+    assert quote.mark == 8.2
+    assert quote.selected_market_price == 8.2
+    assert quote.selected_price_source == "mark"
+    assert quote.iv_input == "computed"
     assert quote.risk_free_rate == 0.051
     assert quote.effective_dividend_yield == 0.015
     assert quote.discrete_dividend_count == 1
@@ -59,6 +69,8 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     frame = option_quotes_to_frame(quotes)
     assert frame.iloc[0]["contractSymbol"] == quote.contract
     assert frame.iloc[0]["impliedVolatility"] == quote.raw_iv
+    assert frame.iloc[0]["computedIV"] == quote.computed_iv
+    assert frame.iloc[0]["selectedMarketPrice"] == quote.selected_market_price
     assert frame.iloc[0]["riskFreeRate"] == quote.risk_free_rate
     assert frame.iloc[0]["effectiveDividendYield"] == quote.effective_dividend_yield
     assert frame.iloc[0]["quoteQuality"] == "bid_ask"
@@ -153,7 +165,23 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
             "last_only_quote_count": 0,
             "zero_bid_ask_count": 0,
             "stale_last_only_rejected_count": 1,
+            "min_open_interest": 100,
+            "min_volume": 10,
+            "max_bid_ask_spread_pct": 0.50,
+            "liquidity_filtered_count": 3,
+            "low_open_interest_rejected_count": 1,
+            "low_volume_rejected_count": 1,
+            "wide_spread_rejected_count": 1,
+            "old_quote_rejected_count": 0,
+            "rejection_reasons": {
+                "low_open_interest": 1,
+                "low_volume": 1,
+                "wide_bid_ask_spread": 1,
+            },
             "max_quote_age_days": 5,
+            "option_price_source": "mark",
+            "computed_iv_count": 1,
+            "computed_iv_failed_count": 0,
         },
     )
 
@@ -175,7 +203,15 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
     assert snapshot.metadata_dict()["corporate_action_warning_count"] == 1
     assert snapshot.metadata_dict()["expiry_corporate_actions"]["2026-06-19"][0]["action_type"] == "dividend"
     assert snapshot.metadata_dict()["stale_last_only_rejected_count"] == 1
+    assert snapshot.metadata_dict()["min_open_interest"] == 100
+    assert snapshot.metadata_dict()["min_volume"] == 10
+    assert snapshot.metadata_dict()["max_bid_ask_spread_pct"] == 0.50
+    assert snapshot.metadata_dict()["liquidity_filtered_count"] == 3
+    assert snapshot.metadata_dict()["rejection_reasons"]["low_volume"] == 1
     assert snapshot.metadata_dict()["max_quote_age_days"] == 5
+    assert snapshot.metadata_dict()["option_price_source"] == "mark"
+    assert snapshot.metadata_dict()["computed_iv_count"] == 1
+    assert snapshot.metadata_dict()["computed_iv_failed_count"] == 0
 
 
 def test_empty_snapshot_returns_empty_options_frame():

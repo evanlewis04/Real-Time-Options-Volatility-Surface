@@ -42,10 +42,19 @@ class OptionsChainMetadata:
     valid_rows: int = 0
     rejected_rows: int = 0
     median_spread_pct: Optional[float] = None
+    min_open_interest: int = 0
+    min_volume: int = 0
+    max_bid_ask_spread_pct: float = 1.5
     stale_quote_count: int = 0
     last_only_quote_count: int = 0
     zero_bid_ask_count: int = 0
     stale_last_only_rejected_count: int = 0
+    liquidity_filtered_count: int = 0
+    low_open_interest_rejected_count: int = 0
+    low_volume_rejected_count: int = 0
+    wide_spread_rejected_count: int = 0
+    old_quote_rejected_count: int = 0
+    rejection_reasons: Dict[str, int] = field(default_factory=dict)
     max_quote_age_days: int = 5
     fallback_reason: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
@@ -59,11 +68,55 @@ class OptionsChainMetadata:
 class YFinanceOptionsProvider:
     """Fetch and normalize delayed option-chain data from yfinance."""
 
-    def __init__(self, max_expirations: int = 8, cache_ttl_seconds: int = 300, max_quote_age_days: int = 5):
+    def __init__(
+        self,
+        max_expirations: int = 8,
+        cache_ttl_seconds: int = 300,
+        max_quote_age_days: int = 5,
+        min_open_interest: int = 0,
+        min_volume: int = 0,
+        max_bid_ask_spread_pct: float = 1.5,
+    ):
         self.max_expirations = max_expirations
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self.max_quote_age_days = max_quote_age_days
+        self.min_open_interest = max(0, int(min_open_interest))
+        self.min_volume = max(0, int(min_volume))
+        self.max_bid_ask_spread_pct = max(0.0, float(max_bid_ask_spread_pct))
         self.expiration_cache: Dict[Tuple[str, str], Tuple[pd.DataFrame, datetime]] = {}
+
+    def configure_liquidity_filters(
+        self,
+        *,
+        min_open_interest: Optional[int] = None,
+        min_volume: Optional[int] = None,
+        max_bid_ask_spread_pct: Optional[float] = None,
+        max_quote_age_days: Optional[int] = None,
+    ) -> bool:
+        """Update provider-level liquidity filters.
+
+        Returns ``True`` when any setting changed so callers can invalidate
+        chain caches that were normalized with the old policy.
+        """
+        old = self.liquidity_filter_settings()
+        if min_open_interest is not None:
+            self.min_open_interest = max(0, int(min_open_interest))
+        if min_volume is not None:
+            self.min_volume = max(0, int(min_volume))
+        if max_bid_ask_spread_pct is not None:
+            self.max_bid_ask_spread_pct = max(0.0, float(max_bid_ask_spread_pct))
+        if max_quote_age_days is not None:
+            self.max_quote_age_days = max(0, int(max_quote_age_days))
+        return old != self.liquidity_filter_settings()
+
+    def liquidity_filter_settings(self) -> Dict[str, Any]:
+        """Return active liquidity-filter settings."""
+        return {
+            "min_open_interest": self.min_open_interest,
+            "min_volume": self.min_volume,
+            "max_bid_ask_spread_pct": self.max_bid_ask_spread_pct,
+            "max_quote_age_days": self.max_quote_age_days,
+        }
 
     def fetch_chain(self, symbol: str, spot_price: float) -> Tuple[pd.DataFrame, OptionsChainMetadata]:
         now = datetime.now()
@@ -74,6 +127,9 @@ class YFinanceOptionsProvider:
             mode="Live/Delayed",
             timestamp=now,
             max_quote_age_days=self.max_quote_age_days,
+            min_open_interest=self.min_open_interest,
+            min_volume=self.min_volume,
+            max_bid_ask_spread_pct=self.max_bid_ask_spread_pct,
         )
 
         if not YFINANCE_AVAILABLE:
@@ -111,13 +167,28 @@ class YFinanceOptionsProvider:
 
             raw = pd.concat(frames, ignore_index=True)
             meta.raw_rows = len(raw)
-            clean = self._normalize(raw, key, spot_price, now, max_quote_age_days=self.max_quote_age_days)
+            clean = self._normalize(
+                raw,
+                key,
+                spot_price,
+                now,
+                max_quote_age_days=self.max_quote_age_days,
+                min_open_interest=self.min_open_interest,
+                min_volume=self.min_volume,
+                max_bid_ask_spread_pct=self.max_bid_ask_spread_pct,
+            )
             meta.valid_rows = len(clean)
             meta.rejected_rows = max(0, meta.raw_rows - meta.valid_rows)
             meta.stale_quote_count = int(clean.attrs.get("stale_quote_count", 0))
             meta.last_only_quote_count = int(clean.attrs.get("last_only_quote_count", 0))
             meta.zero_bid_ask_count = int(clean.attrs.get("zero_bid_ask_count", 0))
             meta.stale_last_only_rejected_count = int(clean.attrs.get("stale_last_only_rejected_count", 0))
+            meta.liquidity_filtered_count = int(clean.attrs.get("liquidity_filtered_count", 0))
+            meta.low_open_interest_rejected_count = int(clean.attrs.get("low_open_interest_rejected_count", 0))
+            meta.low_volume_rejected_count = int(clean.attrs.get("low_volume_rejected_count", 0))
+            meta.wide_spread_rejected_count = int(clean.attrs.get("wide_spread_rejected_count", 0))
+            meta.old_quote_rejected_count = int(clean.attrs.get("old_quote_rejected_count", 0))
+            meta.rejection_reasons = dict(clean.attrs.get("rejection_reasons", {}))
             if "bidAskSpreadPct" in clean and not clean.empty:
                 meta.median_spread_pct = float(clean["bidAskSpreadPct"].median())
 
@@ -170,6 +241,9 @@ class YFinanceOptionsProvider:
         spot_price: float,
         now: datetime,
         max_quote_age_days: int = 5,
+        min_open_interest: int = 0,
+        min_volume: int = 0,
+        max_bid_ask_spread_pct: float = 1.5,
     ) -> pd.DataFrame:
         df = raw.copy()
         df["symbol"] = symbol
@@ -187,6 +261,7 @@ class YFinanceOptionsProvider:
             "lastPrice",
             "bid",
             "ask",
+            "mark",
             "volume",
             "openInterest",
             "impliedVolatility",
@@ -200,7 +275,7 @@ class YFinanceOptionsProvider:
         if "lastTradeDate" in df.columns:
             df = df.rename(columns={"lastTradeDate": "quoteTimestamp"})
 
-        for col in ("bid", "ask", "last", "volume", "openInterest", "impliedVolatility"):
+        for col in ("bid", "ask", "last", "mark", "volume", "openInterest", "impliedVolatility"):
             if col not in df.columns:
                 df[col] = np.nan
         if "quoteTimestamp" not in df.columns:
@@ -230,34 +305,90 @@ class YFinanceOptionsProvider:
         df["mid"] = np.where(
             valid_bid_ask,
             (df["bid"] + df["ask"]) / 2,
-            df["last"],
+            np.nan,
+        )
+        provider_mark = pd.to_numeric(df["mark"], errors="coerce")
+        df["markSource"] = np.select(
+            [
+                provider_mark > 0,
+                valid_bid_ask,
+                last_only,
+            ],
+            ["provider_mark", "midpoint", "last"],
+            default="unavailable",
+        )
+        df["mark"] = np.where(
+            provider_mark > 0,
+            provider_mark,
+            np.where(valid_bid_ask, df["mid"], df["last"]),
         )
         df["bidAskSpread"] = df["ask"] - df["bid"]
         df["bidAskSpreadPct"] = df["bidAskSpread"] / df["mid"].replace(0, np.nan)
 
-        clean = df[
+        base_mask = (
             (df["strike"] > 0)
             & (df["daysToExpiration"] > 0)
             & (df["time_to_expiry"] > 0)
-            & (df["mid"] > 0)
+            & (df["mark"] > 0)
             & (df["impliedVolatility"] > 0.01)
             & (df["impliedVolatility"] < 5.0)
             & (df["moneyness"] > 0.35)
             & (df["moneyness"] < 2.5)
-        ].copy()
-
-        liquid = (
-            ((clean["bid"] > 0) & (clean["ask"] > clean["bid"]) & (clean["bidAskSpreadPct"] < 1.5))
-            | clean["bidAskSpreadPct"].isna()
         )
-        fresh_enough = clean["quoteQuality"] != "stale_last_only"
-        clean = clean[liquid].copy()
-        stale_last_only_rejected = int((~fresh_enough & liquid).sum())
-        clean = clean[clean["quoteQuality"] != "stale_last_only"].copy()
+        clean = df[base_mask].copy()
+        rejection_reasons: Dict[str, int] = {
+            "base_quality": int((~base_mask).sum()),
+        }
+
+        clean, stale_last_only_rejected = _apply_row_filter(
+            clean,
+            clean["quoteQuality"] != "stale_last_only",
+            "stale_last_only",
+            rejection_reasons,
+        )
+        clean, old_quote_rejected = _apply_row_filter(
+            clean,
+            ~(pd.to_numeric(clean["quoteAgeSeconds"], errors="coerce") > max_quote_age.total_seconds()),
+            "old_quote",
+            rejection_reasons,
+        )
+        clean, low_oi_rejected = _apply_row_filter(
+            clean,
+            pd.to_numeric(clean["openInterest"], errors="coerce").fillna(0) >= max(0, int(min_open_interest)),
+            "low_open_interest",
+            rejection_reasons,
+        )
+        clean, low_volume_rejected = _apply_row_filter(
+            clean,
+            pd.to_numeric(clean["volume"], errors="coerce").fillna(0) >= max(0, int(min_volume)),
+            "low_volume",
+            rejection_reasons,
+        )
+        spread_pct = pd.to_numeric(clean["bidAskSpreadPct"], errors="coerce")
+        spread_ok = spread_pct.isna() | (spread_pct <= max(0.0, float(max_bid_ask_spread_pct)))
+        clean, wide_spread_rejected = _apply_row_filter(
+            clean,
+            spread_ok,
+            "wide_bid_ask_spread",
+            rejection_reasons,
+        )
+        liquidity_filtered_count = (
+            stale_last_only_rejected
+            + old_quote_rejected
+            + low_oi_rejected
+            + low_volume_rejected
+            + wide_spread_rejected
+        )
         clean.attrs["stale_quote_count"] = int(clean["isStaleQuote"].sum()) if "isStaleQuote" in clean else 0
         clean.attrs["last_only_quote_count"] = int((clean["quoteQuality"] == "last_only").sum())
         clean.attrs["zero_bid_ask_count"] = int(zero_bid_ask.sum())
         clean.attrs["stale_last_only_rejected_count"] = stale_last_only_rejected
+        clean.attrs["old_quote_rejected_count"] = old_quote_rejected
+        clean.attrs["low_open_interest_rejected_count"] = low_oi_rejected
+        clean.attrs["low_volume_rejected_count"] = low_volume_rejected
+        clean.attrs["wide_spread_rejected_count"] = wide_spread_rejected
+        clean.attrs["liquidity_filtered_count"] = liquidity_filtered_count
+        clean.attrs["rejection_reasons"] = {key: value for key, value in rejection_reasons.items() if value}
 
         ordered_cols = [
             "symbol",
@@ -270,6 +401,8 @@ class YFinanceOptionsProvider:
             "bid",
             "ask",
             "mid",
+            "mark",
+            "markSource",
             "last",
             "volume",
             "openInterest",
@@ -286,3 +419,19 @@ class YFinanceOptionsProvider:
         result = clean[available].sort_values(["expiration", "strike", "type"]).reset_index(drop=True)
         result.attrs.update(clean.attrs)
         return result
+
+
+def _apply_row_filter(
+    frame: pd.DataFrame,
+    keep_mask: pd.Series,
+    reason: str,
+    rejection_reasons: Dict[str, int],
+) -> Tuple[pd.DataFrame, int]:
+    """Apply one sequential row filter and track its rejection reason."""
+    if frame.empty:
+        rejection_reasons[reason] = 0
+        return frame.copy(), 0
+    aligned = keep_mask.reindex(frame.index).fillna(False).astype(bool)
+    rejected = int((~aligned).sum())
+    rejection_reasons[reason] = rejected
+    return frame[aligned].copy(), rejected

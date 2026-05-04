@@ -5,6 +5,7 @@ import pandas as pd
 from dashboard_connector import DashboardConnector
 from src.data.market_calendar import EASTERN
 from src.data.models import MarketDataSnapshot
+from src.pricing.black_scholes import BlackScholesModel
 
 
 class StubPriceProvider:
@@ -15,6 +16,24 @@ class StubPriceProvider:
 
 
 class StubOptionsProvider:
+    def __init__(self):
+        self.settings = {
+            "min_open_interest": 0,
+            "min_volume": 0,
+            "max_bid_ask_spread_pct": 1.5,
+            "max_quote_age_days": 5,
+        }
+
+    def configure_liquidity_filters(self, **kwargs):
+        old = dict(self.settings)
+        for key, value in kwargs.items():
+            if value is not None:
+                self.settings[key] = value
+        return old != self.settings
+
+    def liquidity_filter_settings(self):
+        return dict(self.settings)
+
     def fetch_chain(self, symbol: str, spot_price: float):
         frame = pd.DataFrame(
             [
@@ -28,6 +47,7 @@ class StubOptionsProvider:
                     "bid": 8.0,
                     "ask": 8.4,
                     "mid": 8.2,
+                    "mark": 8.2,
                     "last": 8.1,
                     "volume": 120,
                     "openInterest": 500,
@@ -51,6 +71,9 @@ class StubOptionsProvider:
             "raw_rows": 1,
             "valid_rows": 1,
             "rejected_rows": 0,
+            **self.settings,
+            "liquidity_filtered_count": 0,
+            "rejection_reasons": {},
         }
         return frame, meta
 
@@ -79,6 +102,8 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.corporate_action_source is not None
     assert snapshot.corporate_action_warning_count >= 1
     assert snapshot.expiry_corporate_actions
+    assert snapshot.min_open_interest == 0
+    assert snapshot.liquidity_filtered_count == 0
 
 
 def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
@@ -94,8 +119,13 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert frame.iloc[0]["impliedVolatility"] == 0.24
     assert frame.iloc[0]["riskFreeRate"] > 0.0
     assert frame.iloc[0]["effectiveDividendYield"] >= 0.0
+    assert frame.iloc[0]["selectedMarketPrice"] == 8.2
+    assert frame.iloc[0]["selectedPriceSource"] == "mark"
+    assert frame.iloc[0]["computedIV"] > 0.0
     assert meta["source"] == "fixture"
     assert meta["valid_rows"] == 1
+    assert meta["option_price_source"] == "mark"
+    assert meta["computed_iv_count"] == 1
     assert meta["risk_free_rate_30d"] > 0.0
     assert meta["expiry_rates"]["2026-06-19"] > 0.0
     assert meta["effective_dividend_yield_30d"] >= 0.0
@@ -103,6 +133,71 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert meta["corporate_action_warning_count"] >= 1
     assert "2026-06-19" in meta["expiry_corporate_actions"]
     assert any("dividend" in warning for warning in meta["corporate_action_warnings"])
+    assert meta["liquidity_filtered_count"] == 0
+    assert meta["rejection_reasons"] == {}
+
+
+def test_connector_configures_liquidity_filters_and_clears_cache(tmp_path):
+    connector = DashboardConnector()
+    connector.price_provider = StubPriceProvider()
+    connector.options_provider = StubOptionsProvider()
+    connector.snapshot_dir = tmp_path
+    connector.chain_cache["AAPL"] = (pd.DataFrame([{"x": 1}]), {}, datetime(2026, 5, 3))
+    connector.surface_metadata["AAPL"] = {"valid_rows": 1}
+
+    settings = connector.configure_liquidity_filters(
+        min_open_interest=100,
+        min_volume=25,
+        max_bid_ask_spread_pct=0.40,
+        max_quote_age_days=2,
+    )
+
+    assert settings["min_open_interest"] == 100
+    assert settings["min_volume"] == 25
+    assert settings["max_bid_ask_spread_pct"] == 0.40
+    assert settings["max_quote_age_days"] == 2
+    assert connector.chain_cache == {}
+    assert connector.surface_metadata == {}
+
+
+def test_connector_option_price_source_drives_computed_iv():
+    connector = DashboardConnector()
+    spot = 100.0
+    strike = 100.0
+    expiry = 30 / 365.0
+    rate = 0.0
+    mid_price = BlackScholesModel.call_price(spot, strike, expiry, rate, 0.20)
+    last_price = BlackScholesModel.call_price(spot, strike, expiry, rate, 0.40)
+    chain = pd.DataFrame(
+        [
+            {
+                "type": "call",
+                "strike": strike,
+                "time_to_expiry": expiry,
+                "riskFreeRate": rate,
+                "effectiveDividendYield": 0.0,
+                "bid": mid_price - 0.05,
+                "ask": mid_price + 0.05,
+                "mid": mid_price,
+                "mark": mid_price,
+                "last": last_price,
+            }
+        ]
+    )
+
+    connector.configure_option_price_source("midpoint")
+    midpoint_chain, midpoint_meta = connector._apply_option_price_source(chain, spot)
+    connector.configure_option_price_source("last")
+    last_chain, last_meta = connector._apply_option_price_source(chain, spot)
+
+    assert midpoint_chain.iloc[0]["selectedMarketPrice"] == mid_price
+    assert midpoint_chain.iloc[0]["selectedPriceSource"] == "midpoint"
+    assert abs(midpoint_chain.iloc[0]["computedIV"] - 0.20) < 1e-4
+    assert midpoint_meta["computed_iv_count"] == 1
+    assert last_chain.iloc[0]["selectedMarketPrice"] == last_price
+    assert last_chain.iloc[0]["selectedPriceSource"] == "last"
+    assert abs(last_chain.iloc[0]["computedIV"] - 0.40) < 1e-4
+    assert last_meta["option_price_source"] == "last"
 
 
 def test_connector_exposes_market_calendar_status():
