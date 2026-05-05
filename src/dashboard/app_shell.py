@@ -16,7 +16,7 @@ def run_dashboard() -> None:
     import streamlit as st
     from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
     from src.dashboard.loading import LoadingState, load_with_status, render_empty_state
-    from src.dashboard.surface_view import extract_smile, surface_mesh, surface_stats
+    from src.dashboard.surface_view import extract_smile, surface_axis, surface_stats
     from src.dashboard.tables import dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
     from src.dashboard.theme import apply_chart_layout, inject_theme, status_pill
     from src.dashboard.tooltips import COLUMN_HELP, CONTROL_HELP, KPI_HELP
@@ -255,6 +255,12 @@ def run_dashboard() -> None:
             help=CONTROL_HELP["universe"],
         )
         show_3d_surface = st.checkbox("3D surface", value=True, help=CONTROL_HELP["show_3d_surface"])
+        surface_x_axis = st.selectbox(
+            "Surface x-axis",
+            options=["Strike", "Moneyness", "Log-moneyness", "Call delta"],
+            index=0,
+            help=CONTROL_HELP["surface_x_axis"],
+        )
         show_correlations = st.checkbox("Realized correlation", value=True, help=CONTROL_HELP["show_correlations"])
         show_chain = st.checkbox("Option chain", value=True, help=CONTROL_HELP["show_chain"])
         auto_refresh = st.checkbox("Auto refresh", value=False, help=CONTROL_HELP["auto_refresh"])
@@ -357,6 +363,7 @@ def run_dashboard() -> None:
     )
     surface_meta = get_surface_metadata_cached(surface_symbol, data_key)
     stats = surface_stats(strikes, expiries, vol_surface, current_data["price"])
+    term_metrics = stats.get("term_metrics") or {}
     market_status = get_market_status_cached()
 
     surface_mode = surface_meta.get("surface_mode") or current_data.get("data_mode", "Unknown")
@@ -429,6 +436,8 @@ def run_dashboard() -> None:
         quote age <= {fmt_int(surface_meta.get("max_quote_age_days"))}d;
         IV price source {surface_meta.get("option_price_source") or "mark"};
         computed IV {fmt_int(surface_meta.get("computed_iv_count"))}.
+        forward median {fmt_money(surface_meta.get("forward_price_median"))};
+        discount median {surface_meta.get("discount_factor_median") if surface_meta.get("discount_factor_median") is not None else "n/a"}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -477,25 +486,33 @@ def run_dashboard() -> None:
 
     with surface_tab:
         st.markdown('<div class="section-header">Volatility Surface</div>', unsafe_allow_html=True)
-        strike_mesh, expiry_mesh, vols = surface_mesh(strikes, expiries, vol_surface)
+        axis_mesh, axis_expiry_mesh, axis_vols, axis_title, _axis_hover_format, axis_hover_label = surface_axis(
+            strikes,
+            expiries,
+            vol_surface,
+            current_data["price"],
+            surface_x_axis,
+            surface_meta.get("surface_risk_free_rate") or surface_meta.get("risk_free_rate_median"),
+            surface_meta.get("surface_dividend_yield") or surface_meta.get("effective_dividend_yield_median"),
+        )
 
         if show_3d_surface:
             fig_3d = go.Figure(
                 data=[
                     go.Surface(
-                        z=vols,
-                        x=strike_mesh,
-                        y=expiry_mesh,
+                        z=axis_vols,
+                        x=axis_mesh,
+                        y=axis_expiry_mesh,
                         colorscale="Cividis",
                         colorbar=dict(title="IV"),
-                        hovertemplate="Strike: $%{x:.2f}<br>DTE: %{y:.0f}<br>IV: %{z:.2%}<extra></extra>",
+                        hovertemplate=f"{axis_hover_label}<br>DTE: %{{y:.0f}}<br>IV: %{{z:.2%}}<extra></extra>",
                     )
                 ]
             )
             fig_3d.update_layout(
                 title=f"{surface_symbol} Implied Volatility Surface",
                 scene=dict(
-                    xaxis_title="Strike",
+                    xaxis_title=axis_title,
                     yaxis_title="Days to expiry",
                     zaxis_title="Annualized IV",
                     camera=dict(eye=dict(x=1.45, y=1.35, z=1.0)),
@@ -508,18 +525,18 @@ def run_dashboard() -> None:
         fig_heatmap = go.Figure(
             data=[
                 go.Heatmap(
-                    z=vols,
-                    x=strike_mesh[0, :] if strike_mesh.ndim == 2 else strike_mesh,
-                    y=expiry_mesh[:, 0] if expiry_mesh.ndim == 2 else expiry_mesh,
+                    z=axis_vols,
+                    x=axis_mesh[0, :] if axis_mesh.ndim == 2 else axis_mesh,
+                    y=axis_expiry_mesh[:, 0] if axis_expiry_mesh.ndim == 2 else axis_expiry_mesh,
                     colorscale="RdBu_r",
                     colorbar=dict(title="IV"),
-                    hovertemplate="Strike: $%{x:.2f}<br>DTE: %{y:.0f}<br>IV: %{z:.2%}<extra></extra>",
+                    hovertemplate=f"{axis_hover_label}<br>DTE: %{{y:.0f}}<br>IV: %{{z:.2%}}<extra></extra>",
                 )
             ]
         )
         fig_heatmap.update_layout(
             title=f"{surface_symbol} Surface Heatmap",
-            xaxis_title="Strike",
+            xaxis_title=axis_title,
             yaxis_title="Days to expiry",
         )
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
@@ -656,6 +673,8 @@ def run_dashboard() -> None:
                 "daysToExpiration",
                 "strike",
                 "moneyness",
+                "forwardMoneyness",
+                "logMoneyness",
                 "bid",
                 "ask",
                 "mid",
@@ -670,6 +689,8 @@ def run_dashboard() -> None:
                 "parityViolation",
                 "parityError",
                 "riskFreeRate",
+                "discountFactor",
+                "forwardPrice",
                 "effectiveDividendYield",
                 "discreteDividendAmount",
                 "quoteQuality",
@@ -699,6 +720,16 @@ def run_dashboard() -> None:
                     ),
                     "strike": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["strike"]),
                     "moneyness": st.column_config.NumberColumn(format="%.3f", help=COLUMN_HELP["moneyness"]),
+                    "forwardMoneyness": st.column_config.NumberColumn(
+                        "Fwd Mny",
+                        format="%.3f",
+                        help=COLUMN_HELP["forwardMoneyness"],
+                    ),
+                    "logMoneyness": st.column_config.NumberColumn(
+                        "Log Mny",
+                        format="%.3f",
+                        help=COLUMN_HELP["logMoneyness"],
+                    ),
                     "bid": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["bid"]),
                     "ask": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["ask"]),
                     "mid": st.column_config.NumberColumn(format="$%.2f", help=COLUMN_HELP["mid"]),
@@ -738,6 +769,16 @@ def run_dashboard() -> None:
                         "Rate",
                         format="%.2%",
                         help=COLUMN_HELP["riskFreeRate"],
+                    ),
+                    "discountFactor": st.column_config.NumberColumn(
+                        "DF",
+                        format="%.5f",
+                        help=COLUMN_HELP["discountFactor"],
+                    ),
+                    "forwardPrice": st.column_config.NumberColumn(
+                        "Forward",
+                        format="$%.2f",
+                        help=COLUMN_HELP["forwardPrice"],
                     ),
                     "effectiveDividendYield": st.column_config.NumberColumn(
                         "Div Yield",
@@ -798,22 +839,33 @@ def run_dashboard() -> None:
 
     with skew_tab:
         st.markdown('<div class="section-header">Smile And Term Structure</div>', unsafe_allow_html=True)
-        smile_strikes, smile_vols, smile_days = extract_smile(strikes, expiries, vol_surface)
+        smile_x, smile_vols, smile_days, smile_axis_title, smile_hover_label = extract_smile(
+            strikes,
+            expiries,
+            vol_surface,
+            current_data["price"],
+            surface_x_axis,
+        )
         col1, col2 = st.columns(2)
         with col1:
             fig_smile = go.Figure()
             fig_smile.add_trace(
                 go.Scatter(
-                    x=smile_strikes,
+                    x=smile_x,
                     y=smile_vols,
                     mode="lines+markers",
                     name=f"{smile_days:.0f} DTE",
                     line=dict(color="#1f7a8c", width=3),
-                    hovertemplate="Strike: $%{x:.2f}<br>IV: %{y:.2%}<extra></extra>",
+                    hovertemplate=f"{smile_hover_label}<br>IV: %{{y:.2%}}<extra></extra>",
                 )
             )
-            fig_smile.add_vline(x=current_data["price"], line_width=1, line_dash="dash", line_color="#667085")
-            fig_smile.update_layout(title=f"{surface_symbol} Front Smile", xaxis_title="Strike", yaxis_title="Annualized IV")
+            if surface_x_axis == "Strike":
+                fig_smile.add_vline(x=current_data["price"], line_width=1, line_dash="dash", line_color="#667085")
+            fig_smile.update_layout(
+                title=f"{surface_symbol} Front Smile",
+                xaxis_title=smile_axis_title,
+                yaxis_title="Annualized IV",
+            )
             st.plotly_chart(apply_chart_layout(fig_smile, 430), width="stretch")
 
         with col2:
@@ -831,6 +883,42 @@ def run_dashboard() -> None:
                 )
             fig_term.update_layout(title=f"{surface_symbol} ATM Term Structure", xaxis_title="Days to expiry", yaxis_title="Annualized IV")
             st.plotly_chart(apply_chart_layout(fig_term, 430), width="stretch")
+
+        st.caption(
+            "Term structure: "
+            f"{term_metrics.get('regime', 'unavailable')}; "
+            f"front/back {fmt_pct(term_metrics.get('front_back_spread'))}; "
+            f"slope per 30D {fmt_pct(term_metrics.get('slope_per_30d'))}; "
+            f"curvature {term_metrics.get('curvature') if term_metrics.get('curvature') is not None else 'n/a'}."
+        )
+        delta_skew = surface_meta.get("delta_skew") or []
+        if delta_skew:
+            skew_display = pd.DataFrame(delta_skew)
+            st.dataframe(
+                skew_display,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "expiration": st.column_config.TextColumn("Expiry"),
+                    "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                    "atm_iv": st.column_config.NumberColumn("ATM IV", format="%.2%"),
+                    "10d_put_iv": st.column_config.NumberColumn("10d Put IV", format="%.2%"),
+                    "25d_put_iv": st.column_config.NumberColumn("25d Put IV", format="%.2%"),
+                    "25d_call_iv": st.column_config.NumberColumn("25d Call IV", format="%.2%"),
+                    "10d_call_iv": st.column_config.NumberColumn("10d Call IV", format="%.2%"),
+                    "risk_reversal_25d": st.column_config.NumberColumn("25d RR", format="%.2%"),
+                    "butterfly_25d": st.column_config.NumberColumn("25d Fly", format="%.2%"),
+                },
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Delta skew unavailable",
+                    "The current chain does not have enough valid call and put IVs to compute 10/25-delta skew.",
+                    "Refresh data, relax filters, or select a more liquid options symbol.",
+                ),
+                unsafe_allow_html=True,
+            )
 
         hist_metrics = load_with_status(
             st,

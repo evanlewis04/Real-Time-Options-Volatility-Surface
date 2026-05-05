@@ -103,6 +103,10 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert len(snapshot.options) == 1
     assert snapshot.options[0].contract == "AAPL260619C00200000"
     assert snapshot.options[0].risk_free_rate is not None
+    assert snapshot.options[0].discount_factor is not None
+    assert snapshot.options[0].forward_price is not None
+    assert snapshot.options[0].forward_moneyness is not None
+    assert snapshot.options[0].log_moneyness is not None
     assert snapshot.options[0].effective_dividend_yield is not None
     assert snapshot.risk_free_rate_source is not None
     assert snapshot.expiry_rates
@@ -131,6 +135,9 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert frame.iloc[0]["contractSymbol"] == "AAPL260619C00200000"
     assert frame.iloc[0]["impliedVolatility"] == 0.24
     assert frame.iloc[0]["riskFreeRate"] > 0.0
+    assert frame.iloc[0]["discountFactor"] > 0.0
+    assert frame.iloc[0]["forwardPrice"] > 0.0
+    assert frame.iloc[0]["forwardMoneyness"] > 0.0
     assert frame.iloc[0]["effectiveDividendYield"] >= 0.0
     assert frame.iloc[0]["selectedMarketPrice"] == 8.2
     assert frame.iloc[0]["selectedPriceSource"] == "mark"
@@ -140,6 +147,9 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert meta["option_price_source"] == "mark"
     assert meta["computed_iv_count"] == 1
     assert meta["risk_free_rate_30d"] > 0.0
+    assert meta["forward_price_median"] > 0.0
+    assert meta["discount_factor_median"] > 0.0
+    assert "2026-06-19" in meta["expiry_forwards"]
     assert meta["expiry_rates"]["2026-06-19"] > 0.0
     assert meta["effective_dividend_yield_30d"] >= 0.0
     assert "2026-06-19" in meta["expiry_dividends"]

@@ -29,7 +29,9 @@ from src.data.synthetic_options import SyntheticOptionsGenerator
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
+from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
+from src.quant.skew import delta_skew_by_expiry
 
 logger = logging.getLogger(__name__)
 OPTION_PRICE_SOURCES = {"midpoint", "mark", "last"}
@@ -248,10 +250,13 @@ class DashboardConnector:
             logger.warning("Real chain surface failed for %s: %s", key, exc)
             chain = self.options_generator.create_chain(key)
             rate_curve = self.rate_provider.get_curve()
+            chain = apply_curve_to_options(chain, rate_curve)
             rate_meta = self._rate_metadata(rate_curve, chain)
             dividend_assumption = self.dividend_provider.get(key)
             chain = apply_dividends_to_options(chain, dividend_assumption, spot)
+            chain = apply_forward_metrics(chain, spot)
             dividend_meta = self._dividend_metadata(dividend_assumption, chain, spot)
+            forward_meta = self._forward_metadata(chain)
             corporate_actions = self.corporate_action_provider.get(key)
             corporate_meta = self._corporate_action_metadata(corporate_actions, chain)
             surface_rate = rate_meta.get("risk_free_rate_median") or rate_meta.get("risk_free_rate_30d")
@@ -281,6 +286,7 @@ class DashboardConnector:
                 "surface_iv_input": "synthetic provider IV",
                 **rate_meta,
                 **dividend_meta,
+                **forward_meta,
                 **corporate_meta,
             }
             self.surface_metadata[key].update(
@@ -458,13 +464,16 @@ class DashboardConnector:
         df = apply_curve_to_options(df, rate_curve)
         dividend_assumption = self.dividend_provider.get(symbol)
         df = apply_dividends_to_options(df, dividend_assumption, spot_price)
+        df = apply_forward_metrics(df, spot_price)
         corporate_actions = self.corporate_action_provider.get(symbol)
         df, price_meta = self._apply_option_price_source(df, spot_price)
         df, parity_meta = self._apply_parity_checks(df, spot_price)
         meta.update(self._rate_metadata(rate_curve, df))
         meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
+        meta.update(self._forward_metadata(df))
         meta.update(price_meta)
         meta.update(parity_meta)
+        meta.update(self._skew_metadata(df, spot_price))
         meta.update(self._data_quality_metadata(df, meta))
         corporate_meta = self._corporate_action_metadata(corporate_actions, df)
         meta.update(corporate_meta)
@@ -537,6 +546,37 @@ class DashboardConnector:
                 metadata["effective_dividend_yield_max"] = float(yields.max())
                 metadata["effective_dividend_yield_median"] = float(yields.median())
         return metadata
+
+    @staticmethod
+    def _forward_metadata(chain: pd.DataFrame) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {"expiry_forwards": expiry_forward_metadata(chain)}
+        if not chain.empty and "forwardPrice" in chain.columns:
+            forwards = pd.to_numeric(chain["forwardPrice"], errors="coerce").dropna()
+            if not forwards.empty:
+                metadata["forward_price_min"] = float(forwards.min())
+                metadata["forward_price_max"] = float(forwards.max())
+                metadata["forward_price_median"] = float(forwards.median())
+        if not chain.empty and "discountFactor" in chain.columns:
+            discounts = pd.to_numeric(chain["discountFactor"], errors="coerce").dropna()
+            if not discounts.empty:
+                metadata["discount_factor_min"] = float(discounts.min())
+                metadata["discount_factor_max"] = float(discounts.max())
+                metadata["discount_factor_median"] = float(discounts.median())
+        return metadata
+
+    @staticmethod
+    def _skew_metadata(chain: pd.DataFrame, spot: float) -> Dict[str, Any]:
+        skew = delta_skew_by_expiry(chain, spot)
+        if skew.empty:
+            return {"delta_skew": [], "front_risk_reversal_25d": None, "front_butterfly_25d": None}
+
+        records = skew.replace({np.nan: None}).to_dict("records")
+        front = records[0]
+        return {
+            "delta_skew": records,
+            "front_risk_reversal_25d": front.get("risk_reversal_25d"),
+            "front_butterfly_25d": front.get("butterfly_25d"),
+        }
 
     @staticmethod
     def _corporate_action_metadata(action_snapshot: Any, chain: pd.DataFrame) -> Dict[str, Any]:

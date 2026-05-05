@@ -254,17 +254,17 @@ Goal: make the analytics credible to someone with options/vol experience.
   - Include dividends, rates, near expiry, deep ITM/OTM, and put/call parity.
   - Acceptance: pricing tests cover edge cases currently only lightly tested.
 
-- [ ] Add forward price and discount factor framework.
+- [x] Add forward price and discount factor framework.
   - Acceptance: surface construction can work in forward moneyness, not only spot moneyness.
 
-- [ ] Re-express surface axes as log-moneyness and expiry.
+- [x] Re-express surface axes as log-moneyness and expiry.
   - Acceptance: chart can toggle strike, moneyness, log-moneyness, and delta axes.
 
-- [ ] Add delta-based skew metrics.
+- [x] Add delta-based skew metrics.
   - Metrics: 10d put IV, 25d put IV, ATM IV, 25d call IV, 10d call IV, risk reversal, butterfly.
   - Acceptance: dashboard calculates these per expiry.
 
-- [ ] Add term-structure analytics.
+- [x] Add term-structure analytics.
   - Metrics: front/back spread, slope, curvature, contango/backwardation flag.
   - Acceptance: term structure tab shows ATM IV by expiry with slope metrics.
 

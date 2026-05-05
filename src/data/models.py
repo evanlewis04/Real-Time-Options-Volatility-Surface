@@ -44,6 +44,10 @@ class OptionQuote:
     vega: Optional[float] = None
     rho: Optional[float] = None
     risk_free_rate: Optional[float] = None
+    discount_factor: Optional[float] = None
+    forward_price: Optional[float] = None
+    forward_moneyness: Optional[float] = None
+    log_moneyness: Optional[float] = None
     dividend_yield: Optional[float] = None
     effective_dividend_yield: Optional[float] = None
     discrete_dividend_amount: Optional[float] = None
@@ -95,6 +99,10 @@ class OptionQuote:
             vega=_float_or_none(row.get("vega")),
             rho=_float_or_none(row.get("rho")),
             risk_free_rate=_float_or_none(row.get("riskFreeRate")),
+            discount_factor=_float_or_none(row.get("discountFactor")),
+            forward_price=_float_or_none(row.get("forwardPrice")),
+            forward_moneyness=_float_or_none(row.get("forwardMoneyness")),
+            log_moneyness=_float_or_none(row.get("logMoneyness")),
             dividend_yield=_float_or_none(row.get("dividendYield")),
             effective_dividend_yield=_float_or_none(row.get("effectiveDividendYield")),
             discrete_dividend_amount=_float_or_none(row.get("discreteDividendAmount")),
@@ -142,6 +150,10 @@ class OptionQuote:
             "vega": self.vega,
             "rho": self.rho,
             "riskFreeRate": self.risk_free_rate,
+            "discountFactor": self.discount_factor,
+            "forwardPrice": self.forward_price,
+            "forwardMoneyness": self.forward_moneyness,
+            "logMoneyness": self.log_moneyness,
             "dividendYield": self.dividend_yield,
             "effectiveDividendYield": self.effective_dividend_yield,
             "discreteDividendAmount": self.discrete_dividend_amount,
@@ -184,6 +196,13 @@ class MarketDataSnapshot:
     risk_free_rate_min: Optional[float] = None
     risk_free_rate_max: Optional[float] = None
     risk_free_rate_median: Optional[float] = None
+    expiry_forwards: tuple[tuple[str, dict[str, float]], ...] = field(default_factory=tuple)
+    forward_price_min: Optional[float] = None
+    forward_price_max: Optional[float] = None
+    forward_price_median: Optional[float] = None
+    discount_factor_min: Optional[float] = None
+    discount_factor_max: Optional[float] = None
+    discount_factor_median: Optional[float] = None
     dividend_source: Optional[str] = None
     dividend_mode: Optional[str] = None
     dividend_timestamp: Optional[datetime] = None
@@ -271,6 +290,13 @@ class MarketDataSnapshot:
             risk_free_rate_min=_float_or_none(metadata.get("risk_free_rate_min")),
             risk_free_rate_max=_float_or_none(metadata.get("risk_free_rate_max")),
             risk_free_rate_median=_float_or_none(metadata.get("risk_free_rate_median")),
+            expiry_forwards=_nested_float_metadata_tuple(metadata.get("expiry_forwards")),
+            forward_price_min=_float_or_none(metadata.get("forward_price_min")),
+            forward_price_max=_float_or_none(metadata.get("forward_price_max")),
+            forward_price_median=_float_or_none(metadata.get("forward_price_median")),
+            discount_factor_min=_float_or_none(metadata.get("discount_factor_min")),
+            discount_factor_max=_float_or_none(metadata.get("discount_factor_max")),
+            discount_factor_median=_float_or_none(metadata.get("discount_factor_median")),
             dividend_source=metadata.get("dividend_source"),
             dividend_mode=metadata.get("dividend_mode"),
             dividend_timestamp=_datetime_or_none(metadata.get("dividend_timestamp")),
@@ -355,6 +381,13 @@ class MarketDataSnapshot:
             "risk_free_rate_min": self.risk_free_rate_min,
             "risk_free_rate_max": self.risk_free_rate_max,
             "risk_free_rate_median": self.risk_free_rate_median,
+            "expiry_forwards": dict(self.expiry_forwards),
+            "forward_price_min": self.forward_price_min,
+            "forward_price_max": self.forward_price_max,
+            "forward_price_median": self.forward_price_median,
+            "discount_factor_min": self.discount_factor_min,
+            "discount_factor_max": self.discount_factor_max,
+            "discount_factor_median": self.discount_factor_median,
             "dividend_source": self.dividend_source,
             "dividend_mode": self.dividend_mode,
             "dividend_timestamp": self.dividend_timestamp,
@@ -494,6 +527,16 @@ def _nested_metadata_tuple(value: Any) -> tuple[tuple[str, dict[str, float | int
     out = []
     for key, payload in items:
         out.append((str(key), dict(payload)))
+    return tuple(out)
+
+
+def _nested_float_metadata_tuple(value: Any) -> tuple[tuple[str, dict[str, float]], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    out = []
+    for key, payload in items:
+        out.append((str(key), {str(name): float(number) for name, number in dict(payload).items()}))
     return tuple(out)
 
 
