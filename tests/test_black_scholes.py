@@ -14,6 +14,60 @@ HULL_D1 = 0.7693
 HULL_D2 = 0.6278
 
 
+REFERENCE_CASES = [
+    pytest.param(
+        dict(S=100.0, K=100.0, T=1.0, r=0.05, sigma=0.20, q=0.03),
+        8.652528553943,
+        6.730917649163,
+        id="continuous-dividend-atm",
+    ),
+    pytest.param(
+        dict(S=100.0, K=95.0, T=2.0, r=0.08, sigma=0.35, q=0.0),
+        28.756571280748,
+        9.710231232538,
+        id="higher-rate-two-year",
+    ),
+    pytest.param(
+        dict(S=100.0, K=100.5, T=1.0 / 365.0, r=0.04, sigma=0.25, q=0.01),
+        0.313785466815,
+        0.805512060151,
+        id="near-expiry-atm",
+    ),
+    pytest.param(
+        dict(S=150.0, K=80.0, T=0.75, r=0.03, sigma=0.40, q=0.015),
+        70.569109526547,
+        0.467251810329,
+        id="deep-itm-call",
+    ),
+    pytest.param(
+        dict(S=50.0, K=120.0, T=1.25, r=0.02, sigma=0.50, q=0.0),
+        1.160119076642,
+        68.197308520042,
+        id="deep-otm-call",
+    ),
+    pytest.param(
+        dict(S=100.0, K=105.0, T=1.5, r=-0.01, sigma=0.30, q=0.025),
+        10.205684376111,
+        20.473114388679,
+        id="negative-rate-with-dividend",
+    ),
+]
+
+
+def _normal_cdf(x: float) -> float:
+    return 0.5 * math.erfc(-x / math.sqrt(2.0))
+
+
+def _reference_prices(S: float, K: float, T: float, r: float, sigma: float, q: float = 0.0) -> tuple[float, float]:
+    d1 = (math.log(S / K) + (r - q + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
+    stock_pv = S * math.exp(-q * T)
+    strike_pv = K * math.exp(-r * T)
+    call = stock_pv * _normal_cdf(d1) - strike_pv * _normal_cdf(d2)
+    put = strike_pv * _normal_cdf(-d2) - stock_pv * _normal_cdf(-d1)
+    return call, put
+
+
 def test_d1_d2_match_hull_example():
     assert BlackScholesModel.d1(**HULL) == pytest.approx(HULL_D1, abs=1e-3)
     assert BlackScholesModel.d2(**HULL) == pytest.approx(HULL_D2, abs=1e-3)
@@ -25,6 +79,16 @@ def test_call_price_matches_hull_example():
 
 def test_put_price_matches_hull_example():
     assert BlackScholesModel.put_price(**HULL) == pytest.approx(HULL_PUT, abs=1e-2)
+
+
+@pytest.mark.parametrize(("params", "expected_call", "expected_put"), REFERENCE_CASES)
+def test_prices_match_independent_reference_cases(params, expected_call, expected_put):
+    reference_call, reference_put = _reference_prices(**params)
+
+    assert reference_call == pytest.approx(expected_call, abs=1e-12)
+    assert reference_put == pytest.approx(expected_put, abs=1e-12)
+    assert BlackScholesModel.call_price(**params) == pytest.approx(expected_call, abs=1e-10)
+    assert BlackScholesModel.put_price(**params) == pytest.approx(expected_put, abs=1e-10)
 
 
 def test_put_call_parity():
@@ -42,6 +106,24 @@ def test_put_call_parity_with_dividend():
     lhs = call - put
     rhs = params["S"] * math.exp(-params["q"] * params["T"]) - params["K"] * math.exp(-params["r"] * params["T"])
     assert lhs == pytest.approx(rhs, abs=1e-6)
+
+
+@pytest.mark.parametrize(("params", "expected_call", "expected_put"), REFERENCE_CASES)
+def test_put_call_parity_holds_across_reference_cases(params, expected_call, expected_put):
+    lhs = expected_call - expected_put
+    rhs = params["S"] * math.exp(-params["q"] * params["T"]) - params["K"] * math.exp(-params["r"] * params["T"])
+
+    assert lhs == pytest.approx(rhs, abs=1e-10)
+    assert BlackScholesModel.put_call_parity_check(
+        expected_call,
+        expected_put,
+        params["S"],
+        params["K"],
+        params["T"],
+        params["r"],
+        params["q"],
+        tolerance=1e-10,
+    )
 
 
 def test_call_price_at_expiration_is_intrinsic():

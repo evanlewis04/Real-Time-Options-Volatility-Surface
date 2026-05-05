@@ -250,7 +250,7 @@ Goal: graduate from synthetic dashboard demo to real market-data analysis with t
 
 Goal: make the analytics credible to someone with options/vol experience.
 
-- [ ] Add Black-Scholes-Merton tests against more references.
+- [x] Add Black-Scholes-Merton tests against more references.
   - Include dividends, rates, near expiry, deep ITM/OTM, and put/call parity.
   - Acceptance: pricing tests cover edge cases currently only lightly tested.
 
