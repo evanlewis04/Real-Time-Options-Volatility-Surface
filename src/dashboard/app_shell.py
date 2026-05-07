@@ -399,10 +399,12 @@ def run_dashboard() -> None:
         unsafe_allow_html=True,
     )
 
-    kpi_cols = st.columns(6)
+    kpi_cols = st.columns(8)
     kpis = [
         ("Spot", fmt_money(current_data.get("price")), current_data.get("price_source", "")),
         ("ATM IV", fmt_pct(stats.get("atm_iv")), "nearest strike"),
+        ("IV Rank", fmt_pct(surface_meta.get("iv_rank")), "stored snapshots"),
+        ("IV Percentile", fmt_pct(surface_meta.get("iv_percentile")), "stored snapshots"),
         ("Term Spread", fmt_pct(stats.get("term_spread")), "back minus front"),
         ("Surface Points", fmt_int(stats.get("points")), surface_mode),
         ("Contracts", fmt_int(surface_meta.get("valid_rows") or current_data.get("contracts")), "valid rows"),
@@ -450,6 +452,9 @@ def run_dashboard() -> None:
         SSVI expiries {fmt_int((surface_meta.get("global_fit_diagnostics") or {}).get("fitted_expiries"))};
         SSVI RMSE {fmt_pct((surface_meta.get("global_fit_diagnostics") or {}).get("rmse"))};
         SSVI constraints {(surface_meta.get("global_fit_diagnostics") or {}).get("constraints_passed")}.
+        IV rank {fmt_pct(surface_meta.get("iv_rank"))};
+        IV percentile {fmt_pct(surface_meta.get("iv_percentile"))};
+        IV history snapshots {fmt_int(surface_meta.get("iv_history_observations"))}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -492,8 +497,8 @@ def run_dashboard() -> None:
         build_market_snapshot,
     )
 
-    surface_tab, chain_tab, skew_tab, risk_tab, diagnostics_tab = st.tabs(
-        ["Surface", "Chain", "Skew & Term", "Risk", "Diagnostics"]
+    surface_tab, chain_tab, skew_tab, local_vol_tab, risk_tab, diagnostics_tab = st.tabs(
+        ["Surface", "Chain", "Skew & Term", "Local Vol", "Risk", "Diagnostics"]
     )
 
     with surface_tab:
@@ -1064,12 +1069,79 @@ def run_dashboard() -> None:
                 f"Realized volatility from {hist_metrics.get('source')}: "
                 f"20D {fmt_pct(r20)}, 60D {fmt_pct(r60)}."
             )
+            realized_latest = hist_metrics.get("realized_estimator_latest") or {}
+            if realized_latest:
+                rows = []
+                for label, prefix in (
+                    ("Close-to-close", "close_to_close"),
+                    ("Parkinson", "parkinson"),
+                    ("Garman-Klass", "garman_klass"),
+                    ("Rogers-Satchell", "rogers_satchell"),
+                    ("Yang-Zhang", "yang_zhang"),
+                ):
+                    rows.append(
+                        {
+                            "Estimator": label,
+                            "20D": realized_latest.get(f"{prefix}_20d"),
+                            "60D": realized_latest.get(f"{prefix}_60d"),
+                        }
+                    )
+                st.dataframe(
+                    pd.DataFrame(rows),
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "Estimator": st.column_config.TextColumn("Estimator"),
+                        "20D": st.column_config.NumberColumn("20D", format="%.2%"),
+                        "60D": st.column_config.NumberColumn("60D", format="%.2%"),
+                    },
+                )
         else:
             st.markdown(
                 render_empty_state(
                     "Historical volatility unavailable",
                     f"Realized-vol fetch did not return enough usable closes: {hist_metrics.get('reason', 'unknown reason')}.",
                     "Refresh data or switch to a symbol with liquid yfinance history.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+    with local_vol_tab:
+        st.markdown('<div class="section-header">Dupire Local Volatility</div>', unsafe_allow_html=True)
+        local_vol = surface_meta.get("local_volatility") or {}
+        if local_vol.get("enabled"):
+            local_grid = np.asarray(local_vol.get("grid"), dtype=float)
+            fig_local = go.Figure(
+                data=[
+                    go.Heatmap(
+                        z=local_grid,
+                        x=np.asarray(strikes)[0, :] if np.asarray(strikes).ndim == 2 else strikes,
+                        y=np.asarray(expiries)[:, 0] if np.asarray(expiries).ndim == 2 else expiries,
+                        colorscale="Cividis",
+                        colorbar=dict(title="Local vol"),
+                        hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>Local vol: %{z:.2%}<extra></extra>",
+                    )
+                ]
+            )
+            fig_local.update_layout(
+                title=f"{surface_symbol} Dupire Local Vol Approximation",
+                xaxis_title="Strike",
+                yaxis_title="Days to expiry",
+            )
+            st.plotly_chart(apply_chart_layout(fig_local, 460), width="stretch")
+            st.caption(
+                "Local vol diagnostics: "
+                f"min {fmt_pct(local_vol.get('min_local_vol'))}; "
+                f"max {fmt_pct(local_vol.get('max_local_vol'))}; "
+                f"invalid points {fmt_int(local_vol.get('invalid_points'))}. "
+                + " ".join(str(item) for item in local_vol.get("warnings", []))
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Local volatility disabled",
+                    local_vol.get("reason") or "Dupire local vol requires a smoothed high-quality surface.",
+                    "Improve quote quality, surface density, and smoothing diagnostics before relying on this approximation.",
                 ),
                 unsafe_allow_html=True,
             )

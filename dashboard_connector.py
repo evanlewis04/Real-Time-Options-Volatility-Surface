@@ -31,7 +31,10 @@ from src.quant.corporate_actions import CorporateActionProvider, expiry_corporat
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
 from src.quant.arbitrage import apply_no_arbitrage_checks
 from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
+from src.quant.iv_history import atm_iv_from_chain, iv_rank_percentile_from_snapshots
+from src.quant.local_vol import dupire_local_vol_surface
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
+from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
 from src.quant.svi import (
@@ -239,7 +242,7 @@ class DashboardConnector:
             if surface_chain.empty:
                 raise ValueError("No usable computed IV rows after selected price source")
             strikes, expiries, vols = build_surface(surface_chain, spot, key, risk_free_rate=surface_rate)
-            self.surface_metadata[key] = {
+            metadata = {
                 **meta,
                 "surface_mode": meta.get("mode", "Live/Delayed"),
                 "surface_source": meta.get("source", "yfinance"),
@@ -252,9 +255,10 @@ class DashboardConnector:
                 "surface_smoothing": smoothing_summary(strikes, expiries, vols),
                 **self._svi_metadata(surface_chain, spot),
             }
-            self.surface_metadata[key].update(
-                self._surface_quality_metadata(surface_chain, self.surface_metadata[key])
-            )
+            metadata.update(self._surface_quality_metadata(surface_chain, metadata))
+            metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
+            metadata.update(self._iv_history_metadata(key, surface_chain, spot))
+            self.surface_metadata[key] = metadata
             return strikes, expiries, vols
         except Exception as exc:
             logger.warning("Real chain surface failed for %s: %s", key, exc)
@@ -276,7 +280,7 @@ class DashboardConnector:
                 or dividend_meta.get("effective_dividend_yield_30d")
             )
             strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
-            self.surface_metadata[key] = {
+            metadata = {
                 "symbol": key,
                 "source": "synthetic generator",
                 "mode": "Synthetic",
@@ -303,9 +307,10 @@ class DashboardConnector:
                 **corporate_meta,
                 **arbitrage_meta,
             }
-            self.surface_metadata[key].update(
-                self._surface_quality_metadata(chain, self.surface_metadata[key])
-            )
+            metadata.update(self._surface_quality_metadata(chain, metadata))
+            metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
+            metadata.update(self._iv_history_metadata(key, chain, spot, iv_column="impliedVolatility"))
+            self.surface_metadata[key] = metadata
             return strikes, expiries, vols
 
     def get_surface_metadata(self, symbol: str) -> Dict[str, Any]:
@@ -355,6 +360,7 @@ class DashboardConnector:
         returns = result.returns()
         realized_20d = result.realized_vol(20)
         realized_60d = result.realized_vol(60)
+        realized_estimators = realized_volatility_estimators(result.frame, windows=(20, 60))
         return {
             "available": True,
             "source": result.source,
@@ -365,6 +371,8 @@ class DashboardConnector:
             "last_close": float(close.iloc[-1]),
             "realized_20d_latest": float(realized_20d.dropna().iloc[-1]) if realized_20d.notna().any() else None,
             "realized_60d_latest": float(realized_60d.dropna().iloc[-1]) if realized_60d.notna().any() else None,
+            "realized_estimators": realized_estimators,
+            "realized_estimator_latest": latest_realized_volatility(realized_estimators),
         }
 
     # ------------------------------------------------------------------
@@ -615,6 +623,43 @@ class DashboardConnector:
             "global_fit_diagnostics": global_diagnostics,
             "front_svi_rmse": records[0].get("rmse"),
             "front_svi_mae": records[0].get("mae"),
+        }
+
+    @staticmethod
+    def _local_vol_metadata(
+        strikes: np.ndarray,
+        expiries: np.ndarray,
+        vols: np.ndarray,
+        spot: float,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        quality_score = metadata.get("surface_quality_score") or metadata.get("data_quality_score")
+        local_vol = dupire_local_vol_surface(
+            strikes,
+            expiries,
+            vols,
+            spot,
+            quality_score=quality_score,
+            smoothing_meta=metadata.get("surface_smoothing"),
+        )
+        return {"local_volatility": local_vol}
+
+    def _iv_history_metadata(
+        self,
+        symbol: str,
+        chain: pd.DataFrame,
+        spot: float,
+        iv_column: str = "computedIV",
+    ) -> Dict[str, Any]:
+        current_iv = atm_iv_from_chain(chain, spot)
+        if current_iv is None and iv_column != "computedIV":
+            current_iv = atm_iv_from_chain(chain.rename(columns={iv_column: "computedIV"}), spot)
+        history = iv_rank_percentile_from_snapshots(symbol, current_iv, self.snapshot_dir)
+        return {
+            "iv_history": history,
+            "iv_rank": history.get("iv_rank"),
+            "iv_percentile": history.get("iv_percentile"),
+            "iv_history_observations": history.get("observations"),
         }
 
     @staticmethod

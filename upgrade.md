@@ -289,15 +289,15 @@ Goal: make the analytics credible to someone with options/vol experience.
 - [x] Add raw-vs-fitted residual charts.
   - Acceptance: user can see where model over/under-fits.
 
-- [ ] Add local volatility approximation.
+- [x] Add local volatility approximation.
   - Suggested: Dupire local vol with strong warnings and smoothing requirements.
   - Acceptance: local vol tab is disabled unless data quality and smoothing pass.
 
-- [ ] Add realized volatility estimators.
+- [x] Add realized volatility estimators.
   - Estimators: close-to-close, Parkinson, Garman-Klass, Rogers-Satchell, Yang-Zhang.
   - Acceptance: UI compares realized vol to implied vol by window.
 
-- [ ] Add IV rank and IV percentile.
+- [x] Add IV rank and IV percentile.
   - Acceptance: computed from stored/historical snapshots, not random distribution samples.
 
 - [ ] Add expected move calculations.
