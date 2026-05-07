@@ -8,7 +8,8 @@ def test_dashboard_default_state_renders_key_sections():
     at.run(timeout=90)
 
     assert not at.exception
-    assert len(at.metric) == 8
+    assert len(at.metric) == 9
+    assert any(metric.label == "Exp Move" for metric in at.metric)
     assert len(at.tabs) == 6
     assert len(at.dataframe) >= 2
 

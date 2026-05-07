@@ -300,10 +300,10 @@ Goal: make the analytics credible to someone with options/vol experience.
 - [x] Add IV rank and IV percentile.
   - Acceptance: computed from stored/historical snapshots, not random distribution samples.
 
-- [ ] Add expected move calculations.
+- [x] Add expected move calculations.
   - Acceptance: expected move by expiry can use ATM straddle or ATM IV approximation.
 
-- [ ] Add event awareness.
+- [x] Add event awareness.
   - Events: earnings, FOMC, CPI, dividends.
   - Acceptance: term structure can annotate event expiries.
 

@@ -23,6 +23,9 @@ CONTROL_HELP = {
 KPI_HELP = {
     "Spot": "Latest underlying price from the active provider.",
     "ATM IV": "Nearest-strike annualized implied volatility on the fitted surface.",
+    "Exp Move": "Nearest-expiry expected move in dollars, using ATM straddle when available or ATM IV otherwise.",
+    "IV Rank": "Current ATM IV position within stored local snapshot history.",
+    "IV Percentile": "Share of stored local ATM IV observations less than or equal to current ATM IV.",
     "Term Spread": "Back ATM IV minus front ATM IV, in volatility points.",
     "Surface Points": "Number of fitted grid points in the displayed surface.",
     "Contracts": "Valid option rows used or summarized after filtering.",

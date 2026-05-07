@@ -30,6 +30,8 @@ from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
 from src.quant.arbitrage import apply_no_arbitrage_checks
+from src.quant.events import EventCalendarProvider, MarketEvent, expiry_event_metadata
+from src.quant.expected_move import expected_moves_by_expiry
 from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
 from src.quant.iv_history import atm_iv_from_chain, iv_rank_percentile_from_snapshots
 from src.quant.local_vol import dupire_local_vol_surface
@@ -60,6 +62,7 @@ class DashboardConnector:
         self.rate_provider = RiskFreeRateProvider()
         self.dividend_provider = DividendProvider()
         self.corporate_action_provider = CorporateActionProvider()
+        self.event_provider = EventCalendarProvider()
         self.options_generator = SyntheticOptionsGenerator(
             self.price_provider,
             rate_provider=self.rate_provider,
@@ -160,6 +163,8 @@ class DashboardConnector:
                 ),
                 "dividend_yield_30d": chain_meta.get("effective_dividend_yield_30d") if chain_meta else dividend_30d,
                 "dividend_source": chain_meta.get("dividend_source") if chain_meta else dividend_assumption.source,
+                "event_count": chain_meta.get("event_count") if chain_meta else None,
+                "event_source": chain_meta.get("event_source") if chain_meta else None,
                 "corporate_action_warning_count": (
                     chain_meta.get("corporate_action_warning_count")
                     if chain_meta
@@ -272,7 +277,9 @@ class DashboardConnector:
             dividend_meta = self._dividend_metadata(dividend_assumption, chain, spot)
             forward_meta = self._forward_metadata(chain)
             corporate_actions = self.corporate_action_provider.get(key)
+            event_snapshot = self.event_provider.get(key)
             corporate_meta = self._corporate_action_metadata(corporate_actions, chain)
+            event_meta = self._event_metadata(event_snapshot, chain, dividend_assumption, corporate_actions)
             chain, arbitrage_meta = apply_no_arbitrage_checks(chain, spot, price_column="last")
             surface_rate = rate_meta.get("risk_free_rate_median") or rate_meta.get("risk_free_rate_30d")
             surface_dividend = (
@@ -301,10 +308,12 @@ class DashboardConnector:
                 "surface_iv_input": "synthetic provider IV",
                 "surface_smoothing": smoothing_summary(strikes, expiries, vols),
                 **self._svi_metadata(chain, spot, iv_column="impliedVolatility"),
+                **self._expected_move_metadata(chain, spot, iv_column="impliedVolatility", price_column="last"),
                 **rate_meta,
                 **dividend_meta,
                 **forward_meta,
                 **corporate_meta,
+                **event_meta,
                 **arbitrage_meta,
             }
             metadata.update(self._surface_quality_metadata(chain, metadata))
@@ -433,10 +442,11 @@ class DashboardConnector:
             self.rate_provider.clear_cache()
             self.dividend_provider.clear_cache()
             self.corporate_action_provider.clear_cache()
+            self.event_provider.clear_cache()
             self.surface_metadata.clear()
             return {
                 "status": "success",
-                "message": "Price, option-chain, rate, dividend, corporate-action, and surface caches cleared",
+                "message": "Price, option-chain, rate, dividend, corporate-action, event, and surface caches cleared",
                 "timestamp": datetime.now(),
                 "yfinance_active": self.price_provider.yfinance_working,
                 "pricing_models_active": True,
@@ -488,6 +498,7 @@ class DashboardConnector:
         df = apply_dividends_to_options(df, dividend_assumption, spot_price)
         df = apply_forward_metrics(df, spot_price)
         corporate_actions = self.corporate_action_provider.get(symbol)
+        event_snapshot = self.event_provider.get(symbol)
         df, price_meta = self._apply_option_price_source(df, spot_price)
         df, parity_meta = self._apply_parity_checks(df, spot_price)
         df, arbitrage_meta = apply_no_arbitrage_checks(df, spot_price)
@@ -498,9 +509,12 @@ class DashboardConnector:
         meta.update(parity_meta)
         meta.update(arbitrage_meta)
         meta.update(self._skew_metadata(df, spot_price))
+        meta.update(self._expected_move_metadata(df, spot_price))
         meta.update(self._data_quality_metadata(df, meta))
         corporate_meta = self._corporate_action_metadata(corporate_actions, df)
         meta.update(corporate_meta)
+        event_meta = self._event_metadata(event_snapshot, df, dividend_assumption, corporate_actions)
+        meta.update(event_meta)
         meta["warnings"] = self._merge_warnings(
             meta.get("warnings"),
             corporate_meta.get("corporate_action_warnings"),
@@ -603,6 +617,31 @@ class DashboardConnector:
         }
 
     @staticmethod
+    def _expected_move_metadata(
+        chain: pd.DataFrame,
+        spot: float,
+        iv_column: str = "computedIV",
+        price_column: str = "selectedMarketPrice",
+    ) -> Dict[str, Any]:
+        moves = expected_moves_by_expiry(chain, spot, iv_column=iv_column, price_column=price_column)
+        if moves.empty:
+            return {
+                "expected_moves": [],
+                "front_expected_move": None,
+                "front_expected_move_pct": None,
+                "front_expected_move_method": None,
+            }
+
+        records = moves.replace({np.nan: None}).to_dict("records")
+        front = records[0]
+        return {
+            "expected_moves": records,
+            "front_expected_move": front.get("expected_move"),
+            "front_expected_move_pct": front.get("expected_move_pct"),
+            "front_expected_move_method": front.get("method"),
+        }
+
+    @staticmethod
     def _svi_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:
         svi = calibrate_svi_by_expiry(chain, spot, iv_column=iv_column)
         ssvi = calibrate_ssvi_surface(chain, spot, iv_column=iv_column)
@@ -661,6 +700,40 @@ class DashboardConnector:
             "iv_percentile": history.get("iv_percentile"),
             "iv_history_observations": history.get("observations"),
         }
+
+    @staticmethod
+    def _event_metadata(
+        event_snapshot: Any,
+        chain: pd.DataFrame,
+        dividend_assumption: Any,
+        corporate_actions: Any,
+    ) -> Dict[str, Any]:
+        extra_events = _supplemental_market_events(
+            event_snapshot.symbol,
+            event_snapshot.as_of,
+            dividend_assumption,
+            corporate_actions,
+        )
+        metadata = event_snapshot.metadata_dict()
+        combined: Dict[tuple[str, str, str], Dict[str, Any]] = {}
+        for event in metadata.get("events") or []:
+            combined[(event["symbol"], event["event_type"], event["event_date"])] = dict(event)
+        for event in extra_events:
+            payload = event.as_dict()
+            combined[(payload["symbol"], payload["event_type"], payload["event_date"])] = payload
+
+        metadata["events"] = sorted(
+            combined.values(),
+            key=lambda item: (str(item.get("event_date")), str(item.get("event_type")), str(item.get("symbol"))),
+        )
+        metadata["event_count"] = len(metadata["events"])
+        metadata["expiry_events"] = (
+            expiry_event_metadata(chain["expiration"], event_snapshot, extra_events)
+            if not chain.empty and "expiration" in chain
+            else {}
+        )
+        metadata["event_expiry_count"] = len(metadata["expiry_events"])
+        return metadata
 
     @staticmethod
     def _corporate_action_metadata(action_snapshot: Any, chain: pd.DataFrame) -> Dict[str, Any]:
@@ -1062,6 +1135,49 @@ def _copy_expiry_quality(value: Any) -> Dict[str, Dict[str, Any]]:
         }
         out[str(expiry)] = entry
     return out
+
+
+def _supplemental_market_events(
+    symbol: str,
+    as_of: datetime,
+    dividend_assumption: Any,
+    corporate_actions: Any,
+) -> tuple[MarketEvent, ...]:
+    events: Dict[tuple[str, str, str], MarketEvent] = {}
+    start = as_of.date()
+    horizon = start + timedelta(days=370)
+
+    for event in getattr(dividend_assumption, "events", ()) or ():
+        event_date = getattr(event, "ex_date", None)
+        if event_date is None or not (start <= event_date <= horizon):
+            continue
+        amount = getattr(event, "amount", None)
+        currency = getattr(event, "currency", "USD")
+        market_event = MarketEvent(
+            symbol=symbol.upper(),
+            event_type="dividend",
+            event_date=event_date,
+            description=f"Cash dividend {amount:g} {currency}" if amount is not None else "Cash dividend",
+            source=getattr(dividend_assumption, "source", "dividend assumptions"),
+        )
+        events[(market_event.symbol, market_event.event_type, market_event.event_date.isoformat())] = market_event
+
+    for action in getattr(corporate_actions, "upcoming", lambda: ())():
+        event_date = getattr(action, "effective_date", None)
+        if event_date is None or not (start <= event_date <= horizon):
+            continue
+        action_type = str(getattr(action, "action_type", "other") or "other")
+        event_type = "dividend" if action_type == "dividend" else "corporate_action"
+        market_event = MarketEvent(
+            symbol=symbol.upper(),
+            event_type=event_type,
+            event_date=event_date,
+            description=str(getattr(action, "description", action_type.title())),
+            source=str(getattr(action, "source", "corporate-action assumptions")),
+        )
+        events[(market_event.symbol, market_event.event_type, market_event.event_date.isoformat())] = market_event
+
+    return tuple(sorted(events.values(), key=lambda event: (event.event_date, event.event_type, event.symbol)))
 
 
 def _quality_score(valid_quotes: int, rejected_quotes: int, reason_buckets: Dict[str, int]) -> float:

@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from src.dashboard.surface_view import surface_axis, surface_stats
+from src.quant.expected_move import expected_moves_by_expiry
 from src.quant.forwards import apply_forward_metrics, discount_factor, expiry_forward_metadata, forward_price
 from src.quant.skew import delta_skew_by_expiry, term_structure_metrics
 
@@ -83,3 +84,64 @@ def test_term_structure_metrics_identify_regime_slope_and_curvature():
     assert surface_stats([90, 100, 110], [30, 60], [[0.21, 0.20, 0.22], [0.25, 0.24, 0.26]], 100)[
         "term_metrics"
     ]["regime"] == "contango"
+
+
+def test_expected_moves_prefer_atm_straddle_and_include_iv_fallback():
+    expiry = pd.Timestamp("2026-06-19")
+    chain = pd.DataFrame(
+        [
+            {
+                "type": "call",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 100.0,
+                "computedIV": 0.20,
+                "selectedMarketPrice": 4.20,
+            },
+            {
+                "type": "put",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 100.0,
+                "computedIV": 0.22,
+                "selectedMarketPrice": 3.80,
+            },
+            {
+                "type": "call",
+                "expiration": expiry,
+                "daysToExpiration": 30,
+                "strike": 110.0,
+                "computedIV": 0.24,
+                "selectedMarketPrice": 1.10,
+            },
+        ]
+    )
+
+    moves = expected_moves_by_expiry(chain, 100.0)
+    row = moves.iloc[0]
+
+    assert row["method"] == "atm_straddle"
+    assert row["expected_move"] == pytest.approx(8.0)
+    assert row["expected_move_pct"] == pytest.approx(0.08)
+    assert row["iv_move"] == pytest.approx(100.0 * 0.21 * math.sqrt(30 / 365))
+    assert row["lower_bound"] == pytest.approx(92.0)
+    assert row["upper_bound"] == pytest.approx(108.0)
+
+
+def test_expected_moves_use_atm_iv_when_straddle_is_missing():
+    chain = pd.DataFrame(
+        [
+            {
+                "type": "call",
+                "expiration": pd.Timestamp("2026-07-17"),
+                "daysToExpiration": 60,
+                "strike": 100.0,
+                "computedIV": 0.30,
+            }
+        ]
+    )
+
+    row = expected_moves_by_expiry(chain, 100.0).iloc[0]
+
+    assert row["method"] == "atm_iv"
+    assert row["expected_move"] == pytest.approx(100.0 * 0.30 * math.sqrt(60 / 365))

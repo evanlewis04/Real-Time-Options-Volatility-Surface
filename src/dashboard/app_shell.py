@@ -399,10 +399,11 @@ def run_dashboard() -> None:
         unsafe_allow_html=True,
     )
 
-    kpi_cols = st.columns(8)
+    kpi_cols = st.columns(9)
     kpis = [
         ("Spot", fmt_money(current_data.get("price")), current_data.get("price_source", "")),
         ("ATM IV", fmt_pct(stats.get("atm_iv")), "nearest strike"),
+        ("Exp Move", fmt_money(surface_meta.get("front_expected_move")), fmt_pct(surface_meta.get("front_expected_move_pct"))),
         ("IV Rank", fmt_pct(surface_meta.get("iv_rank")), "stored snapshots"),
         ("IV Percentile", fmt_pct(surface_meta.get("iv_percentile")), "stored snapshots"),
         ("Term Spread", fmt_pct(stats.get("term_spread")), "back minus front"),
@@ -455,6 +456,9 @@ def run_dashboard() -> None:
         IV rank {fmt_pct(surface_meta.get("iv_rank"))};
         IV percentile {fmt_pct(surface_meta.get("iv_percentile"))};
         IV history snapshots {fmt_int(surface_meta.get("iv_history_observations"))}.
+        Front expected move {fmt_money(surface_meta.get("front_expected_move"))}
+        ({fmt_pct(surface_meta.get("front_expected_move_pct"))})
+        by {surface_meta.get("front_expected_move_method") or "n/a"}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -485,6 +489,39 @@ def run_dashboard() -> None:
                 }
             )
         return pd.DataFrame(market_rows)
+
+    def _term_event_markers(term: pd.DataFrame, moves: list[dict[str, Any]], expiry_events: dict[str, Any]):
+        if term.empty or not moves or not expiry_events:
+            return []
+        dte_by_expiry = {str(item.get("expiration")): item.get("dte") for item in moves}
+        rows = []
+        for expiry, events in expiry_events.items():
+            dte = dte_by_expiry.get(str(expiry))
+            if dte is None:
+                continue
+            nearest = term.iloc[(term["DTE"] - float(dte)).abs().idxmin()]
+            labels = [
+                f"{event.get('event_type', 'event')}: {event.get('event_date')} {event.get('description', '')}"
+                for event in events or []
+            ]
+            rows.append({"dte": float(dte), "atm_iv": float(nearest["ATM IV"]), "label": " | ".join(labels[:4])})
+        return rows
+
+    def _event_rows(expiry_events: dict[str, Any]):
+        rows = []
+        for expiry, events in sorted((expiry_events or {}).items()):
+            for event in events or []:
+                rows.append(
+                    {
+                        "Expiry": expiry,
+                        "Event Date": event.get("event_date"),
+                        "Type": event.get("event_type"),
+                        "Symbol": event.get("symbol"),
+                        "Description": event.get("description"),
+                        "Source": event.get("source"),
+                    }
+                )
+        return rows
 
     market_df = load_with_status(
         st,
@@ -873,6 +910,8 @@ def run_dashboard() -> None:
             current_data["price"],
             surface_x_axis,
         )
+        expected_moves = surface_meta.get("expected_moves") or []
+        expiry_events = surface_meta.get("expiry_events") or {}
         col1, col2 = st.columns(2)
         with col1:
             fig_smile = go.Figure()
@@ -908,6 +947,20 @@ def run_dashboard() -> None:
                         hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<extra></extra>",
                     )
                 )
+                event_markers = _term_event_markers(term, expected_moves, expiry_events)
+                if event_markers:
+                    marker_frame = pd.DataFrame(event_markers)
+                    fig_term.add_trace(
+                        go.Scatter(
+                            x=marker_frame["dte"],
+                            y=marker_frame["atm_iv"],
+                            mode="markers",
+                            name="Events",
+                            marker=dict(color="#c2410c", size=10, symbol="diamond"),
+                            customdata=marker_frame[["label"]],
+                            hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<br>%{customdata[0]}<extra></extra>",
+                        )
+                    )
             fig_term.update_layout(title=f"{surface_symbol} ATM Term Structure", xaxis_title="Days to expiry", yaxis_title="Annualized IV")
             st.plotly_chart(apply_chart_layout(fig_term, 430), width="stretch")
 
@@ -918,7 +971,58 @@ def run_dashboard() -> None:
             f"slope per 30D {fmt_pct(term_metrics.get('slope_per_30d'))}; "
             f"curvature {term_metrics.get('curvature') if term_metrics.get('curvature') is not None else 'n/a'}."
         )
+        event_rows = _event_rows(expiry_events)
+        if event_rows:
+            st.markdown('<div class="section-header">Event Expiry Annotations</div>', unsafe_allow_html=True)
+            st.dataframe(
+                pd.DataFrame(event_rows),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Expiry": st.column_config.TextColumn("Expiry"),
+                    "Event Date": st.column_config.TextColumn("Event Date"),
+                    "Type": st.column_config.TextColumn("Type"),
+                    "Symbol": st.column_config.TextColumn("Symbol"),
+                    "Description": st.column_config.TextColumn("Description"),
+                    "Source": st.column_config.TextColumn("Source"),
+                },
+            )
+
         delta_skew = surface_meta.get("delta_skew") or []
+        if expected_moves:
+            st.markdown('<div class="section-header">Expected Move By Expiry</div>', unsafe_allow_html=True)
+            moves_display = pd.DataFrame(expected_moves)
+            st.dataframe(
+                moves_display,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "expiration": st.column_config.TextColumn("Expiry"),
+                    "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                    "atm_strike": st.column_config.NumberColumn("ATM Strike", format="$%.2f"),
+                    "atm_iv": st.column_config.NumberColumn("ATM IV", format="%.2%"),
+                    "call_price": st.column_config.NumberColumn("Call", format="$%.2f"),
+                    "put_price": st.column_config.NumberColumn("Put", format="$%.2f"),
+                    "straddle_move": st.column_config.NumberColumn("Straddle Move", format="$%.2f"),
+                    "iv_move": st.column_config.NumberColumn("IV Move", format="$%.2f"),
+                    "expected_move": st.column_config.NumberColumn("Expected Move", format="$%.2f"),
+                    "expected_move_pct": st.column_config.NumberColumn("Move %", format="%.2%"),
+                    "lower_bound": st.column_config.NumberColumn("Lower", format="$%.2f"),
+                    "upper_bound": st.column_config.NumberColumn("Upper", format="$%.2f"),
+                    "method": st.column_config.TextColumn("Method"),
+                    "confidence": st.column_config.TextColumn("Confidence"),
+                },
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Expected move unavailable",
+                    "The current chain does not have enough ATM price or IV data to estimate expiry moves.",
+                    "Refresh data, relax filters, or select a more liquid options symbol.",
+                ),
+                unsafe_allow_html=True,
+            )
+
         if delta_skew:
             skew_display = pd.DataFrame(delta_skew)
             st.dataframe(

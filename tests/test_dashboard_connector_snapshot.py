@@ -6,6 +6,7 @@ from dashboard_connector import DashboardConnector
 from src.data.market_calendar import EASTERN
 from src.data.models import MarketDataSnapshot
 from src.pricing.black_scholes import BlackScholesModel
+from src.quant.events import EventCalendarProvider
 
 
 class StubPriceProvider:
@@ -87,11 +88,27 @@ class StubOptionsProvider:
         return frame, meta
 
 
+def _configure_event_provider(connector: DashboardConnector, tmp_path):
+    path = tmp_path / "events.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "symbol,event_type,event_date,description,source",
+                "*,fomc,2026-06-17,FOMC decision,fixture",
+                "AAPL,earnings,2026-07-30,AAPL earnings,fixture",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    connector.event_provider = EventCalendarProvider(local_path=path)
+
+
 def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     connector = DashboardConnector()
     connector.price_provider = StubPriceProvider()
     connector.options_provider = StubOptionsProvider()
     connector.snapshot_dir = tmp_path
+    _configure_event_provider(connector, tmp_path)
     connector.chain_cache.clear()
 
     snapshot = connector.get_market_data_snapshot("aapl")
@@ -119,6 +136,11 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.liquidity_filtered_count == 0
     assert snapshot.crossed_locked_rejected_count == 0
     assert snapshot.parity_violation_count == 0
+    assert snapshot.front_expected_move is not None
+    assert snapshot.front_expected_move_method == "atm_iv"
+    assert snapshot.event_source is not None
+    assert snapshot.event_count >= 1
+    assert "2026-06-19" in dict(snapshot.expiry_events)
     assert snapshot.data_quality_score == 100.0
     assert dict(snapshot.expiry_quality)["2026-06-19"]["valid_quotes"] == 1
 
@@ -128,6 +150,7 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     connector.price_provider = StubPriceProvider()
     connector.options_provider = StubOptionsProvider()
     connector.snapshot_dir = tmp_path
+    _configure_event_provider(connector, tmp_path)
     connector.chain_cache.clear()
 
     frame, meta = connector.get_options_chain_snapshot("AAPL")
@@ -159,6 +182,11 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert meta["liquidity_filtered_count"] == 0
     assert meta["crossed_locked_rejected_count"] == 0
     assert meta["parity_violation_count"] == 0
+    assert meta["front_expected_move"] > 0.0
+    assert meta["front_expected_move_method"] == "atm_iv"
+    assert meta["expected_moves"][0]["expiration"] == "2026-06-19"
+    assert meta["event_count"] >= 1
+    assert meta["expiry_events"]["2026-06-19"][0]["event_type"] == "fomc"
     assert meta["rejection_reasons"] == {}
     assert meta["data_quality_score"] == 100.0
     assert meta["quality_reason_buckets"] == {}

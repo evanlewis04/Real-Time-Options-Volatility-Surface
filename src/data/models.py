@@ -238,6 +238,14 @@ class MarketDataSnapshot:
     effective_dividend_yield_min: Optional[float] = None
     effective_dividend_yield_max: Optional[float] = None
     effective_dividend_yield_median: Optional[float] = None
+    event_source: Optional[str] = None
+    event_mode: Optional[str] = None
+    event_timestamp: Optional[datetime] = None
+    event_fallback_reason: Optional[str] = None
+    event_count: int = 0
+    events: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    expiry_events: tuple[tuple[str, list[dict[str, Any]]], ...] = field(default_factory=tuple)
+    event_expiry_count: int = 0
     corporate_action_source: Optional[str] = None
     corporate_action_mode: Optional[str] = None
     corporate_action_timestamp: Optional[datetime] = None
@@ -275,6 +283,10 @@ class MarketDataSnapshot:
     parity_violation_count: int = 0
     parity_violation_rows: int = 0
     parity_violations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    expected_moves: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    front_expected_move: Optional[float] = None
+    front_expected_move_pct: Optional[float] = None
+    front_expected_move_method: Optional[str] = None
     no_arbitrage_checks: tuple[str, ...] = field(default_factory=tuple)
     no_arbitrage_violation_count: int = 0
     no_arbitrage_violation_rows: int = 0
@@ -338,6 +350,14 @@ class MarketDataSnapshot:
             effective_dividend_yield_min=_float_or_none(metadata.get("effective_dividend_yield_min")),
             effective_dividend_yield_max=_float_or_none(metadata.get("effective_dividend_yield_max")),
             effective_dividend_yield_median=_float_or_none(metadata.get("effective_dividend_yield_median")),
+            event_source=metadata.get("event_source"),
+            event_mode=metadata.get("event_mode"),
+            event_timestamp=_datetime_or_none(metadata.get("event_timestamp")),
+            event_fallback_reason=metadata.get("event_fallback_reason"),
+            event_count=int(metadata.get("event_count") or 0),
+            events=_dict_tuple(metadata.get("events")),
+            expiry_events=_list_metadata_tuple(metadata.get("expiry_events")),
+            event_expiry_count=int(metadata.get("event_expiry_count") or 0),
             corporate_action_source=metadata.get("corporate_action_source"),
             corporate_action_mode=metadata.get("corporate_action_mode"),
             corporate_action_timestamp=_datetime_or_none(metadata.get("corporate_action_timestamp")),
@@ -375,6 +395,10 @@ class MarketDataSnapshot:
             parity_violation_count=int(metadata.get("parity_violation_count") or 0),
             parity_violation_rows=int(metadata.get("parity_violation_rows") or 0),
             parity_violations=_dict_tuple(metadata.get("parity_violations")),
+            expected_moves=_dict_tuple(metadata.get("expected_moves")),
+            front_expected_move=_float_or_none(metadata.get("front_expected_move")),
+            front_expected_move_pct=_float_or_none(metadata.get("front_expected_move_pct")),
+            front_expected_move_method=metadata.get("front_expected_move_method"),
             no_arbitrage_checks=tuple(str(item) for item in metadata.get("no_arbitrage_checks") or ()),
             no_arbitrage_violation_count=int(metadata.get("no_arbitrage_violation_count") or 0),
             no_arbitrage_violation_rows=int(metadata.get("no_arbitrage_violation_rows") or 0),
@@ -435,6 +459,14 @@ class MarketDataSnapshot:
             "effective_dividend_yield_min": self.effective_dividend_yield_min,
             "effective_dividend_yield_max": self.effective_dividend_yield_max,
             "effective_dividend_yield_median": self.effective_dividend_yield_median,
+            "event_source": self.event_source,
+            "event_mode": self.event_mode,
+            "event_timestamp": self.event_timestamp,
+            "event_fallback_reason": self.event_fallback_reason,
+            "event_count": self.event_count,
+            "events": list(self.events),
+            "expiry_events": dict(self.expiry_events),
+            "event_expiry_count": self.event_expiry_count,
             "corporate_action_source": self.corporate_action_source,
             "corporate_action_mode": self.corporate_action_mode,
             "corporate_action_timestamp": self.corporate_action_timestamp,
@@ -472,6 +504,10 @@ class MarketDataSnapshot:
             "parity_violation_count": self.parity_violation_count,
             "parity_violation_rows": self.parity_violation_rows,
             "parity_violations": list(self.parity_violations),
+            "expected_moves": list(self.expected_moves),
+            "front_expected_move": self.front_expected_move,
+            "front_expected_move_pct": self.front_expected_move_pct,
+            "front_expected_move_method": self.front_expected_move_method,
             "no_arbitrage_checks": list(self.no_arbitrage_checks),
             "no_arbitrage_violation_count": self.no_arbitrage_violation_count,
             "no_arbitrage_violation_rows": self.no_arbitrage_violation_rows,

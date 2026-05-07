@@ -1,0 +1,8 @@
+symbol,event_type,event_date,description,source
+*,cpi,2026-06-10,Configured CPI release date,bls.gov local config
+*,fomc,2026-06-17,Configured FOMC decision date,federalreserve.gov local config
+*,cpi,2026-07-14,Configured CPI release date,bls.gov local config
+AAPL,earnings,2026-07-30,Configured earnings date,local_config
+MSFT,earnings,2026-07-28,Configured earnings date,local_config
+NVDA,earnings,2026-08-26,Configured earnings date,local_config
+SPY,other,2026-06-20,Configured ETF quarterly event,local_config
