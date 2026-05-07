@@ -39,6 +39,7 @@ from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry
 from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
+from src.quant.surface_change import surface_change_analytics
 from src.quant.svi import (
     calibrate_ssvi_surface,
     calibrate_svi_by_expiry,
@@ -263,6 +264,7 @@ class DashboardConnector:
             metadata.update(self._surface_quality_metadata(surface_chain, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, surface_chain, spot))
+            metadata.update(self._surface_change_metadata(key, surface_chain, spot, metadata))
             self.surface_metadata[key] = metadata
             return strikes, expiries, vols
         except Exception as exc:
@@ -319,6 +321,9 @@ class DashboardConnector:
             metadata.update(self._surface_quality_metadata(chain, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, chain, spot, iv_column="impliedVolatility"))
+            metadata.update(
+                self._surface_change_metadata(key, chain, spot, metadata, iv_column="impliedVolatility")
+            )
             self.surface_metadata[key] = metadata
             return strikes, expiries, vols
 
@@ -699,6 +704,36 @@ class DashboardConnector:
             "iv_rank": history.get("iv_rank"),
             "iv_percentile": history.get("iv_percentile"),
             "iv_history_observations": history.get("observations"),
+        }
+
+    def _surface_change_metadata(
+        self,
+        symbol: str,
+        chain: pd.DataFrame,
+        spot: float,
+        metadata: Dict[str, Any],
+        iv_column: str = "computedIV",
+    ) -> Dict[str, Any]:
+        change = surface_change_analytics(
+            symbol,
+            chain,
+            spot,
+            self.snapshot_dir,
+            iv_column=iv_column,
+            current_timestamp=metadata.get("timestamp") or metadata.get("spot_timestamp") or datetime.now(),
+            vol_of_vol_history=(metadata.get("iv_history") or {}).get("history"),
+        )
+        atm_change = change.get("atm_change") or {}
+        vol_of_vol = change.get("vol_of_vol") or {}
+        return {
+            "surface_change": change,
+            "surface_change_available": change.get("available"),
+            "surface_change_points": change.get("matched_points"),
+            "atm_iv_change": atm_change.get("iv_change"),
+            "atm_iv_change_pct": atm_change.get("iv_change_pct"),
+            "snapshot_vol_of_vol": vol_of_vol.get("snapshot_vol_of_vol"),
+            "annualized_vol_of_vol": vol_of_vol.get("annualized_vol_of_vol"),
+            "vol_of_vol_observations": vol_of_vol.get("observations"),
         }
 
     @staticmethod

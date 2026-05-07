@@ -307,7 +307,7 @@ Goal: make the analytics credible to someone with options/vol experience.
   - Events: earnings, FOMC, CPI, dividends.
   - Acceptance: term structure can annotate event expiries.
 
-- [ ] Add vol-of-vol and surface-change analytics.
+- [x] Add vol-of-vol and surface-change analytics.
   - Acceptance: dashboard can show IV changes versus previous snapshot.
 
 - [ ] Add surface shock analysis.

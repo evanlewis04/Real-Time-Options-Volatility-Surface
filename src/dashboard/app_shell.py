@@ -399,10 +399,11 @@ def run_dashboard() -> None:
         unsafe_allow_html=True,
     )
 
-    kpi_cols = st.columns(9)
+    kpi_cols = st.columns(10)
     kpis = [
         ("Spot", fmt_money(current_data.get("price")), current_data.get("price_source", "")),
         ("ATM IV", fmt_pct(stats.get("atm_iv")), "nearest strike"),
+        ("ATM dIV", fmt_pct(surface_meta.get("atm_iv_change")), "vs previous snapshot"),
         ("Exp Move", fmt_money(surface_meta.get("front_expected_move")), fmt_pct(surface_meta.get("front_expected_move_pct"))),
         ("IV Rank", fmt_pct(surface_meta.get("iv_rank")), "stored snapshots"),
         ("IV Percentile", fmt_pct(surface_meta.get("iv_percentile")), "stored snapshots"),
@@ -456,6 +457,9 @@ def run_dashboard() -> None:
         IV rank {fmt_pct(surface_meta.get("iv_rank"))};
         IV percentile {fmt_pct(surface_meta.get("iv_percentile"))};
         IV history snapshots {fmt_int(surface_meta.get("iv_history_observations"))}.
+        Snapshot change points {fmt_int(surface_meta.get("surface_change_points"))};
+        ATM dIV {fmt_pct(surface_meta.get("atm_iv_change"))};
+        vol-of-vol {fmt_pct(surface_meta.get("snapshot_vol_of_vol"))}.
         Front expected move {fmt_money(surface_meta.get("front_expected_move"))}
         ({fmt_pct(surface_meta.get("front_expected_move_pct"))})
         by {surface_meta.get("front_expected_move_method") or "n/a"}.
@@ -912,6 +916,7 @@ def run_dashboard() -> None:
         )
         expected_moves = surface_meta.get("expected_moves") or []
         expiry_events = surface_meta.get("expiry_events") or {}
+        surface_change = surface_meta.get("surface_change") or {}
         col1, col2 = st.columns(2)
         with col1:
             fig_smile = go.Figure()
@@ -986,6 +991,71 @@ def run_dashboard() -> None:
                     "Description": st.column_config.TextColumn("Description"),
                     "Source": st.column_config.TextColumn("Source"),
                 },
+            )
+
+        if surface_change.get("available"):
+            st.markdown('<div class="section-header">Surface Change Vs Previous Snapshot</div>', unsafe_allow_html=True)
+            atm_change = surface_change.get("atm_change") or {}
+            vol_of_vol = surface_change.get("vol_of_vol") or {}
+            st.caption(
+                "Previous snapshot "
+                f"{surface_change.get('previous_snapshot_timestamp', 'unknown')} "
+                f"({surface_change.get('previous_snapshot_mode', 'unknown')}); "
+                f"matched points {fmt_int(surface_change.get('matched_points'))}; "
+                f"ATM dIV {fmt_pct(atm_change.get('iv_change'))}; "
+                f"median absolute dIV {fmt_pct(surface_change.get('median_abs_iv_change'))}; "
+                f"snapshot vol-of-vol {fmt_pct(vol_of_vol.get('snapshot_vol_of_vol'))}; "
+                f"observations {fmt_int(vol_of_vol.get('observations'))}."
+            )
+            expiry_change_display = pd.DataFrame(surface_change.get("expiry_changes") or [])
+            if not expiry_change_display.empty:
+                fig_change = go.Figure(
+                    data=[
+                        go.Bar(
+                            x=expiry_change_display["expiration"],
+                            y=expiry_change_display["mean_iv_change"],
+                            marker_color=np.where(
+                                expiry_change_display["mean_iv_change"] >= 0,
+                                "#087f5b",
+                                "#b42318",
+                            ),
+                            hovertemplate="Expiry: %{x}<br>Mean dIV: %{y:.2%}<extra></extra>",
+                        )
+                    ]
+                )
+                fig_change.add_hline(y=0, line_width=1, line_color="#667085")
+                fig_change.update_layout(
+                    title=f"{surface_symbol} Mean IV Change By Expiry",
+                    xaxis_title="Expiry",
+                    yaxis_title="Current minus previous IV",
+                )
+                st.plotly_chart(apply_chart_layout(fig_change, 320), width="stretch")
+                st.dataframe(
+                    expiry_change_display,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "expiration": st.column_config.TextColumn("Expiry"),
+                        "matched_points": st.column_config.NumberColumn("Matched", format="%d"),
+                        "current_median_iv": st.column_config.NumberColumn("Current Median IV", format="%.2%"),
+                        "previous_median_iv": st.column_config.NumberColumn("Previous Median IV", format="%.2%"),
+                        "mean_iv_change": st.column_config.NumberColumn("Mean dIV", format="%.2%"),
+                        "median_iv_change": st.column_config.NumberColumn("Median dIV", format="%.2%"),
+                        "median_abs_iv_change": st.column_config.NumberColumn("Median Abs dIV", format="%.2%"),
+                        "max_abs_iv_change": st.column_config.NumberColumn("Max Abs dIV", format="%.2%"),
+                        "up_points": st.column_config.NumberColumn("Up", format="%d"),
+                        "down_points": st.column_config.NumberColumn("Down", format="%d"),
+                    },
+                )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Surface change unavailable",
+                    surface_change.get("reason")
+                    or "No earlier persisted snapshot has matching expiry, strike, and type rows.",
+                    "Refresh once to store a baseline, then refresh again to compare the current IV surface.",
+                ),
+                unsafe_allow_html=True,
             )
 
         delta_skew = surface_meta.get("delta_skew") or []
