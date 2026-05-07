@@ -82,7 +82,7 @@ class MarketCalendar:
             else:
                 state = "Closed"
                 is_open = False
-                reason = "holiday or weekend"
+                reason = self._closed_reason(now.date())
 
             previous_close = None
             next_open = None
@@ -128,7 +128,7 @@ class MarketCalendar:
         else:
             state = "Closed"
             is_open = False
-            reason = "holiday" if session_day in us_equity_holidays(session_day.year) else "weekend"
+            reason = self._closed_reason(session_day)
 
         return MarketSessionStatus(
             market=self.market,
@@ -145,6 +145,10 @@ class MarketCalendar:
 
     def _is_session_day(self, value: date) -> bool:
         return value.weekday() < 5 and value not in us_equity_holidays(value.year)
+
+    @staticmethod
+    def _closed_reason(value: date) -> str:
+        return "holiday" if value in us_equity_holidays(value.year) else "weekend"
 
     @staticmethod
     def _session_open(value: date) -> datetime:
