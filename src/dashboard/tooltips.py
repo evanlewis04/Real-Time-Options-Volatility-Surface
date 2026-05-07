@@ -17,6 +17,7 @@ CONTROL_HELP = {
     "min_volume": "Minimum reported contract volume required for surface and chain inputs.",
     "max_quote_age_days": "Maximum quote age for rows with provider timestamps; untimestamped rows are kept.",
     "option_price_source": "Market price used to recompute IV for surface construction.",
+    "pricing_model": "Pricing model used for contract prices, residuals, and Greeks.",
 }
 
 
@@ -70,6 +71,9 @@ COLUMN_HELP = {
     "carryValue": "Zero-volatility discounted value minus intrinsic value.",
     "impliedVolContribution": "BSM price contribution from implied volatility above the zero-volatility value.",
     "modelResidual": "Selected market price minus BSM model price.",
+    "pricingModel": "Selected pricing model used for contract analytics.",
+    "selectedModelPrice": "Theoretical price under the selected pricing model and current assumptions.",
+    "selectedModelResidual": "Selected market price minus selected-model price.",
     "europeanPrice": "European BSM price using computed IV, rate, and dividend assumptions.",
     "americanPrice": "American CRR binomial price using computed IV, rate, and dividend assumptions.",
     "earlyExercisePremium": "American price minus European BSM price.",
@@ -90,6 +94,7 @@ COLUMN_HELP = {
     "isLockedMarket": "Bid equals ask with both sides positive; these rows are flagged and excluded before surface fitting.",
     "quoteAgeSeconds": "Seconds between provider quote timestamp and snapshot normalization time.",
     "bidAskSpreadPct": "Bid-ask spread divided by mid price.",
+    "rho": "Approximate option price change for a one percentage-point rate move.",
 }
 
 

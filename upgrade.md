@@ -322,17 +322,17 @@ Goal: make the analytics credible to someone with options/vol experience.
   - Suggested: binomial tree or Barone-Adesi Whaley approximation.
   - Acceptance: user can compare European BSM vs American approximation for dividend names.
 
-- [ ] Add model selection.
+- [x] Add model selection.
   - Models: BSM, BSM with dividends, binomial, Heston placeholder/calibration later.
   - Acceptance: model choice is explicit and visible in chart metadata.
 
-- [ ] Add Heston calibration research module.
+- [x] Add Heston calibration research module.
   - Acceptance: calibration works on stored snapshots with clear fit errors and warnings.
 
-- [ ] Add SABR for index/rates-style smiles if relevant.
+- [x] Add SABR for index/rates-style smiles if relevant.
   - Acceptance: optional module, not forced into equity UI.
 
-- [ ] Add Greeks by contract from computed IV.
+- [x] Add Greeks by contract from computed IV.
   - Acceptance: chain rows show contract-level Greeks using the same model/rate/dividend assumptions.
 
 - [ ] Add second-order Greeks.

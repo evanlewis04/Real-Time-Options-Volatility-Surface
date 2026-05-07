@@ -42,6 +42,10 @@ class OptionQuote:
     zero_vol_price: Optional[float] = None
     bsm_price: Optional[float] = None
     decomposition_price: Optional[float] = None
+    pricing_model: Optional[str] = None
+    pricing_model_warning: Optional[str] = None
+    selected_model_price: Optional[float] = None
+    selected_model_residual: Optional[float] = None
     european_price: Optional[float] = None
     american_price: Optional[float] = None
     early_exercise_premium: Optional[float] = None
@@ -119,6 +123,10 @@ class OptionQuote:
             zero_vol_price=_float_or_none(row.get("zeroVolPrice")),
             bsm_price=_float_or_none(row.get("bsmPrice")),
             decomposition_price=_float_or_none(row.get("decompositionPrice")),
+            pricing_model=_str_or_none(row.get("pricingModel")),
+            pricing_model_warning=_str_or_none(row.get("pricingModelWarning")),
+            selected_model_price=_float_or_none(row.get("selectedModelPrice")),
+            selected_model_residual=_float_or_none(row.get("selectedModelResidual")),
             european_price=_float_or_none(row.get("europeanPrice")),
             american_price=_float_or_none(row.get("americanPrice")),
             early_exercise_premium=_float_or_none(row.get("earlyExercisePremium")),
@@ -192,6 +200,10 @@ class OptionQuote:
             "zeroVolPrice": self.zero_vol_price,
             "bsmPrice": self.bsm_price,
             "decompositionPrice": self.decomposition_price,
+            "pricingModel": self.pricing_model,
+            "pricingModelWarning": self.pricing_model_warning,
+            "selectedModelPrice": self.selected_model_price,
+            "selectedModelResidual": self.selected_model_residual,
             "europeanPrice": self.european_price,
             "americanPrice": self.american_price,
             "earlyExercisePremium": self.early_exercise_premium,
@@ -319,6 +331,14 @@ class MarketDataSnapshot:
     expiry_quality: tuple[tuple[str, dict[str, Any]], ...] = field(default_factory=tuple)
     max_quote_age_days: Optional[int] = None
     option_price_source: str = "mark"
+    pricing_model: str = "bsm_dividends"
+    pricing_model_label: Optional[str] = None
+    pricing_model_assumptions: Optional[str] = None
+    pricing_model_warning: Optional[str] = None
+    contract_greeks_count: int = 0
+    greek_units: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    median_selected_model_residual: Optional[float] = None
+    max_abs_selected_model_residual: Optional[float] = None
     computed_iv_count: int = 0
     computed_iv_failed_count: int = 0
     parity_pairs_checked: int = 0
@@ -431,6 +451,14 @@ class MarketDataSnapshot:
             expiry_quality=_nested_any_metadata_tuple(metadata.get("expiry_quality")),
             max_quote_age_days=_int_or_none(metadata.get("max_quote_age_days")),
             option_price_source=str(metadata.get("option_price_source") or "mark"),
+            pricing_model=str(metadata.get("pricing_model") or "bsm_dividends"),
+            pricing_model_label=metadata.get("pricing_model_label"),
+            pricing_model_assumptions=metadata.get("pricing_model_assumptions"),
+            pricing_model_warning=metadata.get("pricing_model_warning"),
+            contract_greeks_count=int(metadata.get("contract_greeks_count") or 0),
+            greek_units=_str_metadata_tuple(metadata.get("greek_units")),
+            median_selected_model_residual=_float_or_none(metadata.get("median_selected_model_residual")),
+            max_abs_selected_model_residual=_float_or_none(metadata.get("max_abs_selected_model_residual")),
             computed_iv_count=int(metadata.get("computed_iv_count") or 0),
             computed_iv_failed_count=int(metadata.get("computed_iv_failed_count") or 0),
             parity_pairs_checked=int(metadata.get("parity_pairs_checked") or 0),
@@ -540,6 +568,14 @@ class MarketDataSnapshot:
             "expiry_quality": dict(self.expiry_quality),
             "max_quote_age_days": self.max_quote_age_days,
             "option_price_source": self.option_price_source,
+            "pricing_model": self.pricing_model,
+            "pricing_model_label": self.pricing_model_label,
+            "pricing_model_assumptions": self.pricing_model_assumptions,
+            "pricing_model_warning": self.pricing_model_warning,
+            "contract_greeks_count": self.contract_greeks_count,
+            "greek_units": dict(self.greek_units),
+            "median_selected_model_residual": self.median_selected_model_residual,
+            "max_abs_selected_model_residual": self.max_abs_selected_model_residual,
             "computed_iv_count": self.computed_iv_count,
             "computed_iv_failed_count": self.computed_iv_failed_count,
             "parity_pairs_checked": self.parity_pairs_checked,
@@ -689,3 +725,10 @@ def _int_metadata_tuple(value: Any) -> tuple[tuple[str, int], ...]:
         if count is not None:
             out.append((str(key), int(count)))
     return tuple(out)
+
+
+def _str_metadata_tuple(value: Any) -> tuple[tuple[str, str], ...]:
+    if not value:
+        return ()
+    items = value.items() if isinstance(value, dict) else value
+    return tuple((str(key), str(text)) for key, text in items if text is not None)

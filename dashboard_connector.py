@@ -34,11 +34,20 @@ from src.quant.arbitrage import apply_no_arbitrage_checks
 from src.quant.events import EventCalendarProvider, MarketEvent, expiry_event_metadata
 from src.quant.expected_move import expected_moves_by_expiry
 from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
+from src.quant.heston import calibrate_heston_research
 from src.quant.iv_history import atm_iv_from_chain, iv_rank_percentile_from_snapshots
 from src.quant.local_vol import dupire_local_vol_surface
+from src.quant.model_selection import (
+    MODEL_LABELS,
+    apply_model_selection,
+    contract_greeks_metadata,
+    normalize_pricing_model,
+    pricing_model_metadata,
+)
 from src.quant.price_decomposition import apply_price_decomposition, price_decomposition_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
+from src.quant.sabr import calibrate_sabr_by_expiry
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
 from src.quant.shocks import surface_shock_scenarios
@@ -74,6 +83,7 @@ class DashboardConnector:
         )
         self.iv_calculator = ImpliedVolatilityCalculator()
         self.option_price_source = "mark"
+        self.pricing_model = "bsm_dividends"
         self.snapshot_dir = Path("data/snapshots")
         self.real_time_active = False
         self.update_interval = 30
@@ -115,6 +125,15 @@ class DashboardConnector:
             self.chain_cache.clear()
             self.surface_metadata.clear()
         return self.option_price_source
+
+    def configure_pricing_model(self, pricing_model: str) -> str:
+        """Select the model used for contract analytics and dashboard provenance."""
+        normalized = normalize_pricing_model(pricing_model)
+        if normalized != self.pricing_model:
+            self.pricing_model = normalized
+            self.chain_cache.clear()
+            self.surface_metadata.clear()
+        return MODEL_LABELS[self.pricing_model]
 
     # ------------------------------------------------------------------
     # Symbol-level data
@@ -187,6 +206,12 @@ class DashboardConnector:
                 "rejection_reasons": chain_meta.get("rejection_reasons") if chain_meta else {},
                 "option_price_source": (
                     chain_meta.get("option_price_source") if chain_meta else self.option_price_source
+                ),
+                "pricing_model": chain_meta.get("pricing_model") if chain_meta else self.pricing_model,
+                "pricing_model_label": (
+                    chain_meta.get("pricing_model_label")
+                    if chain_meta
+                    else pricing_model_metadata(self.pricing_model)["pricing_model_label"]
                 ),
                 "computed_iv_count": chain_meta.get("computed_iv_count") if chain_meta else None,
                 "computed_iv_failed_count": chain_meta.get("computed_iv_failed_count") if chain_meta else None,
@@ -263,6 +288,8 @@ class DashboardConnector:
                 "surface_iv_input": "computedIV",
                 "surface_smoothing": smoothing_summary(strikes, expiries, vols),
                 **self._svi_metadata(surface_chain, spot),
+                **self._heston_metadata(surface_chain, spot),
+                **self._sabr_metadata(key, surface_chain, spot),
             }
             metadata.update(self._surface_quality_metadata(surface_chain, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
@@ -289,6 +316,7 @@ class DashboardConnector:
             chain, arbitrage_meta = apply_no_arbitrage_checks(chain, spot, price_column="last")
             chain = apply_price_decomposition(chain, spot)
             chain = apply_american_pricing(chain, spot)
+            chain = apply_model_selection(chain, spot, self.pricing_model)
             surface_rate = rate_meta.get("risk_free_rate_median") or rate_meta.get("risk_free_rate_30d")
             surface_dividend = (
                 dividend_meta.get("effective_dividend_yield_median")
@@ -313,9 +341,12 @@ class DashboardConnector:
                 "surface_risk_free_rate": surface_rate,
                 "surface_dividend_yield": surface_dividend,
                 "option_price_source": self.option_price_source,
+                **pricing_model_metadata(self.pricing_model),
                 "surface_iv_input": "synthetic provider IV",
                 "surface_smoothing": smoothing_summary(strikes, expiries, vols),
                 **self._svi_metadata(chain, spot, iv_column="impliedVolatility"),
+                **self._heston_metadata(chain, spot, iv_column="impliedVolatility"),
+                **self._sabr_metadata(key, chain, spot, iv_column="impliedVolatility"),
                 **self._expected_move_metadata(chain, spot, iv_column="impliedVolatility", price_column="last"),
                 **rate_meta,
                 **dividend_meta,
@@ -325,6 +356,7 @@ class DashboardConnector:
                 **arbitrage_meta,
                 **price_decomposition_metadata(chain),
                 **american_pricing_metadata(chain),
+                **contract_greeks_metadata(chain, self.pricing_model),
             }
             metadata.update(self._surface_quality_metadata(chain, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
@@ -419,6 +451,7 @@ class DashboardConnector:
                 "option_expiry_cache_entries": self.options_provider.cache_status().get("entries"),
                 "liquidity_filters": getattr(self.options_provider, "liquidity_filter_settings", lambda: {})(),
                 "option_price_source": self.option_price_source,
+                "pricing_model": MODEL_LABELS[self.pricing_model],
                 "historical_cache_entries": len(self.historical_loader.cache),
                 "risk_free_rate_source": self.rate_provider.get_curve().source,
                 "risk_free_rate_mode": self.rate_provider.get_curve().mode,
@@ -444,6 +477,7 @@ class DashboardConnector:
                 "data_delay_minutes": market_status.get("data_delay_minutes"),
                 "liquidity_filters": getattr(self.options_provider, "liquidity_filter_settings", lambda: {})(),
                 "option_price_source": self.option_price_source,
+                "pricing_model": MODEL_LABELS[self.pricing_model],
             },
         }
 
@@ -516,6 +550,7 @@ class DashboardConnector:
         df, price_meta = self._apply_option_price_source(df, spot_price)
         df = apply_price_decomposition(df, spot_price)
         df = apply_american_pricing(df, spot_price)
+        df = apply_model_selection(df, spot_price, self.pricing_model)
         df, parity_meta = self._apply_parity_checks(df, spot_price)
         df, arbitrage_meta = apply_no_arbitrage_checks(df, spot_price)
         meta.update(self._rate_metadata(rate_curve, df))
@@ -524,6 +559,7 @@ class DashboardConnector:
         meta.update(price_meta)
         meta.update(price_decomposition_metadata(df))
         meta.update(american_pricing_metadata(df))
+        meta.update(contract_greeks_metadata(df, self.pricing_model))
         meta.update(parity_meta)
         meta.update(arbitrage_meta)
         meta.update(self._skew_metadata(df, spot_price))
@@ -680,6 +716,32 @@ class DashboardConnector:
             "global_fit_diagnostics": global_diagnostics,
             "front_svi_rmse": records[0].get("rmse"),
             "front_svi_mae": records[0].get("mae"),
+        }
+
+    @staticmethod
+    def _heston_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:
+        heston = calibrate_heston_research(chain, spot, iv_column=iv_column)
+        return {
+            "heston_research": heston,
+            "heston_research_status": heston.get("status"),
+            "heston_research_rmse": heston.get("rmse"),
+            "heston_research_points": heston.get("points"),
+            "heston_research_warning": " | ".join(str(item) for item in heston.get("warnings", [])[:2]),
+        }
+
+    @staticmethod
+    def _sabr_metadata(
+        symbol: str,
+        chain: pd.DataFrame,
+        spot: float,
+        iv_column: str = "computedIV",
+    ) -> Dict[str, Any]:
+        sabr = calibrate_sabr_by_expiry(chain, spot, symbol=symbol, iv_column=iv_column)
+        return {
+            "sabr": sabr,
+            "sabr_status": sabr.get("status"),
+            "sabr_rmse": sabr.get("rmse"),
+            "sabr_points": sabr.get("points"),
         }
 
     @staticmethod
@@ -1160,6 +1222,8 @@ class DashboardConnector:
             "liquidity_filtered_count": None,
             "rejection_reasons": {},
             "option_price_source": self.option_price_source,
+            "pricing_model": self.pricing_model,
+            "pricing_model_label": pricing_model_metadata(self.pricing_model)["pricing_model_label"],
             "computed_iv_count": None,
             "computed_iv_failed_count": None,
             "market_status": market_status.get("session_state"),

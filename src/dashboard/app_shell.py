@@ -20,6 +20,7 @@ def run_dashboard() -> None:
     from src.dashboard.tables import dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
     from src.dashboard.theme import apply_chart_layout, inject_theme, status_pill
     from src.dashboard.tooltips import COLUMN_HELP, CONTROL_HELP, KPI_HELP
+    from src.quant.model_selection import MODEL_CHOICES
 
     warnings.filterwarnings("ignore")
 
@@ -126,6 +127,11 @@ def run_dashboard() -> None:
                 "no_arbitrage_reason_buckets": {},
                 "fallback_reason": "DashboardConnector could not be imported",
                 "surface_points": 96,
+                "pricing_model": "bsm_dividends",
+                "pricing_model_label": "BSM with dividends",
+                "pricing_model_assumptions": "Static fallback model metadata.",
+                "contract_greeks_count": 0,
+                "greek_units": {},
             }
 
         def get_options_chain_snapshot(self, symbol: str):
@@ -165,6 +171,9 @@ def run_dashboard() -> None:
         def configure_option_price_source(self, price_source: str):
             return price_source
 
+        def configure_pricing_model(self, pricing_model: str):
+            return pricing_model
+
         def get_system_health(self):
             return {
                 "overall": {
@@ -199,27 +208,27 @@ def run_dashboard() -> None:
 
 
     @st.cache_data(ttl=120, show_spinner=False)
-    def get_current_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
+    def get_current_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
         return connector.get_current_data(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_vol_surface_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
+    def get_vol_surface_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
         return connector.get_vol_surface_data(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_surface_metadata_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
+    def get_surface_metadata_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
         return connector.get_surface_metadata(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_options_chain_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
+    def get_options_chain_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
         return connector.get_options_chain_snapshot(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_market_snapshot_cached(symbol: str, data_key: Tuple[int, int, float, int, str]):
+    def get_market_snapshot_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
         return connector.get_market_data_snapshot(symbol)
 
 
@@ -313,6 +322,12 @@ def run_dashboard() -> None:
             index=0,
             help=CONTROL_HELP["option_price_source"],
         )
+        pricing_model = st.selectbox(
+            "Pricing model",
+            options=list(MODEL_CHOICES),
+            index=1,
+            help=CONTROL_HELP["pricing_model"],
+        )
         if st.button("Refresh data", width="stretch"):
             result = connector.trigger_data_refresh()
             st.cache_data.clear()
@@ -337,6 +352,7 @@ def run_dashboard() -> None:
         float(max_spread_pct),
         int(max_quote_age_days),
         str(option_price_source),
+        str(pricing_model),
     )
     connector.configure_liquidity_filters(
         min_open_interest=data_key[0],
@@ -345,6 +361,7 @@ def run_dashboard() -> None:
         max_quote_age_days=data_key[3],
     )
     connector.configure_option_price_source(data_key[4])
+    connector.configure_pricing_model(data_key[5])
 
     current_data = load_with_status(
         st,
@@ -392,6 +409,7 @@ def run_dashboard() -> None:
             {status_pill("Surface", surface_mode)}
             {status_pill("Price", current_data.get("data_mode", "Unknown"))}
             {status_pill("IV", current_data.get("iv_source", "Unknown"))}
+            {status_pill("Model", surface_meta.get("pricing_model_label") or "BSM with dividends")}
             {status_pill("Market", market_status.get("session_state", "Unknown"))}
         </div>
     </div>
@@ -446,6 +464,8 @@ def run_dashboard() -> None:
         spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
         quote age <= {fmt_int(surface_meta.get("max_quote_age_days"))}d;
         IV price source {surface_meta.get("option_price_source") or "mark"};
+        pricing model {surface_meta.get("pricing_model_label") or "BSM with dividends"};
+        model Greeks {fmt_int(surface_meta.get("contract_greeks_count"))};
         computed IV {fmt_int(surface_meta.get("computed_iv_count"))}.
         forward median {fmt_money(surface_meta.get("forward_price_median"))};
         discount median {surface_meta.get("discount_factor_median") if surface_meta.get("discount_factor_median") is not None else "n/a"}.
@@ -454,6 +474,10 @@ def run_dashboard() -> None:
         SSVI expiries {fmt_int((surface_meta.get("global_fit_diagnostics") or {}).get("fitted_expiries"))};
         SSVI RMSE {fmt_pct((surface_meta.get("global_fit_diagnostics") or {}).get("rmse"))};
         SSVI constraints {(surface_meta.get("global_fit_diagnostics") or {}).get("constraints_passed")}.
+        Heston research {surface_meta.get("heston_research_status") or "n/a"};
+        Heston RMSE {fmt_pct(surface_meta.get("heston_research_rmse"))};
+        SABR {surface_meta.get("sabr_status") or "n/a"};
+        SABR RMSE {fmt_pct(surface_meta.get("sabr_rmse"))}.
         IV rank {fmt_pct(surface_meta.get("iv_rank"))};
         IV percentile {fmt_pct(surface_meta.get("iv_percentile"))};
         IV history snapshots {fmt_int(surface_meta.get("iv_history_observations"))}.
@@ -752,6 +776,14 @@ def run_dashboard() -> None:
                 "carryValue",
                 "impliedVolContribution",
                 "modelResidual",
+                "pricingModel",
+                "selectedModelPrice",
+                "selectedModelResidual",
+                "delta",
+                "gamma",
+                "theta",
+                "vega",
+                "rho",
                 "europeanPrice",
                 "americanPrice",
                 "earlyExercisePremium",
@@ -853,6 +885,25 @@ def run_dashboard() -> None:
                         format="$%.2f",
                         help=COLUMN_HELP["modelResidual"],
                     ),
+                    "pricingModel": st.column_config.TextColumn(
+                        "Model",
+                        help=COLUMN_HELP["pricingModel"],
+                    ),
+                    "selectedModelPrice": st.column_config.NumberColumn(
+                        "Model Price",
+                        format="$%.2f",
+                        help=COLUMN_HELP["selectedModelPrice"],
+                    ),
+                    "selectedModelResidual": st.column_config.NumberColumn(
+                        "Model Residual",
+                        format="$%.2f",
+                        help=COLUMN_HELP["selectedModelResidual"],
+                    ),
+                    "delta": st.column_config.NumberColumn("Delta", format="%.4f", help=COLUMN_HELP["Delta"]),
+                    "gamma": st.column_config.NumberColumn("Gamma", format="%.4f", help=COLUMN_HELP["Gamma"]),
+                    "theta": st.column_config.NumberColumn("Theta/day", format="$%.4f", help=COLUMN_HELP["Theta/day"]),
+                    "vega": st.column_config.NumberColumn("Vega/1%", format="$%.4f", help=COLUMN_HELP["Vega/1%"]),
+                    "rho": st.column_config.NumberColumn("Rho/1%", format="$%.4f", help=COLUMN_HELP["rho"]),
                     "europeanPrice": st.column_config.NumberColumn(
                         "European",
                         format="$%.2f",
@@ -943,6 +994,8 @@ def run_dashboard() -> None:
                 f"Source: {chain_meta.get('source', 'unknown')}; mode: {chain_meta.get('mode', 'unknown')}; "
                 f"liquidity rejects: {chain_meta.get('liquidity_filtered_count', 0):,}; "
                 f"price anatomy rows: {fmt_int(chain_meta.get('price_decomposition_contracts'))}; "
+                f"pricing model: {chain_meta.get('pricing_model_label', 'n/a')}; "
+                f"contract Greeks: {fmt_int(chain_meta.get('contract_greeks_count'))}; "
                 f"American model: {chain_meta.get('american_model', 'n/a')}; "
                 f"early-exercise candidates: {fmt_int(chain_meta.get('early_exercise_candidates'))}."
             )
