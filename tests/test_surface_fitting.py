@@ -3,7 +3,7 @@ import pandas as pd
 
 from dashboard_connector import DashboardConnector
 from src.quant.smoothing import smooth_iv_surface
-from src.quant.svi import calibrate_svi_by_expiry, svi_total_variance
+from src.quant.svi import calibrate_ssvi_surface, calibrate_svi_by_expiry, ssvi_total_variance, svi_total_variance
 
 
 def test_smoothing_reduces_roughness_and_enforces_calendar_total_variance():
@@ -51,6 +51,39 @@ def test_svi_calibration_recovers_low_error_smile():
     assert len(fitted.iloc[0]["residuals"]) == 9
 
 
+def test_ssvi_global_calibration_recovers_constrained_surface():
+    expiries = [
+        (pd.Timestamp("2026-06-19"), 45.0, 0.010),
+        (pd.Timestamp("2026-08-21"), 108.0, 0.025),
+        (pd.Timestamp("2026-11-20"), 199.0, 0.050),
+    ]
+    k = np.linspace(-0.25, 0.25, 11)
+    rows = []
+    for expiry, dte, theta in expiries:
+        total_variance = ssvi_total_variance(k, theta, rho=-0.40, eta=1.10, gamma=0.25)
+        for log_money, iv in zip(k, np.sqrt(total_variance / (dte / 365.0))):
+            rows.append(
+                {
+                    "expiration": expiry,
+                    "daysToExpiration": dte,
+                    "strike": 100.0 * np.exp(log_money),
+                    "logMoneyness": log_money,
+                    "computedIV": iv,
+                }
+            )
+    chain = pd.DataFrame(rows)
+
+    fitted = calibrate_ssvi_surface(chain, spot=100.0)
+
+    assert fitted["model"] == "SSVI"
+    assert fitted["status"] == "fitted"
+    assert fitted["fitted_expiries"] == 3
+    assert fitted["points"] == 33
+    assert fitted["constraints"]["passed"]
+    assert fitted["rmse"] < 1e-3
+    assert len(fitted["residuals"]) == 33
+
+
 def test_connector_svi_metadata_includes_fit_diagnostics():
     expiry = pd.Timestamp("2026-06-19")
     dte = 45.0
@@ -72,3 +105,32 @@ def test_connector_svi_metadata_includes_fit_diagnostics():
     assert meta["fit_diagnostics"]["fitted_expiries"] == 1
     assert meta["fit_diagnostics"]["points"] == 9
     assert meta["svi_smiles"][0]["rmse"] < 1e-3
+
+
+def test_connector_svi_metadata_includes_global_ssvi_diagnostics():
+    rows = []
+    k = np.linspace(-0.20, 0.20, 9)
+    for expiry, dte, theta in (
+        (pd.Timestamp("2026-06-19"), 45.0, 0.012),
+        (pd.Timestamp("2026-08-21"), 108.0, 0.028),
+    ):
+        total_variance = ssvi_total_variance(k, theta, rho=-0.30, eta=0.90, gamma=0.20)
+        rows.extend(
+            {
+                "expiration": expiry,
+                "daysToExpiration": dte,
+                "strike": 100.0 * np.exp(log_money),
+                "logMoneyness": log_money,
+                "computedIV": iv,
+            }
+            for log_money, iv in zip(k, np.sqrt(total_variance / (dte / 365.0)))
+        )
+    chain = pd.DataFrame(rows)
+
+    meta = DashboardConnector._svi_metadata(chain, spot=100.0)
+
+    assert meta["global_fit_diagnostics"]["model"] == "SSVI"
+    assert meta["global_fit_diagnostics"]["status"] == "fitted"
+    assert meta["global_fit_diagnostics"]["fitted_expiries"] == 2
+    assert meta["global_fit_diagnostics"]["constraints_passed"]
+    assert meta["ssvi_surface"]["rmse"] < 1e-3

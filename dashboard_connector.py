@@ -34,7 +34,12 @@ from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
-from src.quant.svi import calibrate_svi_by_expiry, fit_diagnostics_from_svi
+from src.quant.svi import (
+    calibrate_ssvi_surface,
+    calibrate_svi_by_expiry,
+    fit_diagnostics_from_ssvi,
+    fit_diagnostics_from_svi,
+)
 
 logger = logging.getLogger(__name__)
 OPTION_PRICE_SOURCES = {"midpoint", "mark", "last"}
@@ -592,13 +597,22 @@ class DashboardConnector:
     @staticmethod
     def _svi_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:
         svi = calibrate_svi_by_expiry(chain, spot, iv_column=iv_column)
+        ssvi = calibrate_ssvi_surface(chain, spot, iv_column=iv_column)
         diagnostics = fit_diagnostics_from_svi(svi)
+        global_diagnostics = fit_diagnostics_from_ssvi(ssvi)
         if svi.empty:
-            return {"svi_smiles": [], "fit_diagnostics": diagnostics}
+            return {
+                "svi_smiles": [],
+                "fit_diagnostics": diagnostics,
+                "ssvi_surface": ssvi,
+                "global_fit_diagnostics": global_diagnostics,
+            }
         records = svi.replace({np.nan: None}).to_dict("records")
         return {
             "svi_smiles": records,
             "fit_diagnostics": diagnostics,
+            "ssvi_surface": ssvi,
+            "global_fit_diagnostics": global_diagnostics,
             "front_svi_rmse": records[0].get("rmse"),
             "front_svi_mae": records[0].get("mae"),
         }

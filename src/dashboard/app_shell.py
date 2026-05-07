@@ -447,6 +447,9 @@ def run_dashboard() -> None:
         discount median {surface_meta.get("discount_factor_median") if surface_meta.get("discount_factor_median") is not None else "n/a"}.
         SVI expiries {fmt_int((surface_meta.get("fit_diagnostics") or {}).get("fitted_expiries"))};
         SVI RMSE {fmt_pct((surface_meta.get("fit_diagnostics") or {}).get("rmse"))}.
+        SSVI expiries {fmt_int((surface_meta.get("global_fit_diagnostics") or {}).get("fitted_expiries"))};
+        SSVI RMSE {fmt_pct((surface_meta.get("global_fit_diagnostics") or {}).get("rmse"))};
+        SSVI constraints {(surface_meta.get("global_fit_diagnostics") or {}).get("constraints_passed")}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -1001,6 +1004,45 @@ def run_dashboard() -> None:
                     "SVI fit unavailable",
                     "No expiry has enough valid IV points for deterministic SVI calibration.",
                     "Refresh data, relax filters, or select a more liquid options symbol.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        ssvi_surface = surface_meta.get("ssvi_surface") or {}
+        global_fit = surface_meta.get("global_fit_diagnostics") or {}
+        if ssvi_surface.get("status") == "fitted":
+            st.markdown('<div class="section-header">Global SSVI Surface Fit</div>', unsafe_allow_html=True)
+            ssvi_rows = pd.DataFrame(ssvi_surface.get("atm_total_variance") or [])
+            if not ssvi_rows.empty:
+                st.dataframe(
+                    ssvi_rows,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "expiration": st.column_config.TextColumn("Expiry"),
+                        "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                        "theta": st.column_config.NumberColumn("ATM Total Variance", format="%.5f"),
+                        "raw_theta": st.column_config.NumberColumn("Raw ATM Total Variance", format="%.5f"),
+                        "points": st.column_config.NumberColumn("Points", format="%d"),
+                    },
+                )
+            constraints = ssvi_surface.get("constraints") or {}
+            st.caption(
+                "SSVI global fit: "
+                f"rho {ssvi_surface.get('rho'):.4f}; "
+                f"eta {ssvi_surface.get('eta'):.4f}; "
+                f"gamma {ssvi_surface.get('gamma'):.4f}; "
+                f"expiries {fmt_int(global_fit.get('fitted_expiries'))}; "
+                f"points {fmt_int(global_fit.get('points'))}; "
+                f"RMSE {fmt_pct(global_fit.get('rmse'))}; "
+                f"constraints passed {constraints.get('passed')}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "SSVI global fit unavailable",
+                    ssvi_surface.get("reason") or "The current chain does not have enough valid expiries for global SSVI calibration.",
+                    "Refresh data, relax filters, or use a symbol with at least two liquid expiries.",
                 ),
                 unsafe_allow_html=True,
             )

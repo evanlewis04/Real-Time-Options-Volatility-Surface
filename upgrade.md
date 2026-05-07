@@ -279,7 +279,7 @@ Goal: make the analytics credible to someone with options/vol experience.
 - [x] Add SVI smile calibration by expiry.
   - Acceptance: raw smile, fitted SVI curve, parameters, and fit error are visible.
 
-- [ ] Add SSVI or arbitrage-constrained global surface calibration.
+- [x] Add SSVI or arbitrage-constrained global surface calibration.
   - Acceptance: cross-expiry surface has documented constraints and fit diagnostics.
 
 - [x] Add fit diagnostics.
