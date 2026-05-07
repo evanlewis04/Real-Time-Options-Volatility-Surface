@@ -116,9 +116,14 @@ def run_dashboard() -> None:
                     "valid_quotes": 0,
                     "rejected_quotes": 0,
                     "surface_quotes": 96,
+                    "no_arbitrage_excluded_quotes": 0,
                     "reason_buckets": {},
                     "expiries": {},
                 },
+                "no_arbitrage_violation_count": 0,
+                "no_arbitrage_violation_rows": 0,
+                "no_arbitrage_excluded_count": 0,
+                "no_arbitrage_reason_buckets": {},
                 "fallback_reason": "DashboardConnector could not be imported",
                 "surface_points": 96,
             }
@@ -430,6 +435,8 @@ def run_dashboard() -> None:
         last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))};
         crossed/locked markets {fmt_int(surface_meta.get("crossed_locked_rejected_count"))};
         parity violations {fmt_int(surface_meta.get("parity_violation_count"))};
+        no-arb violations {fmt_int(surface_meta.get("no_arbitrage_violation_count"))};
+        no-arb excluded {fmt_int(surface_meta.get("no_arbitrage_excluded_count"))};
         filters OI >= {fmt_int(surface_meta.get("min_open_interest"))},
         volume >= {fmt_int(surface_meta.get("min_volume"))},
         spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
@@ -688,6 +695,8 @@ def run_dashboard() -> None:
                 "computedIV",
                 "parityViolation",
                 "parityError",
+                "noArbitrageViolation",
+                "noArbitrageReasons",
                 "riskFreeRate",
                 "discountFactor",
                 "forwardPrice",
@@ -764,6 +773,14 @@ def run_dashboard() -> None:
                         "Parity Error",
                         format="$%.2f",
                         help=COLUMN_HELP["parityError"],
+                    ),
+                    "noArbitrageViolation": st.column_config.CheckboxColumn(
+                        "No-Arb Flag",
+                        help=COLUMN_HELP["noArbitrageViolation"],
+                    ),
+                    "noArbitrageReasons": st.column_config.TextColumn(
+                        "No-Arb Reasons",
+                        help=COLUMN_HELP["noArbitrageReasons"],
                     ),
                     "riskFreeRate": st.column_config.NumberColumn(
                         "Rate",

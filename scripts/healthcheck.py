@@ -38,6 +38,7 @@ def check_imports() -> str:
     from src.data.snapshots import save_snapshot  # noqa: F401
     from src.pricing.black_scholes import BlackScholesModel  # noqa: F401
     from src.pricing.implied_vol import ImpliedVolatilityCalculator  # noqa: F401
+    from src.quant.arbitrage import apply_no_arbitrage_checks  # noqa: F401
     from src.quant.corporate_actions import CorporateActionProvider  # noqa: F401
     from src.quant.dividends import DividendProvider  # noqa: F401
     from src.quant.rates import RiskFreeRateProvider  # noqa: F401

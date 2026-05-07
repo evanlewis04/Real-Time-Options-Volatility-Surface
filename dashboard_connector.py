@@ -29,6 +29,7 @@ from src.data.synthetic_options import SyntheticOptionsGenerator
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
+from src.quant.arbitrage import apply_no_arbitrage_checks
 from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.skew import delta_skew_by_expiry
@@ -259,6 +260,7 @@ class DashboardConnector:
             forward_meta = self._forward_metadata(chain)
             corporate_actions = self.corporate_action_provider.get(key)
             corporate_meta = self._corporate_action_metadata(corporate_actions, chain)
+            chain, arbitrage_meta = apply_no_arbitrage_checks(chain, spot, price_column="last")
             surface_rate = rate_meta.get("risk_free_rate_median") or rate_meta.get("risk_free_rate_30d")
             surface_dividend = (
                 dividend_meta.get("effective_dividend_yield_median")
@@ -288,6 +290,7 @@ class DashboardConnector:
                 **dividend_meta,
                 **forward_meta,
                 **corporate_meta,
+                **arbitrage_meta,
             }
             self.surface_metadata[key].update(
                 self._surface_quality_metadata(chain, self.surface_metadata[key])
@@ -468,11 +471,13 @@ class DashboardConnector:
         corporate_actions = self.corporate_action_provider.get(symbol)
         df, price_meta = self._apply_option_price_source(df, spot_price)
         df, parity_meta = self._apply_parity_checks(df, spot_price)
+        df, arbitrage_meta = apply_no_arbitrage_checks(df, spot_price)
         meta.update(self._rate_metadata(rate_curve, df))
         meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
         meta.update(self._forward_metadata(df))
         meta.update(price_meta)
         meta.update(parity_meta)
+        meta.update(arbitrage_meta)
         meta.update(self._skew_metadata(df, spot_price))
         meta.update(self._data_quality_metadata(df, meta))
         corporate_meta = self._corporate_action_metadata(corporate_actions, df)
@@ -695,6 +700,12 @@ class DashboardConnector:
         out = chain.copy()
         computed = pd.to_numeric(out["computedIV"], errors="coerce")
         out = out[computed.notna()].copy()
+        excluded = 0
+        if "noArbitrageViolation" in out:
+            violation_mask = out["noArbitrageViolation"].fillna(False).astype(bool)
+            excluded = int(violation_mask.sum())
+            out = out[~violation_mask].copy()
+        out.attrs["no_arbitrage_excluded_count"] = excluded
         out["impliedVolatility"] = pd.to_numeric(out["computedIV"], errors="coerce")
         return out
 
@@ -810,6 +821,10 @@ class DashboardConnector:
                     parity_rows = int(group["parityViolation"].fillna(False).astype(bool).sum())
                     if parity_rows:
                         reason_buckets["parity_violation"] = parity_rows
+                if "noArbitrageViolation" in group:
+                    arbitrage_rows = int(group["noArbitrageViolation"].fillna(False).astype(bool).sum())
+                    if arbitrage_rows:
+                        reason_buckets["no_arbitrage_violation"] = arbitrage_rows
 
                 entry["reason_buckets"] = {
                     reason: int(count) for reason, count in reason_buckets.items() if count
@@ -830,6 +845,9 @@ class DashboardConnector:
         parity_rows = int(metadata.get("parity_violation_rows") or 0)
         if parity_rows:
             reason_buckets["parity_violation"] = parity_rows
+        arbitrage_rows = int(metadata.get("no_arbitrage_violation_rows") or 0)
+        if arbitrage_rows:
+            reason_buckets["no_arbitrage_violation"] = arbitrage_rows
         score = _quality_score(valid_rows, rejected_rows, reason_buckets)
         return {
             "data_quality_score": score,
@@ -870,12 +888,14 @@ class DashboardConnector:
             "valid_quotes": valid_rows,
             "rejected_quotes": rejected_rows,
             "surface_quotes": int(len(surface_chain)),
+            "no_arbitrage_excluded_quotes": int(surface_chain.attrs.get("no_arbitrage_excluded_count", 0)),
             "reason_buckets": {reason: int(count) for reason, count in reason_buckets.items() if count},
             "expiries": surface_expiry_counts,
         }
         return {
             "surface_quality_score": score,
             "surface_quality": surface_quality,
+            "no_arbitrage_excluded_count": int(surface_chain.attrs.get("no_arbitrage_excluded_count", 0)),
             "expiry_quality": dict(sorted(expiry_quality.items())),
         }
 
@@ -975,4 +995,5 @@ def _quality_score(valid_quotes: int, rejected_quotes: int, reason_buckets: Dict
     score = 100.0 * valid / total
     score -= 20.0 * int(reason_buckets.get("computed_iv_failed", 0)) / max(valid, 1)
     score -= 15.0 * int(reason_buckets.get("parity_violation", 0)) / max(valid, 1)
+    score -= 20.0 * int(reason_buckets.get("no_arbitrage_violation", 0)) / max(valid, 1)
     return round(float(min(100.0, max(0.0, score))), 1)

@@ -4,6 +4,7 @@
 pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.10.0
+pyarrow>=14.0.0
 
 # PRIMARY DATA SOURCE - yfinance for real stock prices (NO API KEY NEEDED!)
 yfinance>=0.2.18

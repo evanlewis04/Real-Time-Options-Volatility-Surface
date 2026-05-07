@@ -334,6 +334,29 @@ def test_connector_quality_score_penalizes_rejections_computed_iv_and_parity():
     assert quality["expiry_quality"]["2026-06-19"]["score"] == 32.5
 
 
+def test_connector_quality_score_penalizes_no_arbitrage_violations():
+    connector = DashboardConnector()
+    expiry = pd.Timestamp("2026-06-19")
+    chain = pd.DataFrame(
+        [
+            {"type": "call", "expiration": expiry, "computedIV": 0.20, "noArbitrageViolation": False},
+            {"type": "call", "expiration": expiry, "computedIV": 0.21, "noArbitrageViolation": True},
+        ]
+    )
+    metadata = {
+        "valid_rows": 2,
+        "rejected_rows": 0,
+        "no_arbitrage_violation_rows": 1,
+        "expiry_quality": {"2026-06-19": {"valid_quotes": 2, "rejected_quotes": 0, "reason_buckets": {}}},
+    }
+
+    quality = connector._data_quality_metadata(chain, metadata)
+
+    assert quality["quality_reason_buckets"] == {"no_arbitrage_violation": 1}
+    assert quality["data_quality_score"] == 90.0
+    assert quality["expiry_quality"]["2026-06-19"]["reason_buckets"] == {"no_arbitrage_violation": 1}
+
+
 def test_connector_exposes_market_calendar_status():
     connector = DashboardConnector()
 

@@ -26,11 +26,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff pytest pytest-asyncio
-          pip install numpy scipy pandas python-dotenv
+          pip install -r requirements.txt
+          pip install ruff
 
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Compile Python sources
+        run: python -m compileall app.py dashboard_connector.py main.py src tests
+
       - name: Test
-        run: pytest tests/ -v
+        run: pytest tests -q

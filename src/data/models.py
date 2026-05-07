@@ -38,6 +38,14 @@ class OptionQuote:
     parity_error: Optional[float] = None
     parity_theoretical_diff: Optional[float] = None
     parity_observed_diff: Optional[float] = None
+    no_arbitrage_violation: Optional[bool] = None
+    no_arbitrage_reasons: Optional[str] = None
+    no_arbitrage_lower_bound: Optional[float] = None
+    no_arbitrage_upper_bound: Optional[float] = None
+    no_arbitrage_bound_violation: Optional[bool] = None
+    no_arbitrage_monotonicity_violation: Optional[bool] = None
+    no_arbitrage_convexity_violation: Optional[bool] = None
+    no_arbitrage_calendar_violation: Optional[bool] = None
     delta: Optional[float] = None
     gamma: Optional[float] = None
     theta: Optional[float] = None
@@ -93,6 +101,14 @@ class OptionQuote:
             parity_error=_float_or_none(row.get("parityError")),
             parity_theoretical_diff=_float_or_none(row.get("parityTheoreticalDiff")),
             parity_observed_diff=_float_or_none(row.get("parityObservedDiff")),
+            no_arbitrage_violation=_bool_or_none(row.get("noArbitrageViolation")),
+            no_arbitrage_reasons=_str_or_none(row.get("noArbitrageReasons")),
+            no_arbitrage_lower_bound=_float_or_none(row.get("noArbitrageLowerBound")),
+            no_arbitrage_upper_bound=_float_or_none(row.get("noArbitrageUpperBound")),
+            no_arbitrage_bound_violation=_bool_or_none(row.get("noArbitrageBoundViolation")),
+            no_arbitrage_monotonicity_violation=_bool_or_none(row.get("noArbitrageMonotonicityViolation")),
+            no_arbitrage_convexity_violation=_bool_or_none(row.get("noArbitrageConvexityViolation")),
+            no_arbitrage_calendar_violation=_bool_or_none(row.get("noArbitrageCalendarViolation")),
             delta=_float_or_none(row.get("delta")),
             gamma=_float_or_none(row.get("gamma")),
             theta=_float_or_none(row.get("theta")),
@@ -144,6 +160,14 @@ class OptionQuote:
             "parityError": self.parity_error,
             "parityTheoreticalDiff": self.parity_theoretical_diff,
             "parityObservedDiff": self.parity_observed_diff,
+            "noArbitrageViolation": self.no_arbitrage_violation,
+            "noArbitrageReasons": self.no_arbitrage_reasons,
+            "noArbitrageLowerBound": self.no_arbitrage_lower_bound,
+            "noArbitrageUpperBound": self.no_arbitrage_upper_bound,
+            "noArbitrageBoundViolation": self.no_arbitrage_bound_violation,
+            "noArbitrageMonotonicityViolation": self.no_arbitrage_monotonicity_violation,
+            "noArbitrageConvexityViolation": self.no_arbitrage_convexity_violation,
+            "noArbitrageCalendarViolation": self.no_arbitrage_calendar_violation,
             "delta": self.delta,
             "gamma": self.gamma,
             "theta": self.theta,
@@ -251,6 +275,12 @@ class MarketDataSnapshot:
     parity_violation_count: int = 0
     parity_violation_rows: int = 0
     parity_violations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    no_arbitrage_checks: tuple[str, ...] = field(default_factory=tuple)
+    no_arbitrage_violation_count: int = 0
+    no_arbitrage_violation_rows: int = 0
+    no_arbitrage_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    no_arbitrage_violations: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    no_arbitrage_excluded_count: int = 0
     raw_rows: int = 0
     valid_rows: int = 0
     rejected_rows: int = 0
@@ -345,6 +375,12 @@ class MarketDataSnapshot:
             parity_violation_count=int(metadata.get("parity_violation_count") or 0),
             parity_violation_rows=int(metadata.get("parity_violation_rows") or 0),
             parity_violations=_dict_tuple(metadata.get("parity_violations")),
+            no_arbitrage_checks=tuple(str(item) for item in metadata.get("no_arbitrage_checks") or ()),
+            no_arbitrage_violation_count=int(metadata.get("no_arbitrage_violation_count") or 0),
+            no_arbitrage_violation_rows=int(metadata.get("no_arbitrage_violation_rows") or 0),
+            no_arbitrage_reason_buckets=_int_metadata_tuple(metadata.get("no_arbitrage_reason_buckets")),
+            no_arbitrage_violations=_dict_tuple(metadata.get("no_arbitrage_violations")),
+            no_arbitrage_excluded_count=int(metadata.get("no_arbitrage_excluded_count") or 0),
             raw_rows=int(metadata.get("raw_rows") or 0),
             valid_rows=int(metadata.get("valid_rows") or len(quotes)),
             rejected_rows=int(metadata.get("rejected_rows") or 0),
@@ -436,6 +472,12 @@ class MarketDataSnapshot:
             "parity_violation_count": self.parity_violation_count,
             "parity_violation_rows": self.parity_violation_rows,
             "parity_violations": list(self.parity_violations),
+            "no_arbitrage_checks": list(self.no_arbitrage_checks),
+            "no_arbitrage_violation_count": self.no_arbitrage_violation_count,
+            "no_arbitrage_violation_rows": self.no_arbitrage_violation_rows,
+            "no_arbitrage_reason_buckets": dict(self.no_arbitrage_reason_buckets),
+            "no_arbitrage_violations": list(self.no_arbitrage_violations),
+            "no_arbitrage_excluded_count": self.no_arbitrage_excluded_count,
             "warnings": list(self.warnings),
         }
 

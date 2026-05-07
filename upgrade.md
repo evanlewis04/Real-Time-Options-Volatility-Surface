@@ -268,7 +268,7 @@ Goal: make the analytics credible to someone with options/vol experience.
   - Metrics: front/back spread, slope, curvature, contango/backwardation flag.
   - Acceptance: term structure tab shows ATM IV by expiry with slope metrics.
 
-- [ ] Add no-arbitrage checks.
+- [x] Add no-arbitrage checks.
   - Checks: call monotonicity in strike, convexity in strike, calendar monotonicity where applicable, bounds by option type.
   - Acceptance: violations are surfaced and optionally excluded.
 

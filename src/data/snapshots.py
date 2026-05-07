@@ -118,6 +118,15 @@ def load_snapshot(metadata_path: Path | str) -> MarketDataSnapshot:
         parity_violation_count=int(metadata.get("parity_violation_count") or 0),
         parity_violation_rows=int(metadata.get("parity_violation_rows") or 0),
         parity_violations=tuple(dict(item) for item in metadata.get("parity_violations", [])),
+        no_arbitrage_checks=tuple(str(item) for item in metadata.get("no_arbitrage_checks", [])),
+        no_arbitrage_violation_count=int(metadata.get("no_arbitrage_violation_count") or 0),
+        no_arbitrage_violation_rows=int(metadata.get("no_arbitrage_violation_rows") or 0),
+        no_arbitrage_reason_buckets=tuple(
+            (str(reason), int(count))
+            for reason, count in (metadata.get("no_arbitrage_reason_buckets") or {}).items()
+        ),
+        no_arbitrage_violations=tuple(dict(item) for item in metadata.get("no_arbitrage_violations", [])),
+        no_arbitrage_excluded_count=int(metadata.get("no_arbitrage_excluded_count") or 0),
         raw_rows=int(metadata.get("raw_rows") or 0),
         valid_rows=int(metadata.get("valid_rows") or len(quotes)),
         rejected_rows=int(metadata.get("rejected_rows") or 0),
@@ -212,6 +221,12 @@ def _snapshot_metadata(snapshot: MarketDataSnapshot) -> dict[str, Any]:
         "parity_violation_count": snapshot.parity_violation_count,
         "parity_violation_rows": snapshot.parity_violation_rows,
         "parity_violations": list(snapshot.parity_violations),
+        "no_arbitrage_checks": list(snapshot.no_arbitrage_checks),
+        "no_arbitrage_violation_count": snapshot.no_arbitrage_violation_count,
+        "no_arbitrage_violation_rows": snapshot.no_arbitrage_violation_rows,
+        "no_arbitrage_reason_buckets": dict(snapshot.no_arbitrage_reason_buckets),
+        "no_arbitrage_violations": list(snapshot.no_arbitrage_violations),
+        "no_arbitrage_excluded_count": snapshot.no_arbitrage_excluded_count,
         "raw_rows": snapshot.raw_rows,
         "valid_rows": snapshot.valid_rows,
         "rejected_rows": snapshot.rejected_rows,

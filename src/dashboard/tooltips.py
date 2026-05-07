@@ -63,6 +63,8 @@ COLUMN_HELP = {
     "computedIV": "Implied volatility recomputed from the selected market price, rate, and dividend assumptions.",
     "parityViolation": "Call and put at the same expiry/strike fail the put-call parity sanity tolerance.",
     "parityError": "Observed call-minus-put price difference minus theoretical parity difference.",
+    "noArbitrageViolation": "Row fails a static no-arbitrage check such as bounds, strike monotonicity, convexity, or calendar variance.",
+    "noArbitrageReasons": "Pipe-separated no-arbitrage checks that flagged this contract.",
     "riskFreeRate": "Interpolated annualized risk-free rate for this contract expiry.",
     "discountFactor": "Continuously compounded discount factor for this contract expiry.",
     "forwardPrice": "Forward price implied by spot, rate, dividend yield, and expiry.",

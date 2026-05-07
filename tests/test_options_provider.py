@@ -52,7 +52,7 @@ def test_yfinance_options_normalize_filters_and_shapes_rows():
     assert row["markSource"] == "midpoint"
     assert row["bidAskSpreadPct"] == (8.4 - 8.0) / 8.2
     assert row["quoteQuality"] == "bid_ask"
-    assert row["isStaleQuote"] == False
+    assert not row["isStaleQuote"]
     assert row["quoteAgeSeconds"] == 3600.0
 
 

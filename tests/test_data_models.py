@@ -31,6 +31,14 @@ def _sample_chain() -> pd.DataFrame:
                 "parityError": 0.05,
                 "parityTheoreticalDiff": 0.10,
                 "parityObservedDiff": 0.15,
+                "noArbitrageViolation": False,
+                "noArbitrageReasons": "",
+                "noArbitrageLowerBound": 0.0,
+                "noArbitrageUpperBound": 199.0,
+                "noArbitrageBoundViolation": False,
+                "noArbitrageMonotonicityViolation": False,
+                "noArbitrageConvexityViolation": False,
+                "noArbitrageCalendarViolation": False,
                 "riskFreeRate": 0.051,
                 "dividendYield": 0.005,
                 "effectiveDividendYield": 0.015,
@@ -66,6 +74,8 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert quote.iv_input == "computed"
     assert quote.parity_violation is False
     assert quote.parity_error == 0.05
+    assert quote.no_arbitrage_violation is False
+    assert quote.no_arbitrage_upper_bound == 199.0
     assert quote.risk_free_rate == 0.051
     assert quote.effective_dividend_yield == 0.015
     assert quote.discrete_dividend_count == 1
@@ -81,13 +91,15 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert frame.iloc[0]["impliedVolatility"] == quote.raw_iv
     assert frame.iloc[0]["computedIV"] == quote.computed_iv
     assert frame.iloc[0]["selectedMarketPrice"] == quote.selected_market_price
-    assert frame.iloc[0]["parityViolation"] == False
+    assert not frame.iloc[0]["parityViolation"]
     assert frame.iloc[0]["parityError"] == 0.05
+    assert not frame.iloc[0]["noArbitrageViolation"]
+    assert frame.iloc[0]["noArbitrageUpperBound"] == 199.0
     assert frame.iloc[0]["riskFreeRate"] == quote.risk_free_rate
     assert frame.iloc[0]["effectiveDividendYield"] == quote.effective_dividend_yield
     assert frame.iloc[0]["quoteQuality"] == "bid_ask"
-    assert frame.iloc[0]["isCrossedMarket"] == False
-    assert frame.iloc[0]["isLockedMarket"] == False
+    assert not frame.iloc[0]["isCrossedMarket"]
+    assert not frame.iloc[0]["isLockedMarket"]
     assert frame.iloc[0]["time_to_expiry"] == quote.dte / 365.0
 
 
@@ -210,6 +222,18 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
                     "parity_error": 2.5,
                 }
             ],
+            "no_arbitrage_checks": ["bounds_by_type", "call_monotonicity"],
+            "no_arbitrage_violation_count": 1,
+            "no_arbitrage_violation_rows": 1,
+            "no_arbitrage_reason_buckets": {"bounds": 1},
+            "no_arbitrage_violations": [
+                {
+                    "check": "bounds",
+                    "expiration": "2026-06-19",
+                    "strike": 200.0,
+                }
+            ],
+            "no_arbitrage_excluded_count": 1,
         },
     )
 
@@ -248,6 +272,12 @@ def test_market_data_snapshot_from_chain_frame_carries_metadata():
     assert snapshot.metadata_dict()["parity_violation_count"] == 1
     assert snapshot.metadata_dict()["parity_violation_rows"] == 2
     assert snapshot.metadata_dict()["parity_violations"][0]["strike"] == 200.0
+    assert snapshot.metadata_dict()["no_arbitrage_checks"] == ["bounds_by_type", "call_monotonicity"]
+    assert snapshot.metadata_dict()["no_arbitrage_violation_count"] == 1
+    assert snapshot.metadata_dict()["no_arbitrage_violation_rows"] == 1
+    assert snapshot.metadata_dict()["no_arbitrage_reason_buckets"]["bounds"] == 1
+    assert snapshot.metadata_dict()["no_arbitrage_violations"][0]["check"] == "bounds"
+    assert snapshot.metadata_dict()["no_arbitrage_excluded_count"] == 1
 
 
 def test_empty_snapshot_returns_empty_options_frame():

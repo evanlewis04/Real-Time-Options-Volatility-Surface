@@ -32,6 +32,14 @@ def _snapshot() -> MarketDataSnapshot:
                 "parityError": 0.05,
                 "parityTheoreticalDiff": 0.10,
                 "parityObservedDiff": 0.15,
+                "noArbitrageViolation": False,
+                "noArbitrageReasons": "",
+                "noArbitrageLowerBound": 0.0,
+                "noArbitrageUpperBound": 199.0,
+                "noArbitrageBoundViolation": False,
+                "noArbitrageMonotonicityViolation": False,
+                "noArbitrageConvexityViolation": False,
+                "noArbitrageCalendarViolation": False,
                 "riskFreeRate": 0.051,
                 "dividendYield": 0.005,
                 "effectiveDividendYield": 0.015,
@@ -161,6 +169,18 @@ def _snapshot() -> MarketDataSnapshot:
                 "parity_error": 2.5,
             },
         ),
+        no_arbitrage_checks=("bounds_by_type", "call_monotonicity"),
+        no_arbitrage_violation_count=1,
+        no_arbitrage_violation_rows=1,
+        no_arbitrage_reason_buckets=(("bounds", 1),),
+        no_arbitrage_violations=(
+            {
+                "check": "bounds",
+                "expiration": "2026-06-19",
+                "strike": 200.0,
+            },
+        ),
+        no_arbitrage_excluded_count=1,
         raw_rows=1,
         valid_rows=1,
     )
@@ -194,6 +214,8 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.options[0].selected_market_price == 8.2
     assert loaded.options[0].parity_violation is False
     assert loaded.options[0].parity_error == 0.05
+    assert loaded.options[0].no_arbitrage_violation is False
+    assert loaded.options[0].no_arbitrage_upper_bound == 199.0
     assert loaded.stale_last_only_rejected_count == 1
     assert loaded.min_open_interest == 100
     assert loaded.min_volume == 10
@@ -215,6 +237,12 @@ def test_save_and_load_snapshot_round_trips_options_and_metadata(tmp_path):
     assert loaded.parity_violation_count == 1
     assert loaded.parity_violation_rows == 2
     assert loaded.parity_violations[0]["strike"] == 200.0
+    assert loaded.no_arbitrage_checks == ("bounds_by_type", "call_monotonicity")
+    assert loaded.no_arbitrage_violation_count == 1
+    assert loaded.no_arbitrage_violation_rows == 1
+    assert loaded.no_arbitrage_reason_buckets == (("bounds", 1),)
+    assert loaded.no_arbitrage_violations[0]["check"] == "bounds"
+    assert loaded.no_arbitrage_excluded_count == 1
 
 
 def test_list_and_load_latest_snapshot(tmp_path):
