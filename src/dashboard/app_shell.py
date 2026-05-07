@@ -527,6 +527,9 @@ def run_dashboard() -> None:
                 )
         return rows
 
+    def _fmt_number(value: Any, digits: int = 3) -> str:
+        return "n/a" if value is None or pd.isna(value) else f"{float(value):.{digits}f}"
+
     market_df = load_with_status(
         st,
         LoadingState(
@@ -744,6 +747,15 @@ def run_dashboard() -> None:
                 "openInterest",
                 "impliedVolatility",
                 "computedIV",
+                "intrinsicValue",
+                "timeValue",
+                "carryValue",
+                "impliedVolContribution",
+                "modelResidual",
+                "europeanPrice",
+                "americanPrice",
+                "earlyExercisePremium",
+                "earlyExerciseFlag",
                 "parityViolation",
                 "parityError",
                 "noArbitrageViolation",
@@ -816,6 +828,50 @@ def run_dashboard() -> None:
                         format="%.2%",
                         help=COLUMN_HELP["computedIV"],
                     ),
+                    "intrinsicValue": st.column_config.NumberColumn(
+                        "Intrinsic",
+                        format="$%.2f",
+                        help=COLUMN_HELP["intrinsicValue"],
+                    ),
+                    "timeValue": st.column_config.NumberColumn(
+                        "Time Value",
+                        format="$%.2f",
+                        help=COLUMN_HELP["timeValue"],
+                    ),
+                    "carryValue": st.column_config.NumberColumn(
+                        "Carry",
+                        format="$%.2f",
+                        help=COLUMN_HELP["carryValue"],
+                    ),
+                    "impliedVolContribution": st.column_config.NumberColumn(
+                        "IV Value",
+                        format="$%.2f",
+                        help=COLUMN_HELP["impliedVolContribution"],
+                    ),
+                    "modelResidual": st.column_config.NumberColumn(
+                        "Model Residual",
+                        format="$%.2f",
+                        help=COLUMN_HELP["modelResidual"],
+                    ),
+                    "europeanPrice": st.column_config.NumberColumn(
+                        "European",
+                        format="$%.2f",
+                        help=COLUMN_HELP["europeanPrice"],
+                    ),
+                    "americanPrice": st.column_config.NumberColumn(
+                        "American",
+                        format="$%.2f",
+                        help=COLUMN_HELP["americanPrice"],
+                    ),
+                    "earlyExercisePremium": st.column_config.NumberColumn(
+                        "Early Ex Prem",
+                        format="$%.2f",
+                        help=COLUMN_HELP["earlyExercisePremium"],
+                    ),
+                    "earlyExerciseFlag": st.column_config.CheckboxColumn(
+                        "Early Ex",
+                        help=COLUMN_HELP["earlyExerciseFlag"],
+                    ),
                     "parityViolation": st.column_config.CheckboxColumn(
                         "Parity Flag",
                         help=COLUMN_HELP["parityViolation"],
@@ -885,7 +941,10 @@ def run_dashboard() -> None:
             st.caption(
                 f"Showing {len(filtered):,} of {len(chain_df):,} valid contracts. "
                 f"Source: {chain_meta.get('source', 'unknown')}; mode: {chain_meta.get('mode', 'unknown')}; "
-                f"liquidity rejects: {chain_meta.get('liquidity_filtered_count', 0):,}."
+                f"liquidity rejects: {chain_meta.get('liquidity_filtered_count', 0):,}; "
+                f"price anatomy rows: {fmt_int(chain_meta.get('price_decomposition_contracts'))}; "
+                f"American model: {chain_meta.get('american_model', 'n/a')}; "
+                f"early-exercise candidates: {fmt_int(chain_meta.get('early_exercise_candidates'))}."
             )
         elif show_chain:
             st.markdown(
@@ -1329,6 +1388,52 @@ def run_dashboard() -> None:
                     "Portfolio book unavailable",
                     "No configured positions. Portfolio P&L, VaR, Sharpe, and drawdown remain disabled.",
                     "Use realized correlations here until position import is added.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        surface_shocks = surface_meta.get("surface_shocks") or {}
+        if surface_shocks.get("available"):
+            st.markdown('<div class="section-header">Surface Shock Analysis</div>', unsafe_allow_html=True)
+            st.caption(
+                f"Scenario source: {surface_shocks.get('source', 'current option chain')}; "
+                f"assumption: {surface_shocks.get('position_assumption', 'one long contract per option row')}; "
+                f"contracts: {fmt_int(surface_shocks.get('base_contracts'))}; "
+                f"base market value: {fmt_money(surface_shocks.get('base_market_value'))}; "
+                f"base delta: {_fmt_number(surface_shocks.get('base_delta'))}; "
+                f"base vega/1%: {_fmt_number(surface_shocks.get('base_vega'))}."
+            )
+            shock_display = pd.DataFrame(surface_shocks.get("scenarios") or [])
+            if not shock_display.empty:
+                st.dataframe(
+                    shock_display,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "scenario": st.column_config.TextColumn("Scenario"),
+                        "spot_shift": st.column_config.NumberColumn("Spot Shift", format="%.2%"),
+                        "vol_shift": st.column_config.NumberColumn("Vol Shift", format="%.2%"),
+                        "contracts": st.column_config.NumberColumn("Contracts", format="%d"),
+                        "unit_contract_pnl": st.column_config.NumberColumn("Unit Basket P&L", format="$%.2f"),
+                        "mean_contract_pnl": st.column_config.NumberColumn("Mean P&L", format="$%.2f"),
+                        "max_contract_loss": st.column_config.NumberColumn("Worst Contract", format="$%.2f"),
+                        "max_contract_gain": st.column_config.NumberColumn("Best Contract", format="$%.2f"),
+                        "delta_before": st.column_config.NumberColumn("Delta Before", format="%.3f"),
+                        "delta_after": st.column_config.NumberColumn("Delta After", format="%.3f"),
+                        "delta_change": st.column_config.NumberColumn("Delta Change", format="%.3f"),
+                        "vega_before": st.column_config.NumberColumn("Vega Before", format="%.3f"),
+                        "vega_after": st.column_config.NumberColumn("Vega After", format="%.3f"),
+                        "vega_change": st.column_config.NumberColumn("Vega Change", format="%.3f"),
+                        "mean_shocked_iv": st.column_config.NumberColumn("Mean Shocked IV", format="%.2%"),
+                    },
+                )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Surface shocks unavailable",
+                    surface_shocks.get("reason")
+                    or "No option rows have usable price, IV, strike, and expiry inputs for scenario repricing.",
+                    "Refresh data, relax filters, or select a symbol with a deeper options chain.",
                 ),
                 unsafe_allow_html=True,
             )

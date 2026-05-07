@@ -27,6 +27,7 @@ from src.data.price_provider import RealTimePriceProvider
 from src.data.snapshots import load_latest_snapshot, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
+from src.quant.american import american_pricing_metadata, apply_american_pricing
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
 from src.quant.arbitrage import apply_no_arbitrage_checks
@@ -35,10 +36,12 @@ from src.quant.expected_move import expected_moves_by_expiry
 from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
 from src.quant.iv_history import atm_iv_from_chain, iv_rank_percentile_from_snapshots
 from src.quant.local_vol import dupire_local_vol_surface
+from src.quant.price_decomposition import apply_price_decomposition, price_decomposition_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
+from src.quant.shocks import surface_shock_scenarios
 from src.quant.surface_change import surface_change_analytics
 from src.quant.svi import (
     calibrate_ssvi_surface,
@@ -265,6 +268,7 @@ class DashboardConnector:
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, surface_chain, spot))
             metadata.update(self._surface_change_metadata(key, surface_chain, spot, metadata))
+            metadata.update(self._surface_shock_metadata(surface_chain, spot))
             self.surface_metadata[key] = metadata
             return strikes, expiries, vols
         except Exception as exc:
@@ -283,6 +287,8 @@ class DashboardConnector:
             corporate_meta = self._corporate_action_metadata(corporate_actions, chain)
             event_meta = self._event_metadata(event_snapshot, chain, dividend_assumption, corporate_actions)
             chain, arbitrage_meta = apply_no_arbitrage_checks(chain, spot, price_column="last")
+            chain = apply_price_decomposition(chain, spot)
+            chain = apply_american_pricing(chain, spot)
             surface_rate = rate_meta.get("risk_free_rate_median") or rate_meta.get("risk_free_rate_30d")
             surface_dividend = (
                 dividend_meta.get("effective_dividend_yield_median")
@@ -317,6 +323,8 @@ class DashboardConnector:
                 **corporate_meta,
                 **event_meta,
                 **arbitrage_meta,
+                **price_decomposition_metadata(chain),
+                **american_pricing_metadata(chain),
             }
             metadata.update(self._surface_quality_metadata(chain, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
@@ -324,6 +332,7 @@ class DashboardConnector:
             metadata.update(
                 self._surface_change_metadata(key, chain, spot, metadata, iv_column="impliedVolatility")
             )
+            metadata.update(self._surface_shock_metadata(chain, spot, iv_column="impliedVolatility"))
             self.surface_metadata[key] = metadata
             return strikes, expiries, vols
 
@@ -505,12 +514,16 @@ class DashboardConnector:
         corporate_actions = self.corporate_action_provider.get(symbol)
         event_snapshot = self.event_provider.get(symbol)
         df, price_meta = self._apply_option_price_source(df, spot_price)
+        df = apply_price_decomposition(df, spot_price)
+        df = apply_american_pricing(df, spot_price)
         df, parity_meta = self._apply_parity_checks(df, spot_price)
         df, arbitrage_meta = apply_no_arbitrage_checks(df, spot_price)
         meta.update(self._rate_metadata(rate_curve, df))
         meta.update(self._dividend_metadata(dividend_assumption, df, spot_price))
         meta.update(self._forward_metadata(df))
         meta.update(price_meta)
+        meta.update(price_decomposition_metadata(df))
+        meta.update(american_pricing_metadata(df))
         meta.update(parity_meta)
         meta.update(arbitrage_meta)
         meta.update(self._skew_metadata(df, spot_price))
@@ -734,6 +747,23 @@ class DashboardConnector:
             "snapshot_vol_of_vol": vol_of_vol.get("snapshot_vol_of_vol"),
             "annualized_vol_of_vol": vol_of_vol.get("annualized_vol_of_vol"),
             "vol_of_vol_observations": vol_of_vol.get("observations"),
+        }
+
+    @staticmethod
+    def _surface_shock_metadata(
+        chain: pd.DataFrame,
+        spot: float,
+        iv_column: str = "computedIV",
+    ) -> Dict[str, Any]:
+        shock_chain = chain
+        if iv_column != "computedIV" and iv_column in chain:
+            shock_chain = chain.rename(columns={iv_column: "computedIV"})
+        shocks = surface_shock_scenarios(shock_chain, spot)
+        return {
+            "surface_shocks": shocks,
+            "surface_shock_available": shocks.get("available"),
+            "surface_shock_contracts": shocks.get("base_contracts"),
+            "surface_shock_position_assumption": shocks.get("position_assumption"),
         }
 
     @staticmethod

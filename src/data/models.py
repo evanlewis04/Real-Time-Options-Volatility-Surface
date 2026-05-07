@@ -34,6 +34,20 @@ class OptionQuote:
     selected_market_price: Optional[float] = None
     selected_price_source: Optional[str] = None
     iv_input: Optional[str] = None
+    intrinsic_value: Optional[float] = None
+    time_value: Optional[float] = None
+    carry_value: Optional[float] = None
+    implied_vol_contribution: Optional[float] = None
+    model_residual: Optional[float] = None
+    zero_vol_price: Optional[float] = None
+    bsm_price: Optional[float] = None
+    decomposition_price: Optional[float] = None
+    european_price: Optional[float] = None
+    american_price: Optional[float] = None
+    early_exercise_premium: Optional[float] = None
+    early_exercise_flag: Optional[bool] = None
+    american_model: Optional[str] = None
+    american_steps: Optional[int] = None
     parity_violation: Optional[bool] = None
     parity_error: Optional[float] = None
     parity_theoretical_diff: Optional[float] = None
@@ -97,6 +111,20 @@ class OptionQuote:
             selected_market_price=_float_or_none(row.get("selectedMarketPrice")),
             selected_price_source=_str_or_none(row.get("selectedPriceSource")),
             iv_input=_str_or_none(row.get("ivInput")),
+            intrinsic_value=_float_or_none(row.get("intrinsicValue")),
+            time_value=_float_or_none(row.get("timeValue")),
+            carry_value=_float_or_none(row.get("carryValue")),
+            implied_vol_contribution=_float_or_none(row.get("impliedVolContribution")),
+            model_residual=_float_or_none(row.get("modelResidual")),
+            zero_vol_price=_float_or_none(row.get("zeroVolPrice")),
+            bsm_price=_float_or_none(row.get("bsmPrice")),
+            decomposition_price=_float_or_none(row.get("decompositionPrice")),
+            european_price=_float_or_none(row.get("europeanPrice")),
+            american_price=_float_or_none(row.get("americanPrice")),
+            early_exercise_premium=_float_or_none(row.get("earlyExercisePremium")),
+            early_exercise_flag=_bool_or_none(row.get("earlyExerciseFlag")),
+            american_model=_str_or_none(row.get("americanModel")),
+            american_steps=_int_or_none(row.get("americanSteps")),
             parity_violation=_bool_or_none(row.get("parityViolation")),
             parity_error=_float_or_none(row.get("parityError")),
             parity_theoretical_diff=_float_or_none(row.get("parityTheoreticalDiff")),
@@ -156,6 +184,20 @@ class OptionQuote:
             "selectedMarketPrice": self.selected_market_price,
             "selectedPriceSource": self.selected_price_source,
             "ivInput": self.iv_input,
+            "intrinsicValue": self.intrinsic_value,
+            "timeValue": self.time_value,
+            "carryValue": self.carry_value,
+            "impliedVolContribution": self.implied_vol_contribution,
+            "modelResidual": self.model_residual,
+            "zeroVolPrice": self.zero_vol_price,
+            "bsmPrice": self.bsm_price,
+            "decompositionPrice": self.decomposition_price,
+            "europeanPrice": self.european_price,
+            "americanPrice": self.american_price,
+            "earlyExercisePremium": self.early_exercise_premium,
+            "earlyExerciseFlag": self.early_exercise_flag,
+            "americanModel": self.american_model,
+            "americanSteps": self.american_steps,
             "parityViolation": self.parity_violation,
             "parityError": self.parity_error,
             "parityTheoreticalDiff": self.parity_theoretical_diff,

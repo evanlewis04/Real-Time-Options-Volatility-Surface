@@ -310,15 +310,15 @@ Goal: make the analytics credible to someone with options/vol experience.
 - [x] Add vol-of-vol and surface-change analytics.
   - Acceptance: dashboard can show IV changes versus previous snapshot.
 
-- [ ] Add surface shock analysis.
+- [x] Add surface shock analysis.
   - Scenarios: parallel vol shift, skew steepening/flattening, term twist, spot move.
   - Acceptance: user can see Greek/P&L impact of vol shocks.
 
-- [ ] Add option price decomposition.
+- [x] Add option price decomposition.
   - Components: intrinsic value, time value, carry, implied vol contribution.
   - Acceptance: chain table can explain option price anatomy.
 
-- [ ] Add American option model support.
+- [x] Add American option model support.
   - Suggested: binomial tree or Barone-Adesi Whaley approximation.
   - Acceptance: user can compare European BSM vs American approximation for dividend names.
 
