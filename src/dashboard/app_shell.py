@@ -445,6 +445,8 @@ def run_dashboard() -> None:
         computed IV {fmt_int(surface_meta.get("computed_iv_count"))}.
         forward median {fmt_money(surface_meta.get("forward_price_median"))};
         discount median {surface_meta.get("discount_factor_median") if surface_meta.get("discount_factor_median") is not None else "n/a"}.
+        SVI expiries {fmt_int((surface_meta.get("fit_diagnostics") or {}).get("fitted_expiries"))};
+        SVI RMSE {fmt_pct((surface_meta.get("fit_diagnostics") or {}).get("rmse"))}.
     </div>
     """,
         unsafe_allow_html=True,
@@ -932,6 +934,72 @@ def run_dashboard() -> None:
                 render_empty_state(
                     "Delta skew unavailable",
                     "The current chain does not have enough valid call and put IVs to compute 10/25-delta skew.",
+                    "Refresh data, relax filters, or select a more liquid options symbol.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        svi_smiles = surface_meta.get("svi_smiles") or []
+        fit_diagnostics = surface_meta.get("fit_diagnostics") or {}
+        if svi_smiles:
+            st.markdown('<div class="section-header">SVI Fit Diagnostics</div>', unsafe_allow_html=True)
+            svi_display = pd.DataFrame(svi_smiles).drop(columns=["residuals"], errors="ignore")
+            st.dataframe(
+                svi_display,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "expiration": st.column_config.TextColumn("Expiry"),
+                    "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                    "points": st.column_config.NumberColumn("Points", format="%d"),
+                    "a": st.column_config.NumberColumn("a", format="%.5f"),
+                    "b": st.column_config.NumberColumn("b", format="%.5f"),
+                    "rho": st.column_config.NumberColumn("rho", format="%.4f"),
+                    "m": st.column_config.NumberColumn("m", format="%.4f"),
+                    "sigma": st.column_config.NumberColumn("sigma", format="%.4f"),
+                    "rmse": st.column_config.NumberColumn("RMSE", format="%.2%"),
+                    "mae": st.column_config.NumberColumn("MAE", format="%.2%"),
+                    "max_error": st.column_config.NumberColumn("Max Error", format="%.2%"),
+                },
+            )
+            front_residuals = pd.DataFrame(svi_smiles[0].get("residuals") or [])
+            if not front_residuals.empty:
+                fig_residual = go.Figure()
+                fig_residual.add_trace(
+                    go.Bar(
+                        x=front_residuals["log_moneyness"],
+                        y=front_residuals["residual"],
+                        marker_color="#9b5de5",
+                        name="Residual",
+                        hovertemplate=(
+                            "Log-moneyness: %{x:.3f}<br>"
+                            "Residual: %{y:.2%}<br>"
+                            "Observed IV: %{customdata[0]:.2%}<br>"
+                            "Fitted IV: %{customdata[1]:.2%}<extra></extra>"
+                        ),
+                        customdata=front_residuals[["observed_iv", "fitted_iv"]],
+                    )
+                )
+                fig_residual.add_hline(y=0, line_width=1, line_color="#667085")
+                fig_residual.update_layout(
+                    title=f"{surface_symbol} Front SVI Residuals",
+                    xaxis_title="Log-moneyness",
+                    yaxis_title="Fitted minus raw IV",
+                )
+                st.plotly_chart(apply_chart_layout(fig_residual, 360), width="stretch")
+            st.caption(
+                "SVI fit quality: "
+                f"expiries {fmt_int(fit_diagnostics.get('fitted_expiries'))}; "
+                f"points {fmt_int(fit_diagnostics.get('points'))}; "
+                f"RMSE {fmt_pct(fit_diagnostics.get('rmse'))}; "
+                f"MAE {fmt_pct(fit_diagnostics.get('mae'))}; "
+                f"max error {fmt_pct(fit_diagnostics.get('max_error'))}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "SVI fit unavailable",
+                    "No expiry has enough valid IV points for deterministic SVI calibration.",
                     "Refresh data, relax filters, or select a more liquid options symbol.",
                 ),
                 unsafe_allow_html=True,

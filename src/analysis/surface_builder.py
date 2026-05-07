@@ -18,6 +18,7 @@ import pandas as pd
 
 from src.analysis.vol_surface import VolatilitySurface
 from src.data.synthetic_options import get_symbol_vol_characteristics
+from src.quant.smoothing import smooth_iv_surface
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ def build_surface(options_data: pd.DataFrame, spot_price: float, symbol: str,
             times = data['times'] * 365
             vols = data['implied_vols']
             if _passes_quality_check(vols):
+                vols, _ = smooth_iv_surface(strikes, times, vols)
                 return strikes, times, vols
     except Exception as e:
         logger.warning(f"VolatilitySurface fit failed: {e}")
@@ -168,6 +170,7 @@ def _interpolate_grid(clean: pd.DataFrame, spot_price: float
         pass
 
     surface = np.clip(surface, 0.05, 2.5)
+    surface, _ = smooth_iv_surface(strike_mesh, days_mesh, surface)
     return strike_mesh, days_mesh, surface
 
 
@@ -187,6 +190,7 @@ def _bucket_fill(clean: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarra
                 surface[i, j] = match['impliedVolatility'].mean()
 
     _fill_nans(surface)
+    surface, _ = smooth_iv_surface(np.array(strikes), np.array(expiries), surface)
     return np.array(strikes), np.array(expiries), surface
 
 

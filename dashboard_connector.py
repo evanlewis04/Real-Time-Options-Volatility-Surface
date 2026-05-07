@@ -33,6 +33,8 @@ from src.quant.arbitrage import apply_no_arbitrage_checks
 from src.quant.forwards import apply_forward_metrics, expiry_forward_metadata
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.skew import delta_skew_by_expiry
+from src.quant.smoothing import smoothing_summary
+from src.quant.svi import calibrate_svi_by_expiry, fit_diagnostics_from_svi
 
 logger = logging.getLogger(__name__)
 OPTION_PRICE_SOURCES = {"midpoint", "mark", "last"}
@@ -242,6 +244,8 @@ class DashboardConnector:
                 "surface_risk_free_rate": surface_rate,
                 "surface_dividend_yield": surface_dividend,
                 "surface_iv_input": "computedIV",
+                "surface_smoothing": smoothing_summary(strikes, expiries, vols),
+                **self._svi_metadata(surface_chain, spot),
             }
             self.surface_metadata[key].update(
                 self._surface_quality_metadata(surface_chain, self.surface_metadata[key])
@@ -286,6 +290,8 @@ class DashboardConnector:
                 "surface_dividend_yield": surface_dividend,
                 "option_price_source": self.option_price_source,
                 "surface_iv_input": "synthetic provider IV",
+                "surface_smoothing": smoothing_summary(strikes, expiries, vols),
+                **self._svi_metadata(chain, spot, iv_column="impliedVolatility"),
                 **rate_meta,
                 **dividend_meta,
                 **forward_meta,
@@ -581,6 +587,20 @@ class DashboardConnector:
             "delta_skew": records,
             "front_risk_reversal_25d": front.get("risk_reversal_25d"),
             "front_butterfly_25d": front.get("butterfly_25d"),
+        }
+
+    @staticmethod
+    def _svi_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:
+        svi = calibrate_svi_by_expiry(chain, spot, iv_column=iv_column)
+        diagnostics = fit_diagnostics_from_svi(svi)
+        if svi.empty:
+            return {"svi_smiles": [], "fit_diagnostics": diagnostics}
+        records = svi.replace({np.nan: None}).to_dict("records")
+        return {
+            "svi_smiles": records,
+            "fit_diagnostics": diagnostics,
+            "front_svi_rmse": records[0].get("rmse"),
+            "front_svi_mae": records[0].get("mae"),
         }
 
     @staticmethod

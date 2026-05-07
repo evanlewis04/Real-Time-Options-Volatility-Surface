@@ -272,21 +272,21 @@ Goal: make the analytics credible to someone with options/vol experience.
   - Checks: call monotonicity in strike, convexity in strike, calendar monotonicity where applicable, bounds by option type.
   - Acceptance: violations are surfaced and optionally excluded.
 
-- [ ] Add arbitrage-aware smoothing.
+- [x] Add arbitrage-aware smoothing.
   - Suggested first step: robust smoothing with penalties, then later SVI/SSVI.
   - Acceptance: fitted surface is smoother without hiding raw data points.
 
-- [ ] Add SVI smile calibration by expiry.
+- [x] Add SVI smile calibration by expiry.
   - Acceptance: raw smile, fitted SVI curve, parameters, and fit error are visible.
 
 - [ ] Add SSVI or arbitrage-constrained global surface calibration.
   - Acceptance: cross-expiry surface has documented constraints and fit diagnostics.
 
-- [ ] Add fit diagnostics.
+- [x] Add fit diagnostics.
   - Metrics: RMSE, MAE, max error, bid/ask fit rate, rejected points.
   - Acceptance: every fitted surface has fit-quality metadata.
 
-- [ ] Add raw-vs-fitted residual charts.
+- [x] Add raw-vs-fitted residual charts.
   - Acceptance: user can see where model over/under-fits.
 
 - [ ] Add local volatility approximation.

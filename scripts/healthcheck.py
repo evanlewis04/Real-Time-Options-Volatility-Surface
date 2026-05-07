@@ -42,6 +42,8 @@ def check_imports() -> str:
     from src.quant.corporate_actions import CorporateActionProvider  # noqa: F401
     from src.quant.dividends import DividendProvider  # noqa: F401
     from src.quant.rates import RiskFreeRateProvider  # noqa: F401
+    from src.quant.smoothing import smooth_iv_surface  # noqa: F401
+    from src.quant.svi import calibrate_svi_by_expiry  # noqa: F401
 
     return "core and dashboard modules imported"
 
