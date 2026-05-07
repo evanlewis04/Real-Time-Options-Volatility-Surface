@@ -69,6 +69,12 @@ class OptionQuote:
     theta: Optional[float] = None
     vega: Optional[float] = None
     rho: Optional[float] = None
+    vanna: Optional[float] = None
+    volga: Optional[float] = None
+    vomma: Optional[float] = None
+    charm: Optional[float] = None
+    speed: Optional[float] = None
+    color: Optional[float] = None
     risk_free_rate: Optional[float] = None
     discount_factor: Optional[float] = None
     forward_price: Optional[float] = None
@@ -150,6 +156,12 @@ class OptionQuote:
             theta=_float_or_none(row.get("theta")),
             vega=_float_or_none(row.get("vega")),
             rho=_float_or_none(row.get("rho")),
+            vanna=_float_or_none(row.get("vanna")),
+            volga=_float_or_none(row.get("volga")),
+            vomma=_float_or_none(row.get("vomma")),
+            charm=_float_or_none(row.get("charm")),
+            speed=_float_or_none(row.get("speed")),
+            color=_float_or_none(row.get("color")),
             risk_free_rate=_float_or_none(row.get("riskFreeRate")),
             discount_factor=_float_or_none(row.get("discountFactor")),
             forward_price=_float_or_none(row.get("forwardPrice")),
@@ -227,6 +239,12 @@ class OptionQuote:
             "theta": self.theta,
             "vega": self.vega,
             "rho": self.rho,
+            "vanna": self.vanna,
+            "volga": self.volga,
+            "vomma": self.vomma,
+            "charm": self.charm,
+            "speed": self.speed,
+            "color": self.color,
             "riskFreeRate": self.risk_free_rate,
             "discountFactor": self.discount_factor,
             "forwardPrice": self.forward_price,
@@ -336,6 +354,7 @@ class MarketDataSnapshot:
     pricing_model_assumptions: Optional[str] = None
     pricing_model_warning: Optional[str] = None
     contract_greeks_count: int = 0
+    second_order_greeks_count: int = 0
     greek_units: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     median_selected_model_residual: Optional[float] = None
     max_abs_selected_model_residual: Optional[float] = None
@@ -456,6 +475,7 @@ class MarketDataSnapshot:
             pricing_model_assumptions=metadata.get("pricing_model_assumptions"),
             pricing_model_warning=metadata.get("pricing_model_warning"),
             contract_greeks_count=int(metadata.get("contract_greeks_count") or 0),
+            second_order_greeks_count=int(metadata.get("second_order_greeks_count") or 0),
             greek_units=_str_metadata_tuple(metadata.get("greek_units")),
             median_selected_model_residual=_float_or_none(metadata.get("median_selected_model_residual")),
             max_abs_selected_model_residual=_float_or_none(metadata.get("max_abs_selected_model_residual")),
@@ -573,6 +593,7 @@ class MarketDataSnapshot:
             "pricing_model_assumptions": self.pricing_model_assumptions,
             "pricing_model_warning": self.pricing_model_warning,
             "contract_greeks_count": self.contract_greeks_count,
+            "second_order_greeks_count": self.second_order_greeks_count,
             "greek_units": dict(self.greek_units),
             "median_selected_model_residual": self.median_selected_model_residual,
             "max_abs_selected_model_residual": self.max_abs_selected_model_residual,

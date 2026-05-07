@@ -24,6 +24,12 @@ def _sample_chain() -> pd.DataFrame:
                 "openInterest": 500,
                 "impliedVolatility": 0.24,
                 "computedIV": 0.241,
+                "vanna": 0.0008,
+                "volga": 0.0012,
+                "vomma": 0.0012,
+                "charm": -0.002,
+                "speed": -0.0001,
+                "color": 0.0003,
                 "selectedMarketPrice": 8.2,
                 "selectedPriceSource": "mark",
                 "ivInput": "computed",
@@ -68,6 +74,9 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert quote.type == "call"
     assert quote.raw_iv == 0.24
     assert quote.computed_iv == 0.241
+    assert quote.vanna == 0.0008
+    assert quote.vomma == 0.0012
+    assert quote.charm == -0.002
     assert quote.mark == 8.2
     assert quote.selected_market_price == 8.2
     assert quote.selected_price_source == "mark"
@@ -90,6 +99,9 @@ def test_option_quote_from_frame_round_trips_dashboard_shape():
     assert frame.iloc[0]["contractSymbol"] == quote.contract
     assert frame.iloc[0]["impliedVolatility"] == quote.raw_iv
     assert frame.iloc[0]["computedIV"] == quote.computed_iv
+    assert frame.iloc[0]["vanna"] == quote.vanna
+    assert frame.iloc[0]["volga"] == quote.volga
+    assert frame.iloc[0]["color"] == quote.color
     assert frame.iloc[0]["selectedMarketPrice"] == quote.selected_market_price
     assert not frame.iloc[0]["parityViolation"]
     assert frame.iloc[0]["parityError"] == 0.05

@@ -739,6 +739,11 @@ def run_dashboard() -> None:
                     format="%.2f",
                     help="Annualized implied-volatility filter.",
                 )
+            show_advanced_greeks = st.checkbox(
+                "Advanced Greeks",
+                value=False,
+                help=CONTROL_HELP["show_advanced_greeks"],
+            )
 
             filtered = filter_option_chain(
                 chain_df,
@@ -989,6 +994,101 @@ def run_dashboard() -> None:
                     ),
                 },
             )
+            if show_advanced_greeks:
+                advanced_cols = [
+                    "contractSymbol",
+                    "type",
+                    "expiration",
+                    "daysToExpiration",
+                    "strike",
+                    "computedIV",
+                    "delta",
+                    "gamma",
+                    "vega",
+                    "vanna",
+                    "volga",
+                    "vomma",
+                    "charm",
+                    "speed",
+                    "color",
+                ]
+                advanced_cols = [col for col in advanced_cols if col in filtered.columns]
+                if advanced_cols:
+                    (advanced_tab,) = st.tabs(["Advanced Greeks"])
+                    with advanced_tab:
+                        st.dataframe(
+                            filtered[advanced_cols],
+                            width="stretch",
+                            hide_index=True,
+                            column_config={
+                                "contractSymbol": st.column_config.TextColumn("Contract"),
+                                "type": st.column_config.TextColumn("Type", help=COLUMN_HELP["type"]),
+                                "expiration": st.column_config.DateColumn(
+                                    "Expiration",
+                                    help=COLUMN_HELP["expiration"],
+                                ),
+                                "daysToExpiration": st.column_config.NumberColumn(
+                                    "DTE",
+                                    format="%d",
+                                    help=COLUMN_HELP["daysToExpiration"],
+                                ),
+                                "strike": st.column_config.NumberColumn(
+                                    "Strike",
+                                    format="$%.2f",
+                                    help=COLUMN_HELP["strike"],
+                                ),
+                                "computedIV": st.column_config.NumberColumn(
+                                    "Computed IV",
+                                    format="%.2%",
+                                    help=COLUMN_HELP["computedIV"],
+                                ),
+                                "delta": st.column_config.NumberColumn(
+                                    "Delta",
+                                    format="%.4f",
+                                    help=COLUMN_HELP["Delta"],
+                                ),
+                                "gamma": st.column_config.NumberColumn(
+                                    "Gamma",
+                                    format="%.4f",
+                                    help=COLUMN_HELP["Gamma"],
+                                ),
+                                "vega": st.column_config.NumberColumn(
+                                    "Vega/1%",
+                                    format="$%.4f",
+                                    help=COLUMN_HELP["Vega/1%"],
+                                ),
+                                "vanna": st.column_config.NumberColumn(
+                                    "Vanna",
+                                    format="%.6f",
+                                    help=COLUMN_HELP["vanna"],
+                                ),
+                                "volga": st.column_config.NumberColumn(
+                                    "Volga",
+                                    format="$%.6f",
+                                    help=COLUMN_HELP["volga"],
+                                ),
+                                "vomma": st.column_config.NumberColumn(
+                                    "Vomma",
+                                    format="$%.6f",
+                                    help=COLUMN_HELP["vomma"],
+                                ),
+                                "charm": st.column_config.NumberColumn(
+                                    "Charm/day",
+                                    format="%.6f",
+                                    help=COLUMN_HELP["charm"],
+                                ),
+                                "speed": st.column_config.NumberColumn(
+                                    "Speed",
+                                    format="%.6f",
+                                    help=COLUMN_HELP["speed"],
+                                ),
+                                "color": st.column_config.NumberColumn(
+                                    "Color/day",
+                                    format="%.6f",
+                                    help=COLUMN_HELP["color"],
+                                ),
+                            },
+                        )
             st.caption(
                 f"Showing {len(filtered):,} of {len(chain_df):,} valid contracts. "
                 f"Source: {chain_meta.get('source', 'unknown')}; mode: {chain_meta.get('mode', 'unknown')}; "
@@ -996,6 +1096,7 @@ def run_dashboard() -> None:
                 f"price anatomy rows: {fmt_int(chain_meta.get('price_decomposition_contracts'))}; "
                 f"pricing model: {chain_meta.get('pricing_model_label', 'n/a')}; "
                 f"contract Greeks: {fmt_int(chain_meta.get('contract_greeks_count'))}; "
+                f"second-order Greeks: {fmt_int(chain_meta.get('second_order_greeks_count'))}; "
                 f"American model: {chain_meta.get('american_model', 'n/a')}; "
                 f"early-exercise candidates: {fmt_int(chain_meta.get('early_exercise_candidates'))}."
             )

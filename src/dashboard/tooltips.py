@@ -18,6 +18,7 @@ CONTROL_HELP = {
     "max_quote_age_days": "Maximum quote age for rows with provider timestamps; untimestamped rows are kept.",
     "option_price_source": "Market price used to recompute IV for surface construction.",
     "pricing_model": "Pricing model used for contract prices, residuals, and Greeks.",
+    "show_advanced_greeks": "Show contract-level second-order Greek sensitivities in a separate table.",
 }
 
 
@@ -95,6 +96,12 @@ COLUMN_HELP = {
     "quoteAgeSeconds": "Seconds between provider quote timestamp and snapshot normalization time.",
     "bidAskSpreadPct": "Bid-ask spread divided by mid price.",
     "rho": "Approximate option price change for a one percentage-point rate move.",
+    "vanna": "Delta change for a one volatility-point move.",
+    "volga": "Vega/1% change for a one volatility-point move.",
+    "vomma": "Same volatility-convexity Greek as volga.",
+    "charm": "Delta change over one calendar day.",
+    "speed": "Gamma change for a one-dollar spot move.",
+    "color": "Gamma change over one calendar day.",
 }
 
 

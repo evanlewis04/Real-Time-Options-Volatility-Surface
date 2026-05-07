@@ -50,9 +50,24 @@ def test_model_selection_adds_visible_model_prices_and_contract_greeks():
     chain = _research_chain().head(3)
     priced = apply_model_selection(chain, 100.0, "BSM with dividends")
 
-    assert {"pricingModel", "selectedModelPrice", "selectedModelResidual", "delta", "gamma", "theta", "vega", "rho"}.issubset(
-        priced.columns
-    )
+    expected = {
+        "pricingModel",
+        "selectedModelPrice",
+        "selectedModelResidual",
+        "delta",
+        "gamma",
+        "theta",
+        "vega",
+        "rho",
+        "vanna",
+        "volga",
+        "vomma",
+        "charm",
+        "speed",
+        "color",
+    }
+
+    assert expected.issubset(priced.columns)
     assert priced["pricingModel"].unique().tolist() == ["BSM with dividends"]
     assert priced["selectedModelPrice"].notna().all()
     assert priced["delta"].notna().all()
@@ -61,7 +76,9 @@ def test_model_selection_adds_visible_model_prices_and_contract_greeks():
     meta = contract_greeks_metadata(priced, "BSM with dividends")
     assert meta["pricing_model_label"] == "BSM with dividends"
     assert meta["contract_greeks_count"] == 3
+    assert meta["second_order_greeks_count"] == 3
     assert meta["greek_units"]["vega"] == "option dollars per one volatility-point move"
+    assert meta["greek_units"]["charm"] == "delta change per calendar day"
 
 
 def test_binomial_model_selection_uses_american_pricing_path():

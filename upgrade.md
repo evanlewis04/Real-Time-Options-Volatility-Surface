@@ -335,14 +335,14 @@ Goal: make the analytics credible to someone with options/vol experience.
 - [x] Add Greeks by contract from computed IV.
   - Acceptance: chain rows show contract-level Greeks using the same model/rate/dividend assumptions.
 
-- [ ] Add second-order Greeks.
+- [x] Add second-order Greeks.
   - Greeks: vanna, volga/vomma, charm, speed, color.
   - Acceptance: advanced Greeks tab can be toggled on.
 
-- [ ] Add Greek unit consistency tests.
+- [x] Add Greek unit consistency tests.
   - Acceptance: vega, theta, rho units are documented and validated.
 
-- [ ] Investigate Vega diagnostic warning.
+- [x] Investigate Vega diagnostic warning.
   - Current diagnostic says PLTR ATM 75 percent vol vega "seems too low"; determine if the warning threshold or units are wrong.
   - Acceptance: diagnostic reflects the project's documented vega convention.
 

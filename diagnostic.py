@@ -112,11 +112,13 @@ def debug_greeks():
         gamma = OptionGreeks.gamma(S, K, T, r, sigma)
         theta = OptionGreeks.theta(S, K, T, r, sigma, 'call')
         vega = OptionGreeks.vega(S, K, T, r, sigma)
+        raw_vega = vega * 100.0
         
         print(f"Delta: {delta:8.4f}")
         print(f"Gamma: {gamma:8.4f}")
-        print(f"Theta: {theta:8.4f}")
-        print(f"Vega: {vega:8.4f}")
+        print(f"Theta/day: {theta:8.4f}")
+        print(f"Vega/1%: {vega:8.4f}")
+        print(f"Raw vega/100%: {raw_vega:8.4f}")
         
         # Check for realistic ranges
         issues = []
@@ -130,9 +132,10 @@ def debug_greeks():
         if vega < 0:
             issues.append(f"Vega {vega:.4f} is negative")
         
-        # Check magnitude
-        if vega < 0.1:
-            issues.append(f"Vega {vega:.4f} seems too low for 75% vol")
+        # Vega is reported in option dollars per one volatility point.
+        # For this PLTR-like case, about $0.07 per 1% vol is reasonable.
+        if vega < 0.01:
+            issues.append(f"Vega/1% {vega:.4f} seems too low for 75% vol")
         if gamma < 0.001:
             issues.append(f"Gamma {gamma:.4f} seems too low")
         

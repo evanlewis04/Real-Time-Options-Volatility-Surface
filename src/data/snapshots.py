@@ -117,6 +117,7 @@ def load_snapshot(metadata_path: Path | str) -> MarketDataSnapshot:
         pricing_model_assumptions=metadata.get("pricing_model_assumptions"),
         pricing_model_warning=metadata.get("pricing_model_warning"),
         contract_greeks_count=int(metadata.get("contract_greeks_count") or 0),
+        second_order_greeks_count=int(metadata.get("second_order_greeks_count") or 0),
         greek_units=tuple(
             (str(name), str(unit)) for name, unit in (metadata.get("greek_units") or {}).items()
         ),
@@ -230,6 +231,7 @@ def _snapshot_metadata(snapshot: MarketDataSnapshot) -> dict[str, Any]:
         "pricing_model_assumptions": snapshot.pricing_model_assumptions,
         "pricing_model_warning": snapshot.pricing_model_warning,
         "contract_greeks_count": snapshot.contract_greeks_count,
+        "second_order_greeks_count": snapshot.second_order_greeks_count,
         "greek_units": dict(snapshot.greek_units),
         "median_selected_model_residual": snapshot.median_selected_model_residual,
         "max_abs_selected_model_residual": snapshot.max_abs_selected_model_residual,

@@ -336,9 +336,9 @@ class OptionGreeks:
         term3 = r * K * np.exp(-r * T)
         
         if option_type.lower() == 'call':
-            theta = term1 - term2 - term3 * norm.cdf(d2_val)
+            theta = term1 + term2 - term3 * norm.cdf(d2_val)
         elif option_type.lower() == 'put':
-            theta = term1 + term2 + term3 * norm.cdf(-d2_val)
+            theta = term1 - term2 + term3 * norm.cdf(-d2_val)
         else:
             raise ValueError(f"option_type must be 'call' or 'put', got {option_type}")
         
@@ -406,3 +406,93 @@ class OptionGreeks:
             raise ValueError(f"option_type must be 'call' or 'put', got {option_type}")
         
         return rho / 100  # Convert to 1% rate change
+
+    @staticmethod
+    def vanna(S: float, K: float, T: float, r: float, sigma: float, q: float = 0.0) -> float:
+        """
+        Calculate Vanna: sensitivity of delta to volatility.
+
+        Returned as delta change for a one volatility-point move, matching the
+        project's Vega/1% convention.
+        """
+        if T <= 0 or sigma <= 0:
+            return 0.0
+
+        d1_val = BlackScholesModel.d1(S, K, T, r, sigma, q)
+        d2_val = BlackScholesModel.d2(S, K, T, r, sigma, q)
+        raw_vanna = -np.exp(-q * T) * norm.pdf(d1_val) * d2_val / sigma
+        return raw_vanna / 100
+
+    @staticmethod
+    def vomma(S: float, K: float, T: float, r: float, sigma: float, q: float = 0.0) -> float:
+        """
+        Calculate Vomma/Volga: sensitivity of Vega/1% to volatility.
+
+        Returned as option-dollar convexity for a one volatility-point move
+        applied to Vega/1%.
+        """
+        if T <= 0 or sigma <= 0:
+            return 0.0
+
+        d1_val = BlackScholesModel.d1(S, K, T, r, sigma, q)
+        d2_val = BlackScholesModel.d2(S, K, T, r, sigma, q)
+        raw_vega = S * norm.pdf(d1_val) * np.sqrt(T) * np.exp(-q * T)
+        raw_vomma = raw_vega * d1_val * d2_val / sigma
+        return raw_vomma / 10000
+
+    @staticmethod
+    def volga(S: float, K: float, T: float, r: float, sigma: float, q: float = 0.0) -> float:
+        """Alias for Vomma, the volatility convexity Greek."""
+        return OptionGreeks.vomma(S, K, T, r, sigma, q)
+
+    @staticmethod
+    def charm(
+        S: float,
+        K: float,
+        T: float,
+        r: float,
+        sigma: float,
+        option_type: str,
+        q: float = 0.0,
+    ) -> float:
+        """
+        Calculate Charm: one-calendar-day delta decay.
+
+        Positive values mean delta rises over the next calendar day, holding
+        spot, rates, dividend yield, and volatility constant.
+        """
+        if T <= 0:
+            return 0.0
+
+        day = min(1.0 / 365.0, T)
+        current = OptionGreeks.delta(S, K, T, r, sigma, option_type, q)
+        shorter = OptionGreeks.delta(S, K, max(T - day, 0.0), r, sigma, option_type, q)
+        return shorter - current
+
+    @staticmethod
+    def speed(S: float, K: float, T: float, r: float, sigma: float, q: float = 0.0) -> float:
+        """
+        Calculate Speed: sensitivity of gamma to a $1 spot move.
+        """
+        if T <= 0 or sigma <= 0 or S <= 0:
+            return 0.0
+
+        d1_val = BlackScholesModel.d1(S, K, T, r, sigma, q)
+        gamma = OptionGreeks.gamma(S, K, T, r, sigma, q)
+        return -gamma / S * (d1_val / (sigma * np.sqrt(T)) + 1.0)
+
+    @staticmethod
+    def color(S: float, K: float, T: float, r: float, sigma: float, q: float = 0.0) -> float:
+        """
+        Calculate Color: one-calendar-day gamma decay.
+
+        Positive values mean gamma rises over the next calendar day, holding
+        spot, rates, dividend yield, and volatility constant.
+        """
+        if T <= 0:
+            return 0.0
+
+        day = min(1.0 / 365.0, T)
+        current = OptionGreeks.gamma(S, K, T, r, sigma, q)
+        shorter = OptionGreeks.gamma(S, K, max(T - day, 0.0), r, sigma, q)
+        return shorter - current
