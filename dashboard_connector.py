@@ -51,7 +51,7 @@ from src.quant.sabr import calibrate_sabr_by_expiry
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
 from src.quant.shocks import surface_shock_scenarios
-from src.quant.surface_change import surface_change_analytics
+from src.quant.surface_change import rich_cheap_scanner, surface_change_analytics
 from src.quant.svi import (
     calibrate_ssvi_surface,
     calibrate_svi_by_expiry,
@@ -295,6 +295,7 @@ class DashboardConnector:
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, surface_chain, spot))
             metadata.update(self._surface_change_metadata(key, surface_chain, spot, metadata))
+            metadata.update(self._rich_cheap_metadata(surface_chain, metadata))
             metadata.update(self._surface_shock_metadata(surface_chain, spot))
             self.surface_metadata[key] = metadata
             return strikes, expiries, vols
@@ -364,6 +365,7 @@ class DashboardConnector:
             metadata.update(
                 self._surface_change_metadata(key, chain, spot, metadata, iv_column="impliedVolatility")
             )
+            metadata.update(self._rich_cheap_metadata(chain, metadata, iv_column="impliedVolatility"))
             metadata.update(self._surface_shock_metadata(chain, spot, iv_column="impliedVolatility"))
             self.surface_metadata[key] = metadata
             return strikes, expiries, vols
@@ -804,11 +806,31 @@ class DashboardConnector:
             "surface_change": change,
             "surface_change_available": change.get("available"),
             "surface_change_points": change.get("matched_points"),
+            "surface_tape": change.get("tape") or {},
+            "surface_tape_available": (change.get("tape") or {}).get("available"),
+            "surface_tape_snapshots": (change.get("tape") or {}).get("snapshot_count"),
+            "surface_change_heatmaps": change.get("heatmaps") or {},
+            "surface_change_heatmap_available": (change.get("heatmaps") or {}).get("available"),
             "atm_iv_change": atm_change.get("iv_change"),
             "atm_iv_change_pct": atm_change.get("iv_change_pct"),
             "snapshot_vol_of_vol": vol_of_vol.get("snapshot_vol_of_vol"),
             "annualized_vol_of_vol": vol_of_vol.get("annualized_vol_of_vol"),
             "vol_of_vol_observations": vol_of_vol.get("observations"),
+        }
+
+    @staticmethod
+    def _rich_cheap_metadata(
+        chain: pd.DataFrame,
+        metadata: Dict[str, Any],
+        iv_column: str = "computedIV",
+    ) -> Dict[str, Any]:
+        scanner = rich_cheap_scanner(chain, metadata.get("svi_smiles") or [], iv_column=iv_column)
+        return {
+            "rich_cheap_scanner": scanner,
+            "rich_cheap_scanner_available": scanner.get("available"),
+            "rich_cheap_candidates": scanner.get("candidate_count"),
+            "rich_cheap_rich_count": scanner.get("rich_count"),
+            "rich_cheap_cheap_count": scanner.get("cheap_count"),
         }
 
     @staticmethod

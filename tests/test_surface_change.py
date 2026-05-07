@@ -6,7 +6,13 @@ import pytest
 from dashboard_connector import DashboardConnector
 from src.data.models import MarketDataSnapshot, OptionQuote
 from src.data.snapshots import save_snapshot
-from src.quant.surface_change import atm_iv_vol_of_vol_from_snapshots, surface_change_analytics
+from src.quant.surface_change import (
+    atm_iv_vol_of_vol_from_snapshots,
+    rich_cheap_scanner,
+    surface_change_analytics,
+    surface_change_heatmaps,
+    surface_tape_analytics,
+)
 
 
 EXPIRY = datetime(2026, 6, 19)
@@ -84,6 +90,59 @@ def _current_chain() -> pd.DataFrame:
     )
 
 
+def _scanner_chain() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "contractSymbol": "AAPL260619C00090000",
+                "type": "call",
+                "expiration": EXPIRY,
+                "daysToExpiration": 30,
+                "strike": 90.0,
+                "computedIV": 0.24,
+                "bidAskSpreadPct": 0.08,
+                "volume": 20,
+                "openInterest": 150,
+            },
+            {
+                "contractSymbol": "AAPL260619C00100000",
+                "type": "call",
+                "expiration": EXPIRY,
+                "daysToExpiration": 30,
+                "strike": 100.0,
+                "computedIV": 0.31,
+                "bidAskSpreadPct": 0.04,
+                "volume": 120,
+                "openInterest": 800,
+            },
+            {
+                "contractSymbol": "AAPL260619P00110000",
+                "type": "put",
+                "expiration": EXPIRY,
+                "daysToExpiration": 30,
+                "strike": 110.0,
+                "computedIV": 0.19,
+                "bidAskSpreadPct": 0.10,
+                "volume": 40,
+                "openInterest": 250,
+            },
+        ]
+    )
+
+
+def _svi_smiles() -> list[dict]:
+    return [
+        {
+            "expiration": "2026-06-19",
+            "residuals": [
+                {"strike": 90.0, "observed_iv": 0.24, "fitted_iv": 0.23, "residual": -0.01},
+                {"strike": 100.0, "observed_iv": 0.31, "fitted_iv": 0.25, "residual": -0.06},
+                {"strike": 110.0, "observed_iv": 0.19, "fitted_iv": 0.24, "residual": 0.05},
+            ],
+        }
+    ]
+
+
 def test_surface_change_matches_latest_prior_snapshot(tmp_path):
     save_snapshot(_snapshot(datetime(2026, 5, 1, 10), (0.18, 0.19, 0.21)), tmp_path)
     save_snapshot(_snapshot(datetime(2026, 5, 2, 10), (0.20, 0.22, 0.25)), tmp_path)
@@ -104,6 +163,9 @@ def test_surface_change_matches_latest_prior_snapshot(tmp_path):
     assert result["expiry_changes"][0]["current_median_iv"] == pytest.approx(0.23)
     assert result["expiry_changes"][0]["previous_median_iv"] == pytest.approx(0.22)
     assert result["top_changes"][0]["iv_change"] == pytest.approx(0.04)
+    assert result["heatmaps"]["available"] is True
+    assert result["heatmaps"]["baselines"]["previous_refresh"]["records"][0]["iv_change"] == pytest.approx(0.01)
+    assert result["tape"]["snapshot_count"] == 1
 
 
 def test_surface_change_skips_snapshots_at_or_after_current_timestamp(tmp_path):
@@ -142,6 +204,59 @@ def test_atm_iv_vol_of_vol_uses_snapshot_changes_plus_current(tmp_path):
     assert result["annualized_vol_of_vol"] > result["snapshot_vol_of_vol"]
 
 
+def test_surface_change_heatmaps_select_refresh_hour_and_close_baselines(tmp_path):
+    save_snapshot(_snapshot(datetime(2026, 5, 2, 15, 55), (0.19, 0.20, 0.23)), tmp_path)
+    save_snapshot(_snapshot(datetime(2026, 5, 3, 8, 30), (0.20, 0.21, 0.24)), tmp_path)
+    save_snapshot(_snapshot(datetime(2026, 5, 3, 9, 45), (0.21, 0.22, 0.25)), tmp_path)
+
+    result = surface_change_heatmaps(
+        "AAPL",
+        _current_chain(),
+        tmp_path,
+        current_timestamp=datetime(2026, 5, 3, 10, 50),
+    )
+
+    baselines = result["baselines"]
+    assert result["available"] is True
+    assert baselines["previous_refresh"]["baseline_timestamp"] == "2026-05-03T09:45:00"
+    assert baselines["previous_hour"]["baseline_timestamp"] == "2026-05-03T09:45:00"
+    assert baselines["previous_close"]["baseline_timestamp"] == "2026-05-02T15:55:00"
+    expected_pct = (((0.23 - 0.19) / 0.19) + ((0.21 - 0.20) / 0.20)) / 2
+    assert baselines["previous_close"]["records"][0]["iv_change_pct"] == pytest.approx(expected_pct)
+
+
+def test_surface_tape_returns_intraday_snapshots_plus_current(tmp_path):
+    save_snapshot(_snapshot(datetime(2026, 5, 2, 15, 55), (0.19, 0.20, 0.23)), tmp_path)
+    save_snapshot(_snapshot(datetime(2026, 5, 3, 9, 45), (0.21, 0.22, 0.25)), tmp_path)
+
+    tape = surface_tape_analytics(
+        "AAPL",
+        tmp_path,
+        current_chain=_current_chain(),
+        current_timestamp=datetime(2026, 5, 3, 10, 50),
+    )
+
+    assert tape["available"] is True
+    assert tape["snapshot_count"] == 2
+    assert tape["timestamps"] == ["2026-05-03T09:45:00", "2026-05-03T10:50:00"]
+    assert tape["snapshots"][-1]["mode"] == "Current"
+    assert tape["snapshots"][-1]["points"][0]["iv"] == pytest.approx(0.22)
+
+
+def test_rich_cheap_scanner_ranks_residuals_with_liquidity_reasons():
+    scanner = rich_cheap_scanner(_scanner_chain(), _svi_smiles())
+
+    assert scanner["available"] is True
+    assert scanner["candidate_count"] == 3
+    assert scanner["rich_count"] == 2
+    assert scanner["cheap_count"] == 1
+    top = scanner["candidates"][0]
+    assert top["contract"] == "AAPL260619C00100000"
+    assert top["classification"] == "rich"
+    assert top["surface_residual"] == pytest.approx(0.06)
+    assert "z-score" in top["reason"]
+
+
 def test_connector_surface_change_metadata_flattens_dashboard_fields(tmp_path):
     save_snapshot(_snapshot(datetime(2026, 5, 2, 10), (0.20, 0.22, 0.25)), tmp_path)
     connector = DashboardConnector.__new__(DashboardConnector)
@@ -158,3 +273,13 @@ def test_connector_surface_change_metadata_flattens_dashboard_fields(tmp_path):
     assert metadata["surface_change_points"] == 3
     assert metadata["atm_iv_change"] == pytest.approx(0.03)
     assert metadata["surface_change"]["available"] is True
+    assert metadata["surface_tape_available"] is True
+    assert metadata["surface_change_heatmap_available"] is True
+
+
+def test_connector_rich_cheap_metadata_flattens_scanner_fields():
+    metadata = DashboardConnector._rich_cheap_metadata(_scanner_chain(), {"svi_smiles": _svi_smiles()})
+
+    assert metadata["rich_cheap_scanner_available"] is True
+    assert metadata["rich_cheap_candidates"] == 3
+    assert metadata["rich_cheap_rich_count"] == 2

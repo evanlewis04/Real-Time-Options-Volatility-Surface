@@ -6,7 +6,7 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current main head: `7d3df56 Fix CI market calendar closed reasons`
+Current main head before this session commit: `5245cad`
 
 Branch state when this handoff was written: `main...origin/main`
 
@@ -16,11 +16,19 @@ Phase 0-3 are complete.
 
 Phase 3: `27/27` complete.
 
-Phase 4 next unchecked items:
+Phase 4: `3/27` complete.
+
+Completed this session:
 
 1. Real-time surface tape
 2. Surface change heatmap
 3. Rich/cheap scanner
+
+Phase 4 next unchecked items:
+
+1. Relative value dashboard
+2. Cross-sectional vol map
+3. Earnings vol event engine
 
 ## Latest Verification Pattern
 

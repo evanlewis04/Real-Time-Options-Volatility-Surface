@@ -482,8 +482,10 @@ def run_dashboard() -> None:
         IV percentile {fmt_pct(surface_meta.get("iv_percentile"))};
         IV history snapshots {fmt_int(surface_meta.get("iv_history_observations"))}.
         Snapshot change points {fmt_int(surface_meta.get("surface_change_points"))};
+        tape snapshots {fmt_int(surface_meta.get("surface_tape_snapshots"))};
         ATM dIV {fmt_pct(surface_meta.get("atm_iv_change"))};
         vol-of-vol {fmt_pct(surface_meta.get("snapshot_vol_of_vol"))}.
+        rich/cheap candidates {fmt_int(surface_meta.get("rich_cheap_candidates"))}.
         Front expected move {fmt_money(surface_meta.get("front_expected_move"))}
         ({fmt_pct(surface_meta.get("front_expected_move_pct"))})
         by {surface_meta.get("front_expected_move_method") or "n/a"}.
@@ -553,6 +555,103 @@ def run_dashboard() -> None:
 
     def _fmt_number(value: Any, digits: int = 3) -> str:
         return "n/a" if value is None or pd.isna(value) else f"{float(value):.{digits}f}"
+
+    def _surface_points_frame(points: list[dict[str, Any]], value_col: str) -> pd.DataFrame:
+        frame = pd.DataFrame(points or [])
+        if frame.empty:
+            return frame
+        for column in ("strike", "dte", value_col):
+            if column in frame:
+                frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        return frame.dropna(subset=["strike", "dte", value_col])
+
+    def _heatmap_from_points(points: list[dict[str, Any]], value_col: str) -> pd.DataFrame:
+        frame = _surface_points_frame(points, value_col)
+        if frame.empty:
+            return frame
+        return frame.pivot_table(index="dte", columns="strike", values=value_col, aggfunc="mean").sort_index()
+
+    def _surface_replay_figure(tape_payload: dict[str, Any]) -> go.Figure | None:
+        snapshots = tape_payload.get("snapshots") or []
+        frames = []
+        first_grid = None
+        first_timestamp = None
+        for snapshot in snapshots:
+            grid = _heatmap_from_points(snapshot.get("points") or [], "iv")
+            if grid.empty:
+                continue
+            timestamp = snapshot.get("timestamp", "snapshot")
+            if first_grid is None:
+                first_grid = grid
+                first_timestamp = timestamp
+            frames.append(
+                go.Frame(
+                    name=timestamp,
+                    data=[
+                        go.Heatmap(
+                            z=grid.values,
+                            x=list(grid.columns),
+                            y=list(grid.index),
+                            colorscale="Cividis",
+                            zmin=None,
+                            zmax=None,
+                            colorbar=dict(title="IV"),
+                        )
+                    ],
+                )
+            )
+        if first_grid is None:
+            return None
+        fig = go.Figure(
+            data=[
+                go.Heatmap(
+                    z=first_grid.values,
+                    x=list(first_grid.columns),
+                    y=list(first_grid.index),
+                    colorscale="Cividis",
+                    colorbar=dict(title="IV"),
+                    hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>IV: %{z:.2%}<extra></extra>",
+                )
+            ],
+            frames=frames,
+        )
+        steps = [
+            {
+                "method": "animate",
+                "label": frame.name[-8:] if len(frame.name) >= 8 else frame.name,
+                "args": [[frame.name], {"mode": "immediate", "frame": {"duration": 250, "redraw": True}}],
+            }
+            for frame in frames
+        ]
+        fig.update_layout(
+            title=f"{surface_symbol} Surface Tape Replay",
+            xaxis_title="Strike",
+            yaxis_title="Days to expiry",
+            sliders=[{"active": 0, "currentvalue": {"prefix": "Timestamp "}, "steps": steps}],
+            updatemenus=[
+                {
+                    "type": "buttons",
+                    "showactive": False,
+                    "buttons": [
+                        {
+                            "label": "Play",
+                            "method": "animate",
+                            "args": [None, {"frame": {"duration": 450, "redraw": True}, "fromcurrent": True}],
+                        }
+                    ],
+                }
+            ],
+        )
+        fig.add_annotation(
+            text=str(first_timestamp),
+            xref="paper",
+            yref="paper",
+            x=1.0,
+            y=1.08,
+            showarrow=False,
+            font=dict(size=11, color="#667085"),
+        )
+        return fig
 
     market_df = load_with_status(
         st,
@@ -625,6 +724,75 @@ def run_dashboard() -> None:
             yaxis_title="Days to expiry",
         )
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
+
+        tape_payload = surface_meta.get("surface_tape") or {}
+        replay_fig = _surface_replay_figure(tape_payload)
+        if replay_fig is not None:
+            st.plotly_chart(apply_chart_layout(replay_fig, 450), width="stretch")
+            st.caption(
+                f"Replay source: {tape_payload.get('source', 'persisted snapshots')}; "
+                f"snapshots: {fmt_int(tape_payload.get('snapshot_count'))}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Surface tape unavailable",
+                    "No same-day persisted snapshots have usable IV rows for replay.",
+                    "Refresh during the session to add timestamped local snapshots.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        heatmaps = (surface_meta.get("surface_change_heatmaps") or {}).get("baselines") or {}
+        available_heatmap_keys = [key for key, payload in heatmaps.items() if payload.get("available")]
+        if available_heatmap_keys:
+            selected_baseline = st.selectbox(
+                "Surface change baseline",
+                available_heatmap_keys,
+                format_func=lambda key: heatmaps[key].get("label", key.replace("_", " ").title()),
+                help="Baseline used for the current-minus-baseline IV heatmap.",
+            )
+            selected_heatmap = heatmaps[selected_baseline]
+            change_grid = _heatmap_from_points(selected_heatmap.get("records") or [], "iv_change")
+            if not change_grid.empty:
+                fig_change_heatmap = go.Figure(
+                    data=[
+                        go.Heatmap(
+                            z=change_grid.values,
+                            x=list(change_grid.columns),
+                            y=list(change_grid.index),
+                            colorscale="RdBu",
+                            zmid=0,
+                            colorbar=dict(title="dIV"),
+                            hovertemplate=(
+                                "Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>"
+                                "Current - baseline IV: %{z:.2%}<extra></extra>"
+                            ),
+                        )
+                    ]
+                )
+                fig_change_heatmap.update_layout(
+                    title=f"{surface_symbol} Surface Change Heatmap",
+                    xaxis_title="Strike",
+                    yaxis_title="Days to expiry",
+                )
+                st.plotly_chart(apply_chart_layout(fig_change_heatmap, 430), width="stretch")
+                st.caption(
+                    f"Baseline {selected_heatmap.get('baseline_timestamp', 'unknown')} "
+                    f"({selected_heatmap.get('baseline_mode', 'unknown')}); "
+                    f"matched points {fmt_int(selected_heatmap.get('matched_points'))}; "
+                    f"mean dIV {fmt_pct(selected_heatmap.get('mean_iv_change'))}; "
+                    f"max absolute dIV {fmt_pct(selected_heatmap.get('max_abs_iv_change'))}."
+                )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Surface change heatmap unavailable",
+                    "No previous refresh, previous hour, or previous close baseline has matching IV rows.",
+                    "Store at least two snapshots with overlapping strikes and expiries.",
+                ),
+                unsafe_allow_html=True,
+            )
 
         st.markdown('<div class="section-header">Market Snapshot</div>', unsafe_allow_html=True)
         market_filter_cols = st.columns([1, 1, 1])
@@ -1100,6 +1268,68 @@ def run_dashboard() -> None:
                 f"American model: {chain_meta.get('american_model', 'n/a')}; "
                 f"early-exercise candidates: {fmt_int(chain_meta.get('early_exercise_candidates'))}."
             )
+            scanner = surface_meta.get("rich_cheap_scanner") or {}
+            scanner_display = pd.DataFrame(scanner.get("candidates") or [])
+            if scanner.get("available") and not scanner_display.empty:
+                st.markdown('<div class="section-header">Rich/Cheap Scanner</div>', unsafe_allow_html=True)
+                scanner_cols = [
+                    "classification",
+                    "type",
+                    "expiration",
+                    "dte",
+                    "strike",
+                    "market_iv",
+                    "fitted_iv",
+                    "surface_residual",
+                    "residual_z_score",
+                    "liquidity_score",
+                    "bid_ask_spread_pct",
+                    "volume",
+                    "open_interest",
+                    "reason",
+                ]
+                scanner_cols = [col for col in scanner_cols if col in scanner_display.columns]
+                st.download_button(
+                    "Export scanner CSV",
+                    dataframe_to_csv_bytes(scanner_display[scanner_cols]),
+                    file_name=f"{surface_symbol}_rich_cheap_scanner.csv",
+                    mime="text/csv",
+                )
+                st.dataframe(
+                    scanner_display[scanner_cols],
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "classification": st.column_config.TextColumn("Class"),
+                        "type": st.column_config.TextColumn("Type", help=COLUMN_HELP["type"]),
+                        "expiration": st.column_config.TextColumn("Expiration"),
+                        "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                        "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
+                        "market_iv": st.column_config.NumberColumn("Market IV", format="%.2%"),
+                        "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
+                        "surface_residual": st.column_config.NumberColumn("Residual", format="%.2%"),
+                        "residual_z_score": st.column_config.NumberColumn("Z-score", format="%.2f"),
+                        "liquidity_score": st.column_config.NumberColumn("Liquidity", format="%.2f"),
+                        "bid_ask_spread_pct": st.column_config.NumberColumn("Spread", format="%.2%"),
+                        "volume": st.column_config.NumberColumn("Volume", format="%.0f"),
+                        "open_interest": st.column_config.NumberColumn("Open Interest", format="%.0f"),
+                        "reason": st.column_config.TextColumn("Reason"),
+                    },
+                )
+                st.caption(
+                    f"Scanner source: {scanner.get('source', 'current chain plus SVI fit')}; "
+                    f"model {scanner.get('model', 'SVI')}; "
+                    f"rich {fmt_int(scanner.get('rich_count'))}; cheap {fmt_int(scanner.get('cheap_count'))}."
+                )
+            else:
+                st.markdown(
+                    render_empty_state(
+                        "Rich/cheap scanner unavailable",
+                        scanner.get("reason") or "No current chain rows matched fitted-surface residuals.",
+                        "Use a symbol with enough valid strikes for SVI calibration.",
+                    ),
+                    unsafe_allow_html=True,
+                )
         elif show_chain:
             st.markdown(
                 render_empty_state(

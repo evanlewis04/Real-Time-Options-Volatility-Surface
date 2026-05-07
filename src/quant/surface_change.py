@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,24 +29,14 @@ def surface_change_analytics(
     if current.empty:
         return _unavailable("Current surface has no usable IV rows")
 
-    previous_snapshot = None
-    previous_frame = pd.DataFrame()
     as_of = _timestamp_or_none(current_timestamp)
-    for metadata_path in list_snapshots(symbol, directory):
-        try:
-            candidate = load_snapshot(metadata_path)
-        except Exception:
-            continue
-        if as_of is not None and candidate.spot_timestamp >= as_of:
-            continue
-        candidate_frame = _prepared_iv_frame(candidate.options_frame(), iv_column)
-        if candidate_frame.empty and iv_column != "computedIV":
-            candidate_frame = _prepared_iv_frame(candidate.options_frame(), "computedIV")
-        if candidate_frame.empty:
-            continue
-        previous_snapshot = candidate
-        previous_frame = candidate_frame
-        break
+    previous_snapshot, previous_frame = _select_baseline_snapshot(
+        symbol,
+        directory,
+        iv_column,
+        as_of,
+        "previous_refresh",
+    )
 
     if previous_snapshot is None or previous_frame.empty:
         return _unavailable("No earlier persisted snapshot with usable IV rows")
@@ -101,7 +91,213 @@ def surface_change_analytics(
         "atm_change": atm,
         "expiry_changes": expiry_changes,
         "top_changes": top_changes,
+        "heatmaps": surface_change_heatmaps(
+            symbol,
+            current_chain,
+            directory,
+            iv_column=iv_column,
+            current_timestamp=as_of,
+        ),
+        "tape": surface_tape_analytics(
+            symbol,
+            directory,
+            current_chain=current_chain,
+            iv_column=iv_column,
+            current_timestamp=as_of,
+        ),
         "vol_of_vol": vol_of_vol,
+    }
+
+
+def surface_change_heatmaps(
+    symbol: str,
+    current_chain: pd.DataFrame,
+    directory: Path | str,
+    *,
+    iv_column: str = "computedIV",
+    current_timestamp: datetime | pd.Timestamp | None = None,
+) -> dict[str, Any]:
+    """Build current-minus-baseline IV heatmap rows for common comparison anchors."""
+    current = _prepared_iv_frame(current_chain, iv_column)
+    if current.empty:
+        return {"available": False, "reason": "Current surface has no usable IV rows", "baselines": {}}
+
+    as_of = _timestamp_or_none(current_timestamp)
+    baselines: dict[str, Any] = {}
+    for baseline in ("previous_refresh", "previous_hour", "previous_close"):
+        snapshot, frame = _select_baseline_snapshot(symbol, directory, iv_column, as_of, baseline)
+        label = baseline.replace("_", " ").title()
+        if snapshot is None or frame.empty:
+            baselines[baseline] = {
+                "available": False,
+                "label": label,
+                "reason": f"No {baseline.replace('_', ' ')} snapshot with usable IV rows",
+                "records": [],
+            }
+            continue
+        matched = _matched_change_frame(current, frame)
+        if matched.empty:
+            baselines[baseline] = {
+                "available": False,
+                "label": label,
+                "reason": "No matching expiry/strike/type rows in baseline snapshot",
+                "records": [],
+                "baseline_timestamp": snapshot.spot_timestamp.isoformat(),
+                "baseline_source": snapshot.source,
+                "baseline_mode": snapshot.mode,
+            }
+            continue
+        baselines[baseline] = {
+            "available": True,
+            "label": label,
+            "baseline_timestamp": snapshot.spot_timestamp.isoformat(),
+            "baseline_source": snapshot.source,
+            "baseline_mode": snapshot.mode,
+            "matched_points": int(len(matched)),
+            "mean_iv_change": float(matched["iv_change"].mean()),
+            "max_abs_iv_change": float(matched["abs_iv_change"].max()),
+            "records": _heatmap_records(matched),
+        }
+
+    return {
+        "available": any(payload.get("available") for payload in baselines.values()),
+        "source": "persisted_snapshots",
+        "baselines": baselines,
+    }
+
+
+def surface_tape_analytics(
+    symbol: str,
+    directory: Path | str,
+    *,
+    current_chain: pd.DataFrame | None = None,
+    iv_column: str = "computedIV",
+    current_timestamp: datetime | pd.Timestamp | None = None,
+    max_snapshots: int = 80,
+) -> dict[str, Any]:
+    """Return intraday persisted-snapshot tape records suitable for replay."""
+    as_of = _timestamp_or_none(current_timestamp)
+    loaded: list[dict[str, Any]] = []
+    target_day = as_of.date() if as_of is not None else None
+
+    for metadata_path in list_snapshots(symbol, directory):
+        try:
+            snapshot = load_snapshot(metadata_path)
+        except Exception:
+            continue
+        if as_of is not None and snapshot.spot_timestamp > as_of:
+            continue
+        if target_day is None:
+            target_day = snapshot.spot_timestamp.date()
+        if snapshot.spot_timestamp.date() != target_day:
+            continue
+        frame = _prepared_iv_frame(snapshot.options_frame(), iv_column)
+        if frame.empty and iv_column != "computedIV":
+            frame = _prepared_iv_frame(snapshot.options_frame(), "computedIV")
+        if frame.empty:
+            continue
+        loaded.append(_tape_record(snapshot.symbol, snapshot.spot_timestamp, snapshot.source, snapshot.mode, frame))
+
+    if current_chain is not None:
+        current = _prepared_iv_frame(current_chain, iv_column)
+        if not current.empty:
+            timestamp = as_of or datetime.now()
+            if target_day is None or timestamp.date() == target_day:
+                loaded.append(_tape_record(symbol.upper(), timestamp, "current_surface", "Current", current))
+
+    loaded.sort(key=lambda item: item["timestamp"])
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in loaded:
+        key = str(item["timestamp"])
+        if key in seen:
+            deduped[-1] = item
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    snapshots = deduped[-max_snapshots:]
+    return {
+        "available": bool(snapshots),
+        "source": "persisted_snapshots",
+        "symbol": symbol.upper(),
+        "snapshot_count": len(snapshots),
+        "timestamps": [item["timestamp"] for item in snapshots],
+        "snapshots": snapshots,
+    }
+
+
+def rich_cheap_scanner(
+    chain: pd.DataFrame,
+    svi_smiles: list[dict[str, Any]],
+    *,
+    iv_column: str = "computedIV",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Rank options by IV residual to fitted SVI surface plus liquidity context."""
+    residual_rows = _svi_residual_frame(svi_smiles)
+    current = _scanner_chain_frame(chain, iv_column)
+    if residual_rows.empty:
+        return _scanner_unavailable("SVI residuals are unavailable")
+    if current.empty:
+        return _scanner_unavailable("Current chain has no usable scanner rows")
+
+    joined = current.merge(residual_rows, on=["expiration_key", "strike_key"], how="inner")
+    joined = joined.dropna(subset=["surface_residual"])
+    if joined.empty:
+        return _scanner_unavailable("No chain rows matched fitted-surface residuals")
+
+    residuals = joined["surface_residual"].to_numpy(dtype=float)
+    std = float(np.std(residuals, ddof=1)) if len(residuals) > 1 else 0.0
+    mean = float(np.mean(residuals))
+    if std > 1e-12:
+        joined["residual_z_score"] = (joined["surface_residual"] - mean) / std
+    else:
+        joined["residual_z_score"] = 0.0
+
+    joined["liquidity_score"] = _liquidity_scores(joined)
+    joined["scanner_score"] = joined["residual_z_score"].abs() * joined["liquidity_score"]
+    joined = joined.sort_values(
+        ["scanner_score", "liquidity_score", "abs_surface_residual"],
+        ascending=[False, False, False],
+    )
+
+    candidates = []
+    for _, row in joined.head(limit).iterrows():
+        direction = "rich" if row["surface_residual"] > 0 else "cheap"
+        candidates.append(
+            {
+                "contract": row.get("contract"),
+                "type": row.get("type"),
+                "expiration": row["expiration_key"],
+                "dte": None if pd.isna(row.get("dte")) else float(row.get("dte")),
+                "strike": float(row["strike"]),
+                "market_iv": float(row["iv"]),
+                "fitted_iv": float(row["fitted_iv"]),
+                "surface_residual": float(row["surface_residual"]),
+                "abs_surface_residual": float(row["abs_surface_residual"]),
+                "residual_z_score": float(row["residual_z_score"]),
+                "liquidity_score": float(row["liquidity_score"]),
+                "scanner_score": float(row["scanner_score"]),
+                "bid_ask_spread_pct": _finite_or_none(row.get("bid_ask_spread_pct")),
+                "volume": _finite_or_none(row.get("volume")),
+                "open_interest": _finite_or_none(row.get("open_interest")),
+                "classification": direction,
+                "reason": _scanner_reason(row, direction),
+            }
+        )
+
+    return {
+        "available": bool(candidates),
+        "source": "current_chain_plus_svi_fit",
+        "model": "SVI",
+        "input_rows": int(len(joined)),
+        "candidate_count": len(candidates),
+        "rich_count": int((joined["surface_residual"] > 0).sum()),
+        "cheap_count": int((joined["surface_residual"] < 0).sum()),
+        "residual_mean": mean,
+        "residual_std": std,
+        "candidates": candidates,
     }
 
 
@@ -237,6 +433,186 @@ def _prepared_iv_frame(chain: pd.DataFrame, iv_column: str) -> pd.DataFrame:
     return out.sort_values(["expiration_key", "strike_key", "type_key"]).reset_index(drop=True)
 
 
+def _select_baseline_snapshot(
+    symbol: str,
+    directory: Path | str,
+    iv_column: str,
+    as_of: datetime | None,
+    baseline: str,
+) -> tuple[Any | None, pd.DataFrame]:
+    threshold = None
+    if baseline == "previous_hour" and as_of is not None:
+        threshold = as_of - timedelta(hours=1)
+
+    for metadata_path in list_snapshots(symbol, directory):
+        try:
+            candidate = load_snapshot(metadata_path)
+        except Exception:
+            continue
+        if as_of is not None and candidate.spot_timestamp >= as_of:
+            continue
+        if threshold is not None and candidate.spot_timestamp > threshold:
+            continue
+        if baseline == "previous_close" and as_of is not None and candidate.spot_timestamp.date() >= as_of.date():
+            continue
+        candidate_frame = _prepared_iv_frame(candidate.options_frame(), iv_column)
+        if candidate_frame.empty and iv_column != "computedIV":
+            candidate_frame = _prepared_iv_frame(candidate.options_frame(), "computedIV")
+        if candidate_frame.empty:
+            continue
+        return candidate, candidate_frame
+    return None, pd.DataFrame()
+
+
+def _matched_change_frame(current: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
+    matched = current.merge(
+        previous,
+        on=["expiration_key", "strike_key", "type_key"],
+        suffixes=("_current", "_previous"),
+    )
+    if matched.empty:
+        return matched
+    matched["iv_change"] = matched["iv_current"] - matched["iv_previous"]
+    matched["iv_change_pct"] = np.where(
+        matched["iv_previous"].abs() > 1e-12,
+        matched["iv_change"] / matched["iv_previous"],
+        np.nan,
+    )
+    matched["abs_iv_change"] = matched["iv_change"].abs()
+    return matched
+
+
+def _heatmap_records(matched: pd.DataFrame) -> list[dict[str, Any]]:
+    rows = []
+    for (expiry, strike), group in matched.groupby(["expiration_key", "strike_key"], sort=True):
+        dte = pd.to_numeric(group["dte_current"], errors="coerce").median()
+        change_pct = pd.to_numeric(group["iv_change_pct"], errors="coerce").median()
+        rows.append(
+            {
+                "expiration": expiry,
+                "dte": None if pd.isna(dte) else float(dte),
+                "strike": float(strike),
+                "current_iv": float(group["iv_current"].median()),
+                "baseline_iv": float(group["iv_previous"].median()),
+                "iv_change": float(group["iv_change"].mean()),
+                "iv_change_pct": None if pd.isna(change_pct) else float(change_pct),
+                "matched_contracts": int(len(group)),
+            }
+        )
+    return rows
+
+
+def _tape_record(symbol: str, timestamp: datetime, source: str, mode: str, frame: pd.DataFrame) -> dict[str, Any]:
+    grouped = []
+    for (expiry, strike), group in frame.groupby(["expiration_key", "strike_key"], sort=True):
+        dte = pd.to_numeric(group["dte"], errors="coerce").median()
+        grouped.append(
+            {
+                "expiration": expiry,
+                "dte": None if pd.isna(dte) else float(dte),
+                "strike": float(strike),
+                "iv": float(group["iv"].median()),
+                "contracts": int(len(group)),
+            }
+        )
+    return {
+        "symbol": symbol.upper(),
+        "timestamp": timestamp.isoformat(),
+        "source": source,
+        "mode": mode,
+        "point_count": len(grouped),
+        "points": grouped,
+    }
+
+
+def _svi_residual_frame(svi_smiles: list[dict[str, Any]]) -> pd.DataFrame:
+    rows = []
+    for smile in svi_smiles or []:
+        expiry = str(smile.get("expiration") or "")
+        for item in smile.get("residuals") or []:
+            strike = _float_or_none(item.get("strike"))
+            observed = _float_or_none(item.get("observed_iv"))
+            fitted = _float_or_none(item.get("fitted_iv"))
+            if not expiry or strike is None or observed is None or fitted is None:
+                continue
+            residual = observed - fitted
+            rows.append(
+                {
+                    "expiration_key": expiry,
+                    "strike_key": round(strike, 6),
+                    "fitted_iv": fitted,
+                    "surface_residual": residual,
+                    "abs_surface_residual": abs(residual),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _scanner_chain_frame(chain: pd.DataFrame, iv_column: str) -> pd.DataFrame:
+    if chain.empty:
+        return pd.DataFrame()
+    column = iv_column if iv_column in chain.columns else "impliedVolatility"
+    required = {"expiration", "strike", column}
+    if not required.issubset(chain.columns):
+        return pd.DataFrame()
+    out = pd.DataFrame(
+        {
+            "contract": chain.get("contractSymbol", pd.Series("", index=chain.index)).astype(str),
+            "type": chain.get("type", pd.Series("", index=chain.index)).astype(str).str.lower(),
+            "expiration": pd.to_datetime(chain["expiration"], errors="coerce"),
+            "strike": pd.to_numeric(chain["strike"], errors="coerce"),
+            "iv": pd.to_numeric(chain[column], errors="coerce"),
+            "dte": pd.to_numeric(chain.get("daysToExpiration"), errors="coerce"),
+            "bid_ask_spread_pct": pd.to_numeric(chain.get("bidAskSpreadPct"), errors="coerce"),
+            "volume": pd.to_numeric(chain.get("volume"), errors="coerce"),
+            "open_interest": pd.to_numeric(chain.get("openInterest"), errors="coerce"),
+        }
+    )
+    out = out.dropna(subset=["expiration", "strike", "iv"])
+    out = out[(out["strike"] > 0.0) & (out["iv"] > 0.0)]
+    if out.empty:
+        return out
+    out["expiration_key"] = out["expiration"].dt.date.astype(str)
+    out["strike_key"] = out["strike"].round(6)
+    return out
+
+
+def _liquidity_scores(frame: pd.DataFrame) -> pd.Series:
+    spread = pd.to_numeric(frame.get("bid_ask_spread_pct"), errors="coerce").fillna(0.50).clip(lower=0.0)
+    spread_score = (1.0 - (spread / 0.50).clip(upper=1.0)).astype(float)
+
+    volume = pd.to_numeric(frame.get("volume"), errors="coerce").fillna(0.0).clip(lower=0.0)
+    open_interest = pd.to_numeric(frame.get("open_interest"), errors="coerce").fillna(0.0).clip(lower=0.0)
+    max_volume = float(volume.max()) if len(volume) else 0.0
+    max_oi = float(open_interest.max()) if len(open_interest) else 0.0
+    volume_score = np.log1p(volume) / np.log1p(max_volume) if max_volume > 0 else pd.Series(0.0, index=frame.index)
+    oi_score = np.log1p(open_interest) / np.log1p(max_oi) if max_oi > 0 else pd.Series(0.0, index=frame.index)
+    return ((spread_score * 0.50) + (volume_score * 0.25) + (oi_score * 0.25)).clip(0.0, 1.0)
+
+
+def _scanner_reason(row: pd.Series, direction: str) -> str:
+    spread = _finite_or_none(row.get("bid_ask_spread_pct"))
+    spread_text = "spread n/a" if spread is None else f"spread {spread:.1%}"
+    return (
+        f"{direction.title()} to fitted SVI by {row['surface_residual']:.2%}; "
+        f"z-score {row['residual_z_score']:.2f}; "
+        f"{spread_text}; OI {int(row.get('open_interest') or 0)}; volume {int(row.get('volume') or 0)}"
+    )
+
+
+def _scanner_unavailable(reason: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "source": "current_chain_plus_svi_fit",
+        "model": "SVI",
+        "reason": reason,
+        "candidate_count": 0,
+        "rich_count": 0,
+        "cheap_count": 0,
+        "candidates": [],
+    }
+
+
 def _expiry_change_records(matched: pd.DataFrame) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for expiry, group in matched.groupby("expiration_key", sort=True):
@@ -310,6 +686,8 @@ def _unavailable(reason: str) -> dict[str, Any]:
         "atm_change": {},
         "expiry_changes": [],
         "top_changes": [],
+        "heatmaps": {"available": False, "reason": reason, "baselines": {}},
+        "tape": {"available": False, "reason": reason, "snapshots": []},
         "vol_of_vol": {
             "available": False,
             "source": "persisted_snapshots",
@@ -321,3 +699,15 @@ def _unavailable(reason: str) -> dict[str, Any]:
             "history": [],
         },
     }
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) else None
+
+
+def _finite_or_none(value: Any) -> float | None:
+    return _float_or_none(value)

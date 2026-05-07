@@ -350,15 +350,15 @@ Goal: make the analytics credible to someone with options/vol experience.
 
 These are the "insane project" upgrades.
 
-- [ ] Real-time surface tape.
+- [x] Real-time surface tape.
   - Record each surface snapshot and animate surface evolution through the day.
   - Acceptance: user can replay surface changes by timestamp.
 
-- [ ] Surface change heatmap.
+- [x] Surface change heatmap.
   - Show current IV minus previous close, previous hour, or previous refresh.
   - Acceptance: surface deltas are available in vol points and percent change.
 
-- [ ] Rich/cheap scanner.
+- [x] Rich/cheap scanner.
   - Rank options by residual to fitted surface, bid/ask liquidity, and z-score.
   - Acceptance: scanner outputs candidates with explainable reasons.
 
