@@ -457,29 +457,29 @@ These are the "insane project" upgrades.
 
 ## Phase 5: Data Science And Engineering Quality
 
-- [ ] Introduce typed configuration.
+- [x] Introduce typed configuration.
   - Suggested: Pydantic settings or dataclasses.
   - Acceptance: config has validation, defaults, and environment overrides.
 
-- [ ] Add structured logging.
+- [x] Add structured logging.
   - Acceptance: logs include source, symbol, provider, latency, cache hit, fallback reason.
 
-- [ ] Add performance timing.
+- [x] Add performance timing.
   - Acceptance: dashboard can show slowest data/calculation steps.
 
-- [ ] Add deterministic random seed only for demo mode.
+- [x] Add deterministic random seed only for demo mode.
   - Acceptance: demo mode is stable across reruns unless explicitly randomized.
 
-- [ ] Move demo data into a named demo provider.
+- [x] Move demo data into a named demo provider.
   - Acceptance: no random demo logic lives in dashboard rendering code.
 
-- [ ] Add fixtures for option chains.
+- [x] Add fixtures for option chains.
   - Acceptance: tests can run without network.
 
-- [ ] Add provider contract tests.
+- [x] Add provider contract tests.
   - Acceptance: every provider returns the canonical models and metadata.
 
-- [ ] Add surface builder tests.
+- [x] Add surface builder tests.
   - Cases: empty data, missing columns, sparse expiries, bad IVs, extreme moneyness, NaN fills.
   - Acceptance: each fallback path is covered.
 

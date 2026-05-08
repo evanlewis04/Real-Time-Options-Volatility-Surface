@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 
 from src.analysis.surface_builder import build_surface
+from src.config.settings import AppSettings, load_app_settings
+from src.data.demo_provider import DemoOptionsProvider
 from src.data.historical import HistoricalPriceLoader
 from src.data.market_calendar import MarketCalendar
 from src.data.models import MarketDataSnapshot
@@ -85,6 +87,8 @@ from src.quant.svi import (
     fit_diagnostics_from_ssvi,
     fit_diagnostics_from_svi,
 )
+from src.utils.structured_logging import configure_structured_logging, log_event
+from src.utils.timing import PerformanceRecorder
 
 logger = logging.getLogger(__name__)
 OPTION_PRICE_SOURCES = {"midpoint", "mark", "last"}
@@ -93,10 +97,21 @@ OPTION_PRICE_SOURCES = {"midpoint", "mark", "last"}
 class DashboardConnector:
     """Top-level data provider for the Streamlit dashboard."""
 
-    def __init__(self, config_file: Optional[str] = None):
+    def __init__(self, config_file: Optional[str] = None, settings: Optional[AppSettings] = None):
         self.config_file = config_file
-        self.price_provider = RealTimePriceProvider()
-        self.options_provider = YFinanceOptionsProvider(max_expirations=8)
+        self.settings = settings or load_app_settings()
+        configure_structured_logging(self.settings.logging)
+        self.performance = PerformanceRecorder()
+        provider_settings = self.settings.providers
+        self.price_provider = RealTimePriceProvider(cache_duration_seconds=provider_settings.price_cache_seconds)
+        self.options_provider = YFinanceOptionsProvider(
+            max_expirations=provider_settings.max_expirations,
+            cache_ttl_seconds=provider_settings.chain_cache_seconds,
+            max_quote_age_days=provider_settings.max_quote_age_days,
+            min_open_interest=provider_settings.min_open_interest,
+            min_volume=provider_settings.min_volume,
+            max_bid_ask_spread_pct=provider_settings.max_bid_ask_spread_pct,
+        )
         self.historical_loader = HistoricalPriceLoader()
         self.market_calendar = MarketCalendar()
         self.rate_provider = RiskFreeRateProvider()
@@ -108,13 +123,20 @@ class DashboardConnector:
             rate_provider=self.rate_provider,
             dividend_provider=self.dividend_provider,
         )
+        self.demo_provider = DemoOptionsProvider(
+            self.price_provider,
+            rate_provider=self.rate_provider,
+            dividend_provider=self.dividend_provider,
+            random_seed=self.settings.demo.random_seed,
+            max_expirations=self.settings.demo.max_expirations,
+        )
         self.iv_calculator = ImpliedVolatilityCalculator()
         self.option_price_source = "mark"
         self.pricing_model = "bsm_dividends"
-        self.snapshot_dir = Path("data/snapshots")
+        self.snapshot_dir = Path(self.settings.dashboard.snapshot_dir)
         self.real_time_active = False
-        self.update_interval = 30
-        self.chain_cache_ttl = timedelta(minutes=5)
+        self.update_interval = self.settings.dashboard.update_interval_seconds
+        self.chain_cache_ttl = timedelta(seconds=provider_settings.chain_cache_seconds)
         self.chain_cache: Dict[str, Tuple[pd.DataFrame, Dict[str, Any], datetime]] = {}
         self.surface_metadata: Dict[str, Dict[str, Any]] = {}
         self.surface_grids: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
@@ -307,7 +329,14 @@ class DashboardConnector:
             surface_chain = self._surface_iv_chain(chain)
             if surface_chain.empty:
                 raise ValueError("No usable computed IV rows after selected price source")
-            strikes, expiries, vols = build_surface(surface_chain, spot, key, risk_free_rate=surface_rate)
+            with self.performance.measure(
+                "surface_build",
+                symbol=key,
+                provider=meta.get("source"),
+                source=meta.get("mode"),
+                cache_hit=bool(meta.get("cache_age_seconds")),
+            ):
+                strikes, expiries, vols = build_surface(surface_chain, spot, key, risk_free_rate=surface_rate)
             metadata = {
                 **meta,
                 "surface_mode": meta.get("mode", "Live/Delayed"),
@@ -334,7 +363,8 @@ class DashboardConnector:
             return strikes, expiries, vols
         except Exception as exc:
             logger.warning("Real chain surface failed for %s: %s", key, exc)
-            chain = self.options_generator.create_chain(key)
+            chain, demo_meta_obj = self.demo_provider.fetch_chain(key, spot, fallback_reason=str(exc))
+            demo_meta = demo_meta_obj.as_dict()
             rate_curve = self.rate_provider.get_curve()
             chain = apply_curve_to_options(chain, rate_curve)
             rate_meta = self._rate_metadata(rate_curve, chain)
@@ -356,19 +386,30 @@ class DashboardConnector:
                 dividend_meta.get("effective_dividend_yield_median")
                 or dividend_meta.get("effective_dividend_yield_30d")
             )
-            strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
+            with self.performance.measure(
+                "surface_build",
+                symbol=key,
+                provider=demo_meta.get("source"),
+                source=demo_meta.get("mode"),
+                fallback_reason=str(exc),
+            ):
+                strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
             metadata = {
+                **demo_meta,
                 "symbol": key,
-                "source": "synthetic generator",
+                "source": demo_meta.get("source", "demo synthetic provider"),
                 "mode": "Synthetic",
                 "surface_mode": "Synthetic",
-                "surface_source": "Black-Scholes synthetic chain",
+                "surface_source": demo_meta.get("source", "demo synthetic provider"),
                 "timestamp": datetime.now(),
                 "raw_rows": len(chain),
                 "valid_rows": len(chain),
                 "rejected_rows": 0,
                 "fallback_reason": str(exc),
-                "warnings": ["Real option chain was unavailable; generated a synthetic chain."],
+                "warnings": self._merge_warnings(
+                    demo_meta.get("warnings"),
+                    ["Real option chain was unavailable; generated a deterministic demo chain."],
+                ),
                 "surface_points": int(np.size(vols)),
                 "spot": spot,
                 "spot_timestamp": datetime.now(),
@@ -792,6 +833,7 @@ class DashboardConnector:
     def get_system_health(self) -> Dict[str, Any]:
         cache_status = getattr(self.price_provider, "get_cache_status", lambda: {})()
         market_status = self.get_market_status()
+        option_cache_status = getattr(self.options_provider, "cache_status", lambda: {})()
         return {
             "overall": {
                 "pricing_models_available": True,
@@ -803,7 +845,7 @@ class DashboardConnector:
                 "last_update": datetime.now(),
                 "cached_symbols": cache_status.get("cached_symbols", 0),
                 "option_chain_cache_entries": len(self.chain_cache),
-                "option_expiry_cache_entries": self.options_provider.cache_status().get("entries"),
+                "option_expiry_cache_entries": option_cache_status.get("entries"),
                 "liquidity_filters": getattr(self.options_provider, "liquidity_filter_settings", lambda: {})(),
                 "option_price_source": self.option_price_source,
                 "pricing_model": MODEL_LABELS[self.pricing_model],
@@ -820,11 +862,13 @@ class DashboardConnector:
                 "real_time_active": self.real_time_active,
                 "update_interval": self.update_interval,
                 "cache_hit_rate": None,
+                "slowest_steps": self.performance.slowest(8),
+                "recent_steps": self.performance.recent(20),
             },
             "data_contract": {
                 "price_provider": "yfinance" if self.price_provider.yfinance_working else "simulated fallback",
                 "options_provider": "yfinance delayed chains",
-                "fallback_provider": "Black-Scholes synthetic chain",
+                "fallback_provider": self.demo_provider.source,
                 "rates_provider": self.rate_provider.get_curve().source,
                 "dividends_provider": self.dividend_provider.preferred_source,
                 "corporate_actions_provider": self.corporate_action_provider.preferred_source,
@@ -891,11 +935,49 @@ class DashboardConnector:
         if cached and now - cached[2] < self.chain_cache_ttl:
             df, meta, cached_at = cached
             meta = {**meta, "cache_age_seconds": int((now - cached_at).total_seconds())}
+            self.performance.record(
+                "options_chain_fetch",
+                0.0,
+                symbol=symbol,
+                provider=meta.get("source"),
+                source=meta.get("mode"),
+                cache_hit=True,
+                fallback_reason=meta.get("fallback_reason"),
+            )
+            log_event(
+                logger,
+                "provider_fetch",
+                symbol=symbol,
+                provider=meta.get("source"),
+                source=meta.get("mode"),
+                latency_ms=0.0,
+                cache_hit=True,
+                fallback_reason=meta.get("fallback_reason"),
+            )
             return df.copy(), meta
 
         spot_price = spot if spot is not None else self.price_provider.get_live_price(symbol)
-        df, meta_obj = self.options_provider.fetch_chain(symbol, spot_price)
+        with self.performance.measure(
+            "options_chain_fetch",
+            symbol=symbol,
+            provider=self.options_provider.__class__.__name__,
+            cache_hit=False,
+        ):
+            df, meta_obj = self.options_provider.fetch_chain(symbol, spot_price)
         meta = meta_obj.as_dict() if isinstance(meta_obj, OptionsChainMetadata) else dict(meta_obj)
+        latest_timing = self.performance.records[-1] if self.performance.records else None
+        if latest_timing is not None:
+            meta["provider_latency_ms"] = latest_timing.latency_ms
+        log_event(
+            logger,
+            "provider_fetch",
+            symbol=symbol,
+            provider=meta.get("source") or self.options_provider.__class__.__name__,
+            source=meta.get("mode"),
+            latency_ms=meta.get("provider_latency_ms"),
+            cache_hit=False,
+            fallback_reason=meta.get("fallback_reason"),
+        )
         rate_curve = self.rate_provider.get_curve()
         df = apply_curve_to_options(df, rate_curve)
         dividend_assumption = self.dividend_provider.get(symbol)

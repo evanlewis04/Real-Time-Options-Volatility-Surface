@@ -79,10 +79,12 @@ class SyntheticOptionsGenerator:
         price_provider: RealTimePriceProvider,
         rate_provider: Optional[Any] = None,
         dividend_provider: Optional[Any] = None,
+        demo_seed: Optional[int] = None,
     ):
         self.price_provider = price_provider
         self.rate_provider = rate_provider
         self.dividend_provider = dividend_provider
+        self.demo_seed = demo_seed
         self.bs = BlackScholesModel()
         self.iv_calc = ImpliedVolatilityCalculator()
 
@@ -90,24 +92,30 @@ class SyntheticOptionsGenerator:
     # Chain generation
     # ------------------------------------------------------------------
 
-    def create_chain(self, symbol: str) -> pd.DataFrame:
+    def create_chain(
+        self,
+        symbol: str,
+        spot_price: Optional[float] = None,
+        as_of: Optional[datetime] = None,
+    ) -> pd.DataFrame:
         """Generate a synthetic options chain anchored to the live spot price."""
-        spot = self.price_provider.get_live_price(symbol)
+        spot = float(spot_price) if spot_price is not None else self.price_provider.get_live_price(symbol)
         params = _SURFACE_PARAMS.get(symbol.upper(), _DEFAULT_SURFACE)
+        rng = self._rng(symbol)
 
         strikes = self._build_strikes(spot)
-        expirations = self._build_expirations()
+        today = as_of or datetime.now()
+        expirations = self._build_expirations(today)
         rate_curve = self.rate_provider.get_curve() if self.rate_provider is not None else None
         dividend_assumption = self.dividend_provider.get(symbol) if self.dividend_provider is not None else None
 
         rows = []
-        today = datetime.now()
         for exp in expirations:
             T = (exp - today).days / 365.0
             r = self._risk_free_rate((exp - today).days, rate_curve)
             q = self._dividend_yield(exp, spot, r, dividend_assumption)
             for K in strikes:
-                vol = self._iv_at(spot, K, T, params)
+                vol = self._iv_at(spot, K, T, params, rng)
                 call = max(0.01, self.bs.call_price(S=spot, K=K, T=T, r=r, sigma=vol, q=q))
                 put = max(0.01, self.bs.put_price(S=spot, K=K, T=T, r=r, sigma=vol, q=q))
                 base_volume = self._base_volume(spot, K, T, params['volume_mult'])
@@ -120,7 +128,7 @@ class SyntheticOptionsGenerator:
 
         df = pd.DataFrame(rows)
         df['expiration'] = pd.to_datetime(df['expiration'])
-        today_date = datetime.now().date()
+        today_date = today.date()
         df['daysToExpiration'] = df['expiration'].apply(lambda d: (d.date() - today_date).days)
         df['bidAskSpread'] = df['ask'] - df['bid']
         df['bidAskSpreadPct'] = df['bidAskSpread'] / ((df['bid'] + df['ask']) / 2)
@@ -185,9 +193,9 @@ class SyntheticOptionsGenerator:
         return [spot + i * spacing for i in range(-n // 2, n // 2 + 1) if spot + i * spacing > 0]
 
     @staticmethod
-    def _build_expirations() -> list:
+    def _build_expirations(as_of: Optional[datetime] = None) -> list:
         """Generate weekly Fridays for 4 weeks plus monthly third-Fridays for 6 months."""
-        today = datetime.now()
+        today = as_of or datetime.now()
         out = []
         for i in range(1, 5):
             exp = today + timedelta(weeks=i)
@@ -200,7 +208,13 @@ class SyntheticOptionsGenerator:
         return out
 
     @staticmethod
-    def _iv_at(spot: float, strike: float, T: float, params: Dict[str, float]) -> float:
+    def _iv_at(
+        spot: float,
+        strike: float,
+        T: float,
+        params: Dict[str, float],
+        rng: np.random.Generator | np.random.RandomState | Any,
+    ) -> float:
         """Build IV for one (strike, T) point: term structure + skew + smile + noise.
 
         Uses standard log-moneyness ``log(K/S)``:
@@ -213,7 +227,7 @@ class SyntheticOptionsGenerator:
         iv += params['skew'] * log_money
         iv += params['smile'] * log_money ** 2
         # Noise scaled to base vol so low-vol names (SPY) don't drown their skew.
-        iv += np.random.normal(0, 0.005 * params['base_vol'])
+        iv += rng.normal(0, 0.005 * params['base_vol'])
         return float(np.clip(iv, 0.05, 2.5))
 
     @staticmethod
@@ -279,22 +293,28 @@ class SyntheticOptionsGenerator:
         d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
         return max(0.0, S * norm.pdf(d1) * np.sqrt(T) / 100)
 
-    @staticmethod
-    def _fallback_greeks(symbol: str, iv_30d: float, iv_60d: float, iv_90d: float) -> Dict[str, float]:
+    def _fallback_greeks(self, symbol: str, iv_30d: float, iv_60d: float, iv_90d: float) -> Dict[str, float]:
         sym = symbol.upper()
         vol_factor = iv_30d / 0.25
+        rng = self._rng(symbol)
         if sym in {'PLTR', 'GME', 'TSLA'}:
             return {
                 'iv_30d': iv_30d, 'iv_60d': iv_60d, 'iv_90d': iv_90d,
-                'delta': float(np.random.uniform(0.45, 0.65)),
-                'gamma': float(np.random.uniform(0.015, 0.030) * vol_factor),
-                'theta': float(-np.random.uniform(0.15, 0.30) * vol_factor),
-                'vega':  float(np.random.uniform(0.30, 0.60) * np.sqrt(vol_factor)),
+                'delta': float(rng.uniform(0.45, 0.65)),
+                'gamma': float(rng.uniform(0.015, 0.030) * vol_factor),
+                'theta': float(-rng.uniform(0.15, 0.30) * vol_factor),
+                'vega':  float(rng.uniform(0.30, 0.60) * np.sqrt(vol_factor)),
             }
         return {
             'iv_30d': iv_30d, 'iv_60d': iv_60d, 'iv_90d': iv_90d,
-            'delta': float(np.random.uniform(0.40, 0.60)),
-            'gamma': float(np.random.uniform(0.010, 0.020) * vol_factor),
-            'theta': float(-np.random.uniform(0.05, 0.15) * vol_factor),
-            'vega':  float(np.random.uniform(0.15, 0.35) * np.sqrt(vol_factor)),
+            'delta': float(rng.uniform(0.40, 0.60)),
+            'gamma': float(rng.uniform(0.010, 0.020) * vol_factor),
+            'theta': float(-rng.uniform(0.05, 0.15) * vol_factor),
+            'vega':  float(rng.uniform(0.15, 0.35) * np.sqrt(vol_factor)),
         }
+
+    def _rng(self, symbol: str) -> Any:
+        if self.demo_seed is None:
+            return np.random
+        symbol_offset = sum((index + 1) * ord(char) for index, char in enumerate(symbol.upper()))
+        return np.random.default_rng(int(self.demo_seed) + symbol_offset)
