@@ -6,9 +6,9 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current main head before this session commit: `88abf38`
+Current main head before this session commit: `bc21727`
 
-Branch state before this session commit: `main...origin/main [ahead 2]`
+Branch state before this session commit: `main...origin/main [ahead 3]`
 
 ## Upgrade State
 
@@ -16,23 +16,23 @@ Phase 0-3 are complete.
 
 Phase 3: `27/27` complete.
 
-Phase 4: `8/27` complete.
+Phase 4: `13/27` complete.
 
 Completed this session:
-
-1. Relative value dashboard
-2. Cross-sectional vol map
-3. Earnings vol event engine
-4. Strategy builder
-5. Vol surface-aware strategy pricing
-
-Phase 4 next unchecked items:
 
 1. Scenario engine for strategies
 2. Portfolio upload/import
 3. Portfolio optimization
 4. Alerts system
 5. Watchlist presets
+
+Phase 4 next unchecked items:
+
+1. Saved workspaces
+2. Snapshot comparison
+3. Backtesting framework
+4. Transaction cost model
+5. Paper-trading simulator
 
 ## Latest Verification Pattern
 
@@ -46,7 +46,7 @@ $env:PYTHONPATH='.'; python scripts\healthcheck.py
 python diagnostic.py
 ```
 
-For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200. Latest smoke passed on port `8530`.
+For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200. Latest smoke passed on port `8531`.
 
 ## New Session Prompt
 

@@ -382,23 +382,23 @@ These are the "insane project" upgrades.
   - Price each leg using fitted IV for that strike/expiry instead of one flat IV.
   - Acceptance: strategy builder uses current surface interpolation.
 
-- [ ] Scenario engine for strategies.
+- [x] Scenario engine for strategies.
   - Axes: spot, time, vol shift, skew shift.
   - Acceptance: P&L heatmaps update from scenario inputs.
 
-- [ ] Portfolio upload/import.
+- [x] Portfolio upload/import.
   - Support CSV position import with symbol, expiry, strike, type, quantity, cost.
   - Acceptance: risk tab calculates aggregate Greeks and scenario P&L.
 
-- [ ] Portfolio optimization.
+- [x] Portfolio optimization.
   - Optimize hedges for delta-neutral, vega-neutral, theta target, or max loss constraint.
   - Acceptance: suggestions include contract, size, estimated cost, and trade-offs.
 
-- [ ] Alerts system.
+- [x] Alerts system.
   - Alerts: IV rank threshold, skew steepening, surface fit error, data stale, rich/cheap residual.
   - Acceptance: alerts can be configured and logged locally.
 
-- [ ] Watchlist presets.
+- [x] Watchlist presets.
   - Presets: mega-cap tech, indices, high beta, financials, earnings this week.
   - Acceptance: user can switch universes quickly.
 

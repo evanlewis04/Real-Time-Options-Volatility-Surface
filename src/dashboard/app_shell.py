@@ -151,8 +151,11 @@ def run_dashboard() -> None:
                 mode="Fallback",
             )
 
-        def get_portfolio_metrics(self):
+        def get_portfolio_metrics(self, position_csv=None):
             return {"configured": False, "message": "No position book configured"}
+
+        def get_portfolio_optimization(self, position_csv, objective: str = "delta-neutral", theta_target: float = 0.0):
+            return {"available": False, "reason": "No option-chain portfolio provider in fallback mode"}
 
         def get_correlation_matrix(self, symbols: Iterable[str], period: str = "6mo"):
             return pd.DataFrame()
@@ -175,6 +178,17 @@ def run_dashboard() -> None:
 
         def get_strategy_analytics(self, symbol: str, strategy_type: str):
             return {"available": False, "reason": "No option-chain strategy provider in fallback mode"}
+
+        def get_strategy_scenarios(self, symbol: str, strategy_type: str, **kwargs):
+            return {"available": False, "reason": "No option-chain strategy scenario provider in fallback mode"}
+
+        def get_surface_alerts(self, symbol: str, **kwargs):
+            return {"available": True, "configured": {}, "alert_count": 0, "alerts": []}
+
+        def get_watchlist_presets(self):
+            from src.quant.advanced_features import watchlist_presets
+
+            return watchlist_presets()
 
         def get_market_status(self):
             from src.data.market_calendar import MarketCalendar
@@ -278,6 +292,57 @@ def run_dashboard() -> None:
     def get_strategy_analytics_cached(symbol: str, strategy_type: str, data_key: Tuple[int, int, float, int, str, str]):
         return connector.get_strategy_analytics(symbol, strategy_type)
 
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_strategy_scenarios_cached(
+        symbol: str,
+        strategy_type: str,
+        spot_axis_key: Tuple[float, ...],
+        time_axis_key: Tuple[float, ...],
+        vol_axis_key: Tuple[float, ...],
+        skew_axis_key: Tuple[float, ...],
+        data_key: Tuple[int, int, float, int, str, str],
+    ):
+        return connector.get_strategy_scenarios(
+            symbol,
+            strategy_type,
+            spot_shifts=list(spot_axis_key),
+            time_pass_days=list(time_axis_key),
+            vol_shifts=list(vol_axis_key),
+            skew_shifts=list(skew_axis_key),
+        )
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_portfolio_metrics_cached(position_csv: bytes | None, data_key: Tuple[int, int, float, int, str, str]):
+        return connector.get_portfolio_metrics(position_csv)
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_portfolio_optimization_cached(
+        position_csv: bytes | None,
+        objective: str,
+        theta_target: float,
+        data_key: Tuple[int, int, float, int, str, str],
+    ):
+        return connector.get_portfolio_optimization(position_csv, objective, theta_target=theta_target)
+
+    @st.cache_data(ttl=120, show_spinner=False)
+    def get_surface_alerts_cached(
+        symbol: str,
+        config_key: Tuple[float, float, float, float, float],
+        data_key: Tuple[int, int, float, int, str, str],
+    ):
+        config = {
+            "iv_rank_threshold": config_key[0],
+            "skew_steepening_threshold": config_key[1],
+            "surface_fit_error_threshold": config_key[2],
+            "data_stale_minutes": config_key[3],
+            "rich_cheap_residual_threshold": config_key[4],
+        }
+        return connector.get_surface_alerts(symbol, config=config)
+
+    @st.cache_data(ttl=900, show_spinner=False)
+    def get_watchlist_presets_cached():
+        return connector.get_watchlist_presets()
+
 
     available_symbols = [
         "AAPL", "MSFT", "GOOGL", "META", "AMZN", "NVDA", "TSLA",
@@ -291,13 +356,23 @@ def run_dashboard() -> None:
         "XOM", "CVX", "COP", "V", "MA", "INTC", "IBM",
         "CSCO", "BABA", "NIO", "RIVN", "LCID", "SOFI", "HOOD", "DKNG",
     ]
+    watchlist_presets = get_watchlist_presets_cached()
 
     with st.sidebar:
         st.markdown("### Workspace")
+        preset_name = st.selectbox(
+            "Watchlist preset",
+            options=["Custom", *watchlist_presets.keys()],
+            index=1 if watchlist_presets else 0,
+            help=CONTROL_HELP["watchlist_preset"],
+        )
+        preset_symbols = watchlist_presets.get(preset_name, []) if preset_name != "Custom" else []
+        default_symbols = preset_symbols or ["AAPL", "MSFT", "TSLA", "NVDA", "SPY"]
+        universe_options = sorted({*available_symbols, *default_symbols})
         selected_symbols = st.multiselect(
             "Universe",
-            options=available_symbols,
-            default=["AAPL", "MSFT", "TSLA", "NVDA", "SPY"],
+            options=universe_options,
+            default=[symbol for symbol in default_symbols if symbol in universe_options],
             help=CONTROL_HELP["universe"],
         )
         show_3d_surface = st.checkbox("3D surface", value=True, help=CONTROL_HELP["show_3d_surface"])
@@ -2087,6 +2162,87 @@ def run_dashboard() -> None:
                 f"grid max profit {fmt_money(strategy.get('max_profit_100x'))}; "
                 f"grid max loss {fmt_money(strategy.get('max_loss_100x'))}."
             )
+            st.markdown('<div class="section-header">Strategy Scenario Engine</div>', unsafe_allow_html=True)
+            scenario_cols = st.columns(4)
+            with scenario_cols[0]:
+                spot_span = st.slider("Spot shock range", 0.02, 0.25, 0.10, 0.01, format="%.2f")
+            with scenario_cols[1]:
+                max_days_passed = st.slider("Time decay days", 1, 60, 30, 1)
+            with scenario_cols[2]:
+                vol_span = st.slider("Vol shock range", 0.01, 0.20, 0.05, 0.01, format="%.2f")
+            with scenario_cols[3]:
+                skew_span = st.slider("Skew shock range", 0.00, 0.12, 0.03, 0.01, format="%.2f")
+            spot_axis = tuple(round(x, 4) for x in np.linspace(-spot_span, spot_span, 5))
+            time_axis = tuple(round(x, 2) for x in np.linspace(0, max_days_passed, 4))
+            vol_axis = tuple(round(x, 4) for x in np.linspace(-vol_span, vol_span, 5))
+            skew_axis = tuple(round(x, 4) for x in (-skew_span, 0.0, skew_span))
+            scenarios = load_with_status(
+                st,
+                LoadingState(
+                    title=f"{surface_symbol} {strategy_type} scenarios",
+                    detail="Repricing strategy legs across spot, time, parallel-vol, and skew shocks.",
+                    stage="strategy scenarios",
+                    rows=5,
+                ),
+                lambda: get_strategy_scenarios_cached(
+                    surface_symbol,
+                    strategy_type,
+                    spot_axis,
+                    time_axis,
+                    vol_axis,
+                    skew_axis,
+                    data_key,
+                ),
+            )
+            if scenarios.get("available"):
+                heatmap_points = pd.DataFrame(scenarios.get("spot_vol_heatmap") or [])
+                if not heatmap_points.empty:
+                    heatmap = heatmap_points.pivot_table(
+                        index="vol_shift",
+                        columns="spot_shift",
+                        values="pnl_100x",
+                        aggfunc="mean",
+                    ).sort_index()
+                    fig_strategy_scenario = go.Figure(
+                        data=go.Heatmap(
+                            z=heatmap.values,
+                            x=[f"{value:.0%}" for value in heatmap.columns],
+                            y=[f"{value:.0%}" for value in heatmap.index],
+                            colorscale="RdYlGn",
+                            zmid=0,
+                            colorbar=dict(title="P&L"),
+                        )
+                    )
+                    fig_strategy_scenario.update_layout(
+                        title="Strategy P&L: Spot vs Vol",
+                        xaxis_title="Spot shock",
+                        yaxis_title="Vol shock",
+                    )
+                    st.plotly_chart(apply_chart_layout(fig_strategy_scenario, 420), width="stretch")
+                scenario_points = pd.DataFrame(scenarios.get("points") or [])
+                if not scenario_points.empty:
+                    st.dataframe(
+                        scenario_points.head(25),
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "spot_shift": st.column_config.NumberColumn("Spot Shift", format="%.2%"),
+                            "time_pass_days": st.column_config.NumberColumn("Days Passed", format="%.0f"),
+                            "vol_shift": st.column_config.NumberColumn("Vol Shift", format="%.2%"),
+                            "skew_shift": st.column_config.NumberColumn("Skew Shift", format="%.2%"),
+                            "shocked_spot": st.column_config.NumberColumn("Shocked Spot", format="$%.2f"),
+                            "pnl_100x": st.column_config.NumberColumn("P&L", format="$%.2f"),
+                        },
+                    )
+            else:
+                st.markdown(
+                    render_empty_state(
+                        "Strategy scenarios unavailable",
+                        scenarios.get("reason") or "Scenario repricing needs a priced strategy.",
+                        "Refresh data or choose another strategy template.",
+                    ),
+                    unsafe_allow_html=True,
+                )
         else:
             st.markdown(
                 render_empty_state(
@@ -2099,13 +2255,131 @@ def run_dashboard() -> None:
 
     with risk_tab:
         st.markdown('<div class="section-header">Portfolio And Cross-Asset Risk</div>', unsafe_allow_html=True)
-        portfolio = connector.get_portfolio_metrics()
+        portfolio_upload = st.file_uploader(
+            "Portfolio CSV",
+            type=["csv"],
+            help=CONTROL_HELP["portfolio_csv"],
+        )
+        portfolio_bytes = portfolio_upload.getvalue() if portfolio_upload is not None else None
+        portfolio = load_with_status(
+            st,
+            LoadingState(
+                title="Portfolio risk",
+                detail="Matching uploaded CSV positions to option-chain contracts and aggregating Greeks.",
+                stage="portfolio",
+                rows=4,
+            ),
+            lambda: get_portfolio_metrics_cached(portfolio_bytes, data_key),
+        )
         if not portfolio.get("configured"):
             st.markdown(
                 render_empty_state(
                     "Portfolio book unavailable",
                     "No configured positions. Portfolio P&L, VaR, Sharpe, and drawdown remain disabled.",
-                    "Use realized correlations here until position import is added.",
+                    "Upload a CSV with symbol, expiry, strike, type, quantity, and cost columns.",
+                ),
+                unsafe_allow_html=True,
+            )
+        elif portfolio.get("available"):
+            totals = portfolio.get("totals") or {}
+            portfolio_cols = st.columns(5)
+            portfolio_metrics = [
+                ("Market Value", fmt_money(totals.get("market_value_100x")), "100x"),
+                ("Unrealized P&L", fmt_money(totals.get("unrealized_pnl_100x")), "100x"),
+                ("Delta", _fmt_number(totals.get("delta_100x")), "100x"),
+                ("Theta/day", fmt_money(totals.get("theta_100x")), "100x"),
+                ("Vega/1%", fmt_money(totals.get("vega_100x")), "100x"),
+            ]
+            for col, (label, value, delta) in zip(portfolio_cols, portfolio_metrics):
+                with col:
+                    st.metric(label, value, delta=delta)
+            positions_frame = pd.DataFrame(portfolio.get("positions") or [])
+            if not positions_frame.empty:
+                st.dataframe(
+                    positions_frame,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "symbol": st.column_config.TextColumn("Symbol"),
+                        "contract": st.column_config.TextColumn("Contract"),
+                        "type": st.column_config.TextColumn("Type"),
+                        "expiration": st.column_config.TextColumn("Expiration"),
+                        "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
+                        "quantity": st.column_config.NumberColumn("Qty", format="%.0f"),
+                        "cost": st.column_config.NumberColumn("Cost", format="$%.2f"),
+                        "model_price": st.column_config.NumberColumn("Model Price", format="$%.2f"),
+                        "market_value_100x": st.column_config.NumberColumn("Market Value", format="$%.2f"),
+                        "unrealized_pnl_100x": st.column_config.NumberColumn("P&L", format="$%.2f"),
+                        "delta": st.column_config.NumberColumn("Delta", format="%.4f"),
+                        "theta": st.column_config.NumberColumn("Theta/day", format="$%.4f"),
+                        "vega": st.column_config.NumberColumn("Vega/1%", format="$%.4f"),
+                    },
+                )
+            scenario_frame = pd.DataFrame(portfolio.get("scenario_pnl") or [])
+            if not scenario_frame.empty:
+                scenario_grid = scenario_frame.pivot_table(
+                    index="vol_shift",
+                    columns="spot_shift",
+                    values="pnl_100x",
+                    aggfunc="mean",
+                ).sort_index()
+                fig_portfolio_scenario = go.Figure(
+                    data=go.Heatmap(
+                        z=scenario_grid.values,
+                        x=[f"{value:.0%}" for value in scenario_grid.columns],
+                        y=[f"{value:.0%}" for value in scenario_grid.index],
+                        colorscale="RdYlGn",
+                        zmid=0,
+                        colorbar=dict(title="P&L"),
+                    )
+                )
+                fig_portfolio_scenario.update_layout(
+                    title="Portfolio P&L: Spot vs Vol",
+                    xaxis_title="Spot shock",
+                    yaxis_title="Vol shock",
+                )
+                st.plotly_chart(apply_chart_layout(fig_portfolio_scenario, 420), width="stretch")
+            opt_cols = st.columns([2, 1])
+            with opt_cols[0]:
+                hedge_objective = st.selectbox(
+                    "Hedge objective",
+                    ["delta-neutral", "vega-neutral", "theta target", "max loss constraint"],
+                    index=0,
+                    help=CONTROL_HELP["hedge_objective"],
+                )
+            with opt_cols[1]:
+                theta_target = st.number_input("Theta target", value=0.0, step=10.0)
+            optimization = get_portfolio_optimization_cached(
+                portfolio_bytes,
+                hedge_objective,
+                float(theta_target),
+                data_key,
+            )
+            suggestions = pd.DataFrame(optimization.get("suggestions") or [])
+            if not suggestions.empty:
+                st.dataframe(
+                    suggestions,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "contract": st.column_config.TextColumn("Contract"),
+                        "symbol": st.column_config.TextColumn("Symbol"),
+                        "size": st.column_config.NumberColumn("Size", format="%.0f"),
+                        "estimated_cost": st.column_config.NumberColumn("Estimated Cost", format="$%.2f"),
+                        "post_trade_exposure": st.column_config.NumberColumn("Post Trade Exposure", format="%.2f"),
+                        "residual_exposure": st.column_config.NumberColumn("Residual", format="%.2f"),
+                        "trade_offs": st.column_config.TextColumn("Trade-offs"),
+                    },
+                )
+            unmatched = pd.DataFrame(portfolio.get("unmatched") or [])
+            if not unmatched.empty:
+                st.warning(f"{len(unmatched)} uploaded position(s) could not be matched.")
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Portfolio import unavailable",
+                    portfolio.get("reason") or "Uploaded CSV could not be parsed or matched.",
+                    "Check required columns and option identifiers.",
                 ),
                 unsafe_allow_html=True,
             )
@@ -2213,6 +2487,40 @@ def run_dashboard() -> None:
 
         st.markdown("#### Market Calendar")
         st.json({k: str(v) if isinstance(v, datetime) else v for k, v in market_status.items()})
+
+        st.markdown("#### Surface Alerts")
+        alert_cols = st.columns(5)
+        with alert_cols[0]:
+            iv_rank_threshold = st.slider("IV rank", 0.0, 1.0, 0.80, 0.05)
+        with alert_cols[1]:
+            skew_threshold = st.slider("Skew", 0.00, 0.20, 0.05, 0.01)
+        with alert_cols[2]:
+            fit_threshold = st.slider("Fit error", 0.00, 0.20, 0.03, 0.01)
+        with alert_cols[3]:
+            stale_threshold = st.slider("Stale min", 1, 240, 30, 1)
+        with alert_cols[4]:
+            residual_threshold = st.slider("Residual", 0.00, 0.50, 0.10, 0.01)
+        alerts_payload = get_surface_alerts_cached(
+            surface_symbol,
+            (
+                float(iv_rank_threshold),
+                float(skew_threshold),
+                float(fit_threshold),
+                float(stale_threshold),
+                float(residual_threshold),
+            ),
+            data_key,
+        )
+        alerts_frame = pd.DataFrame(alerts_payload.get("alerts") or [])
+        st.caption(
+            f"Alert source: {alerts_payload.get('source', 'local rules')}; "
+            f"logged to {alerts_payload.get('log_path') or 'disabled'}; "
+            f"active alerts {fmt_int(alerts_payload.get('alert_count'))}."
+        )
+        if alerts_frame.empty:
+            st.success("No configured alerts are active.")
+        else:
+            st.dataframe(alerts_frame, width="stretch", hide_index=True)
 
         st.markdown("#### Latest Surface Metadata")
         st.json({k: str(v) if isinstance(v, datetime) else v for k, v in surface_meta.items()})

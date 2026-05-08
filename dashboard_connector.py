@@ -32,7 +32,13 @@ from src.quant.advanced_features import (
     build_option_strategy,
     cross_sectional_vol_map,
     earnings_vol_event_engine,
+    evaluate_surface_alerts,
+    optimize_portfolio_hedges,
+    parse_portfolio_positions,
+    portfolio_risk_summary,
     relative_value_dashboard,
+    strategy_scenario_engine,
+    watchlist_presets,
 )
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
@@ -390,22 +396,45 @@ class DashboardConnector:
     # Portfolio and cross-asset summaries
     # ------------------------------------------------------------------
 
-    def get_portfolio_metrics(self) -> Dict[str, Any]:
-        """Return explicit empty-state portfolio metrics.
+    def get_portfolio_metrics(self, position_csv: Any | None = None) -> Dict[str, Any]:
+        """Price uploaded option positions and aggregate portfolio risk."""
+        if position_csv is None:
+            return {
+                "configured": False,
+                "message": "No position book configured",
+                "total_value": None,
+                "daily_pnl": None,
+                "var_95": None,
+                "sharpe_ratio": None,
+                "max_drawdown": None,
+                "volatility": None,
+            }
 
-        The project does not yet have a real position book, so the dashboard
-        should not show random VaR, Sharpe, or P&L as if they were live.
-        """
-        return {
-            "configured": False,
-            "message": "No position book configured",
-            "total_value": None,
-            "daily_pnl": None,
-            "var_95": None,
-            "sharpe_ratio": None,
-            "max_drawdown": None,
-            "volatility": None,
-        }
+        parsed = parse_portfolio_positions(position_csv)
+        if not parsed.get("available"):
+            return {
+                "configured": True,
+                "available": False,
+                "reason": parsed.get("reason"),
+                "parse_errors": parsed.get("errors") or [],
+                "positions": [],
+            }
+
+        market_data: Dict[str, Dict[str, Any]] = {}
+        grids: Dict[str, Tuple[Any, Any, Any]] = {}
+        for symbol in sorted({row["symbol"] for row in parsed.get("positions") or []}):
+            snapshot = self.get_market_data_snapshot(symbol)
+            market_data[symbol] = {"spot": snapshot.spot, "chain": snapshot.options_frame()}
+            grids[symbol] = self.surface_grids.get(symbol, (None, None, None))
+            if grids[symbol][0] is None:
+                try:
+                    grids[symbol] = self.get_vol_surface_data(symbol)
+                except Exception:
+                    logger.debug("Portfolio surface grid unavailable for %s", symbol)
+
+        summary = portfolio_risk_summary(parsed.get("positions") or [], market_data, surface_grids=grids)
+        summary["parse_errors"] = parsed.get("errors") or []
+        return summary
 
     def get_correlation_matrix(self, symbols: Optional[Iterable[str]] = None, period: str = "6mo") -> pd.DataFrame:
         """Calculate realized-return correlations from historical closes."""
@@ -477,6 +506,71 @@ class DashboardConnector:
             expiry_grid=expiries,
             surface=vols,
         )
+
+    def get_strategy_scenarios(
+        self,
+        symbol: str,
+        strategy_type: str,
+        *,
+        spot_shifts: list[float] | None = None,
+        time_pass_days: list[float] | None = None,
+        vol_shifts: list[float] | None = None,
+        skew_shifts: list[float] | None = None,
+    ) -> Dict[str, Any]:
+        """Return strategy P&L scenario grids for the selected template."""
+        strategy = self.get_strategy_analytics(symbol, strategy_type)
+        spot = self.get_market_data_snapshot(symbol).spot
+        return strategy_scenario_engine(
+            strategy,
+            spot,
+            spot_shifts=spot_shifts,
+            time_pass_days=time_pass_days,
+            vol_shifts=vol_shifts,
+            skew_shifts=skew_shifts,
+        )
+
+    def get_portfolio_optimization(
+        self,
+        position_csv: Any | None,
+        objective: str = "delta-neutral",
+        *,
+        theta_target: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Return hedge suggestions for an uploaded portfolio."""
+        portfolio = self.get_portfolio_metrics(position_csv)
+        return optimize_portfolio_hedges(portfolio, objective=objective, theta_target=theta_target)
+
+    def get_surface_alerts(
+        self,
+        symbol: str,
+        *,
+        config: Dict[str, Any] | None = None,
+        log_path: str | Path | None = "data/alerts/surface_alerts.jsonl",
+    ) -> Dict[str, Any]:
+        """Evaluate and locally log configured surface alerts."""
+        key = symbol.upper()
+        if key not in self.surface_metadata:
+            try:
+                self.get_vol_surface_data(key)
+            except Exception:
+                logger.debug("Surface metadata unavailable before alert evaluation for %s", key)
+        return evaluate_surface_alerts(
+            key,
+            self.surface_metadata.get(key, {}),
+            self.get_current_data(key),
+            config=config,
+            log_path=log_path,
+        )
+
+    def get_watchlist_presets(self) -> Dict[str, List[str]]:
+        """Return predefined watchlist universes."""
+        events = []
+        for symbol in ("AAPL", "MSFT", "GOOGL", "META", "AMZN", "NVDA", "TSLA", "SPY", "QQQ"):
+            try:
+                events.extend((self.event_provider.get(symbol).metadata_dict()).get("events") or [])
+            except Exception:
+                logger.debug("Watchlist event lookup failed for %s", symbol)
+        return watchlist_presets(events)
 
     def _advanced_symbol_profile(self, symbol: str) -> Dict[str, Any]:
         key = symbol.upper()

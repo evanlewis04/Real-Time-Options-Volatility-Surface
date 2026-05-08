@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
+import json
+from datetime import date, datetime
+from io import StringIO
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -250,6 +253,426 @@ def price_option_strategy(
     }
 
 
+def strategy_scenario_engine(
+    strategy: dict[str, Any],
+    spot: float,
+    *,
+    spot_shifts: list[float] | tuple[float, ...] | None = None,
+    time_pass_days: list[float] | tuple[float, ...] | None = None,
+    vol_shifts: list[float] | tuple[float, ...] | None = None,
+    skew_shifts: list[float] | tuple[float, ...] | None = None,
+) -> dict[str, Any]:
+    """Reprice a strategy across spot, time, parallel-vol, and skew shocks."""
+    if not strategy.get("available"):
+        return _unavailable(strategy.get("reason") or "Strategy is unavailable")
+    legs = [dict(item) for item in strategy.get("legs") or []]
+    if not legs:
+        return _unavailable("Strategy has no priced legs")
+    if not _is_finite(spot) or spot <= 0.0:
+        return _unavailable("Scenario spot must be positive")
+
+    spot_axis = tuple(float(v) for v in (spot_shifts or (-0.10, -0.05, 0.0, 0.05, 0.10)))
+    time_axis = tuple(float(v) for v in (time_pass_days or (0.0, 7.0, 14.0, 30.0)))
+    vol_axis = tuple(float(v) for v in (vol_shifts or (-0.05, 0.0, 0.05)))
+    skew_axis = tuple(float(v) for v in (skew_shifts or (-0.03, 0.0, 0.03)))
+    base_value = _strategy_value(legs, float(spot), time_pass=0.0, vol_shift=0.0, skew_shift=0.0)
+
+    points = []
+    for spot_shift in spot_axis:
+        shocked_spot = float(spot) * (1.0 + spot_shift)
+        if shocked_spot <= 0.0:
+            continue
+        for time_pass in time_axis:
+            for vol_shift in vol_axis:
+                for skew_shift in skew_axis:
+                    value = _strategy_value(
+                        legs,
+                        shocked_spot,
+                        time_pass=time_pass,
+                        vol_shift=vol_shift,
+                        skew_shift=skew_shift,
+                        base_spot=float(spot),
+                    )
+                    pnl = value - base_value
+                    points.append(
+                        {
+                            "spot_shift": spot_shift,
+                            "time_pass_days": time_pass,
+                            "vol_shift": vol_shift,
+                            "skew_shift": skew_shift,
+                            "shocked_spot": shocked_spot,
+                            "value": value,
+                            "pnl": pnl,
+                            "pnl_100x": pnl * CONTRACT_MULTIPLIER,
+                        }
+                    )
+
+    neutral_skew = min(skew_axis, key=abs)
+    neutral_time = min(time_axis, key=abs)
+    neutral_vol = min(vol_axis, key=abs)
+    return {
+        "available": bool(points),
+        "source": "black_scholes_strategy_repricing",
+        "base_value": base_value,
+        "base_value_100x": base_value * CONTRACT_MULTIPLIER,
+        "axes": {
+            "spot_shifts": list(spot_axis),
+            "time_pass_days": list(time_axis),
+            "vol_shifts": list(vol_axis),
+            "skew_shifts": list(skew_axis),
+        },
+        "points": points,
+        "spot_vol_heatmap": [
+            row
+            for row in points
+            if row["time_pass_days"] == neutral_time and row["skew_shift"] == neutral_skew
+        ],
+        "spot_time_heatmap": [
+            row
+            for row in points
+            if row["vol_shift"] == neutral_vol and row["skew_shift"] == neutral_skew
+        ],
+    }
+
+
+def parse_portfolio_positions(csv_input: Any) -> dict[str, Any]:
+    """Parse a CSV option-position upload with deterministic validation."""
+    if csv_input is None:
+        return _unavailable("No CSV content provided")
+    if isinstance(csv_input, pd.DataFrame):
+        frame = csv_input.copy()
+    else:
+        text = csv_input.decode("utf-8-sig") if isinstance(csv_input, bytes) else str(csv_input)
+        frame = pd.read_csv(StringIO(text))
+
+    rename = {str(column).strip().lower(): column for column in frame.columns}
+    required = ("symbol", "expiry", "strike", "type", "quantity", "cost")
+    missing = [name for name in required if name not in rename]
+    if missing:
+        return _unavailable(f"Missing required columns: {', '.join(missing)}")
+
+    out = pd.DataFrame({name: frame[rename[name]] for name in required})
+    out["symbol"] = out["symbol"].astype(str).str.strip().str.upper()
+    out["expiry"] = pd.to_datetime(out["expiry"], errors="coerce").dt.date
+    out["strike"] = pd.to_numeric(out["strike"], errors="coerce")
+    out["type"] = out["type"].astype(str).str.strip().str.lower()
+    out["quantity"] = pd.to_numeric(out["quantity"], errors="coerce")
+    out["cost"] = pd.to_numeric(out["cost"], errors="coerce")
+    valid_type = out["type"].isin({"call", "put"})
+    valid = (
+        out["symbol"].ne("")
+        & out["expiry"].notna()
+        & out["strike"].gt(0.0)
+        & valid_type
+        & out["quantity"].notna()
+        & out["cost"].notna()
+    )
+    errors = []
+    for index, row in out[~valid].iterrows():
+        reasons = []
+        if not row["symbol"]:
+            reasons.append("symbol")
+        if pd.isna(row["expiry"]):
+            reasons.append("expiry")
+        if not _is_finite(row["strike"]) or row["strike"] <= 0.0:
+            reasons.append("strike")
+        if row["type"] not in {"call", "put"}:
+            reasons.append("type")
+        if not _is_finite(row["quantity"]):
+            reasons.append("quantity")
+        if not _is_finite(row["cost"]):
+            reasons.append("cost")
+        errors.append({"row": int(index) + 2, "fields": reasons})
+    clean = out[valid].reset_index(drop=True)
+    return {
+        "available": not clean.empty,
+        "source": "csv_upload",
+        "position_count": int(len(clean)),
+        "errors": errors,
+        "positions": clean.to_dict("records"),
+    }
+
+
+def portfolio_risk_summary(
+    positions: list[dict[str, Any]],
+    market_data: dict[str, dict[str, Any]],
+    *,
+    surface_grids: dict[str, tuple[Any, Any, Any]] | None = None,
+    scenario_spot_shifts: list[float] | tuple[float, ...] | None = None,
+    scenario_vol_shifts: list[float] | tuple[float, ...] | None = None,
+) -> dict[str, Any]:
+    """Price uploaded positions, aggregate Greeks, and run portfolio scenarios."""
+    surface_grids = surface_grids or {}
+    priced = []
+    unmatched = []
+    for position in positions:
+        symbol = str(position.get("symbol", "")).upper()
+        payload = market_data.get(symbol) or {}
+        chain = payload.get("chain")
+        spot = _finite_or_none(payload.get("spot"))
+        if not isinstance(chain, pd.DataFrame) or chain.empty or spot is None:
+            unmatched.append({**position, "reason": "missing market data"})
+            continue
+        prepared = _prepared_chain(chain)
+        row = _match_leg(
+            prepared,
+            {
+                "type": position.get("type"),
+                "expiration": position.get("expiry") or position.get("expiration"),
+                "strike": position.get("strike"),
+                "quantity": position.get("quantity", 1.0),
+            },
+        )
+        if row is None:
+            unmatched.append({**position, "reason": "contract not found"})
+            continue
+        strike_grid, expiry_grid, surface = surface_grids.get(symbol, (None, None, None))
+        priced_leg = _price_leg(row, spot, position, strike_grid, expiry_grid, surface)
+        if not priced_leg:
+            unmatched.append({**position, "reason": "contract could not be priced"})
+            continue
+        quantity = float(position.get("quantity", 0.0))
+        cost = float(position.get("cost", 0.0))
+        priced.append(
+            {
+                **priced_leg,
+                "symbol": symbol,
+                "spot": spot,
+                "quantity": quantity,
+                "cost": cost,
+                "market_value_100x": quantity * priced_leg["model_price"] * CONTRACT_MULTIPLIER,
+                "cost_basis_100x": quantity * cost * CONTRACT_MULTIPLIER,
+                "unrealized_pnl_100x": quantity * (priced_leg["model_price"] - cost) * CONTRACT_MULTIPLIER,
+            }
+        )
+
+    if not priced:
+        return {
+            "configured": bool(positions),
+            "available": False,
+            "reason": "No uploaded positions could be matched to market data",
+            "positions": [],
+            "unmatched": unmatched,
+        }
+
+    totals = _aggregate_position_greeks(priced)
+    scenarios = _portfolio_scenarios(
+        priced,
+        scenario_spot_shifts or (-0.05, 0.0, 0.05),
+        scenario_vol_shifts or (-0.03, 0.0, 0.03),
+    )
+    return {
+        "configured": True,
+        "available": True,
+        "source": "csv_upload_plus_option_chain",
+        "position_count": len(priced),
+        "unmatched_count": len(unmatched),
+        "positions": priced,
+        "unmatched": unmatched,
+        "totals": totals,
+        "scenario_pnl": scenarios,
+        "total_value": totals["market_value_100x"],
+        "daily_pnl": totals["unrealized_pnl_100x"],
+        "var_95": abs(min((row["pnl_100x"] for row in scenarios), default=0.0)),
+        "sharpe_ratio": None,
+        "max_drawdown": None,
+        "volatility": None,
+    }
+
+
+def optimize_portfolio_hedges(
+    portfolio: dict[str, Any],
+    *,
+    objective: str = "delta-neutral",
+    theta_target: float = 0.0,
+    max_contracts: int = 10,
+) -> dict[str, Any]:
+    """Suggest simple hedge trades using currently priced portfolio contracts."""
+    if not portfolio.get("available"):
+        return _unavailable(portfolio.get("reason") or "Portfolio is unavailable")
+    positions = portfolio.get("positions") or []
+    totals = portfolio.get("totals") or {}
+    objective_key = str(objective or "delta-neutral").strip().lower()
+    if objective_key == "max loss constraint":
+        worst = min((float(row.get("pnl_100x") or 0.0) for row in portfolio.get("scenario_pnl") or []), default=0.0)
+        candidates = []
+        for contract in positions:
+            gamma = abs(float(contract.get("gamma") or 0.0)) * CONTRACT_MULTIPLIER
+            vega = max(float(contract.get("vega") or 0.0), 0.0) * CONTRACT_MULTIPLIER
+            protection_score = gamma + vega
+            size = 1 if float(contract.get("quantity") or 0.0) <= 0.0 else -1
+            estimated_cost = size * float(contract.get("model_price") or 0.0) * CONTRACT_MULTIPLIER
+            candidates.append(
+                {
+                    "contract": contract.get("contract"),
+                    "symbol": contract.get("symbol"),
+                    "type": contract.get("type"),
+                    "expiration": contract.get("expiration"),
+                    "strike": contract.get("strike"),
+                    "size": size,
+                    "estimated_cost": estimated_cost,
+                    "objective": objective_key,
+                    "current_exposure": worst,
+                    "post_trade_exposure": worst - abs(estimated_cost),
+                    "target_exposure": 0.0,
+                    "residual_exposure": abs(worst - abs(estimated_cost)) / max(protection_score, 1e-9),
+                    "trade_offs": "Ranks listed contracts by convexity and vega protection; premium, liquidity, and basis risk remain explicit trade-offs.",
+                }
+            )
+        candidates = sorted(candidates, key=lambda item: (item["residual_exposure"], abs(item["estimated_cost"])))
+        return {
+            "available": bool(candidates),
+            "source": "deterministic_max_loss_hedge_scan",
+            "objective": objective_key,
+            "suggestions": candidates[:5],
+        }
+
+    target_map = {
+        "delta-neutral": ("delta_100x", 0.0),
+        "vega-neutral": ("vega_100x", 0.0),
+        "theta target": ("theta_100x", float(theta_target)),
+    }
+    metric, target = target_map.get(objective_key, target_map["delta-neutral"])
+    current = float(totals.get(metric) or 0.0)
+    candidates = []
+    for contract in positions:
+        exposure = float(contract.get(metric.replace("_100x", "")) or 0.0) * CONTRACT_MULTIPLIER
+        if abs(exposure) <= 1e-9:
+            continue
+        raw_size = (target - current) / exposure
+        size = int(np.clip(np.round(raw_size), -max_contracts, max_contracts))
+        if size == 0:
+            size = 1 if raw_size > 0 else -1
+        residual = current + size * exposure - target
+        estimated_cost = size * float(contract.get("model_price") or 0.0) * CONTRACT_MULTIPLIER
+        candidates.append(
+            {
+                "contract": contract.get("contract"),
+                "symbol": contract.get("symbol"),
+                "type": contract.get("type"),
+                "expiration": contract.get("expiration"),
+                "strike": contract.get("strike"),
+                "size": size,
+                "estimated_cost": estimated_cost,
+                "objective": objective_key,
+                "current_exposure": current,
+                "post_trade_exposure": current + size * exposure,
+                "target_exposure": target,
+                "residual_exposure": residual,
+                "trade_offs": _hedge_tradeoffs(contract, metric),
+            }
+        )
+    candidates = sorted(candidates, key=lambda item: (abs(item["residual_exposure"]), abs(item["estimated_cost"])))
+    return {
+        "available": bool(candidates),
+        "source": "deterministic_single_contract_hedge_scan",
+        "objective": objective_key,
+        "suggestions": candidates[:5],
+    }
+
+
+def evaluate_surface_alerts(
+    symbol: str,
+    metadata: dict[str, Any],
+    current: dict[str, Any] | None = None,
+    *,
+    config: dict[str, Any] | None = None,
+    log_path: str | Path | None = None,
+    timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    """Evaluate configurable local alerts and optionally append JSONL records."""
+    cfg = {
+        "iv_rank_threshold": 0.80,
+        "skew_steepening_threshold": 0.05,
+        "surface_fit_error_threshold": 0.03,
+        "data_stale_minutes": 30,
+        "rich_cheap_residual_threshold": 0.10,
+    }
+    cfg.update(config or {})
+    current = current or {}
+    alerts = []
+    key = symbol.upper()
+    ts = timestamp or datetime.utcnow()
+
+    def add(kind: str, severity: str, message: str, value: Any, threshold: Any) -> None:
+        alerts.append(
+            {
+                "timestamp": ts.isoformat(),
+                "symbol": key,
+                "alert_type": kind,
+                "severity": severity,
+                "message": message,
+                "value": _finite_or_none(value),
+                "threshold": threshold,
+            }
+        )
+
+    iv_rank = _finite_or_none(metadata.get("iv_rank"))
+    if iv_rank is not None and iv_rank >= float(cfg["iv_rank_threshold"]):
+        add("iv_rank_threshold", "warning", "IV rank is above configured threshold", iv_rank, cfg["iv_rank_threshold"])
+
+    skew = _finite_or_none(metadata.get("front_risk_reversal_25d"))
+    if skew is not None and abs(skew) >= float(cfg["skew_steepening_threshold"]):
+        add("skew_steepening", "warning", "Front 25-delta skew is steepening", skew, cfg["skew_steepening_threshold"])
+
+    fit_error = _first_finite(metadata, "svi_rmse", "ssvi_rmse", "surface_fit_rmse")
+    if fit_error is not None and fit_error >= float(cfg["surface_fit_error_threshold"]):
+        add("surface_fit_error", "critical", "Surface fit error exceeds configured tolerance", fit_error, cfg["surface_fit_error_threshold"])
+
+    delay = _finite_or_none(current.get("data_delay_minutes") or metadata.get("data_delay_minutes"))
+    if delay is not None and delay >= float(cfg["data_stale_minutes"]):
+        add("data_stale", "warning", "Market data delay exceeds configured threshold", delay, cfg["data_stale_minutes"])
+
+    scanner = metadata.get("rich_cheap_scanner") or {}
+    candidates = scanner.get("candidates") or []
+    if candidates:
+        max_abs = max(abs(float(item.get("residual") or 0.0)) for item in candidates)
+    else:
+        max_abs = _finite_or_none(metadata.get("rich_cheap_max_abs_residual")) or 0.0
+    if max_abs >= float(cfg["rich_cheap_residual_threshold"]):
+        add("rich_cheap_residual", "info", "Rich/cheap residual exceeds configured threshold", max_abs, cfg["rich_cheap_residual_threshold"])
+
+    if log_path is not None and alerts:
+        path = Path(log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            for alert in alerts:
+                handle.write(json.dumps(alert, sort_keys=True) + "\n")
+
+    return {
+        "available": True,
+        "source": "local_surface_alert_rules",
+        "configured": cfg,
+        "alert_count": len(alerts),
+        "alerts": alerts,
+        "log_path": str(log_path) if log_path is not None else None,
+    }
+
+
+def watchlist_presets(events: list[dict[str, Any]] | None = None, *, as_of: date | None = None) -> dict[str, list[str]]:
+    """Return deterministic dashboard watchlist presets."""
+    presets = {
+        "Mega-cap tech": ["AAPL", "MSFT", "GOOGL", "META", "AMZN", "NVDA", "TSLA"],
+        "Indices": ["SPY", "QQQ", "IWM", "VTI"],
+        "High beta": ["TSLA", "AMD", "NVDA", "PLTR", "COIN", "SOFI", "HOOD", "DKNG"],
+        "Financials": ["JPM", "BAC", "WFC", "GS", "V", "MA"],
+        "Earnings this week": [],
+    }
+    today = as_of or date.today()
+    horizon = (pd.Timestamp(today) + pd.Timedelta(days=7)).date()
+    earnings = []
+    for event in events or []:
+        if str(event.get("event_type", "")).lower() != "earnings":
+            continue
+        event_date = pd.to_datetime(event.get("event_date"), errors="coerce")
+        if pd.isna(event_date):
+            continue
+        if today <= event_date.date() <= horizon:
+            earnings.append(str(event.get("symbol", "")).upper())
+    presets["Earnings this week"] = sorted({symbol for symbol in earnings if symbol})
+    return presets
+
+
 def _vol_profile(row: dict[str, Any]) -> dict[str, Any]:
     symbol = str(row.get("symbol") or row.get("Symbol") or "").upper()
     if not symbol:
@@ -463,6 +886,8 @@ def _price_leg(
         "pricing_iv": float(iv),
         "model_price": float(model_price),
         "market_price": market_price,
+        "risk_free_rate": rate,
+        "dividend_yield": dividend,
         "delta": float(OptionGreeks.delta(spot, strike, t, rate, iv, option_type, dividend)),
         "gamma": float(OptionGreeks.gamma(spot, strike, t, rate, iv, dividend)),
         "theta": float(OptionGreeks.theta(spot, strike, t, rate, iv, option_type, dividend)),
@@ -492,6 +917,121 @@ def _strategy_payoff(legs: list[dict[str, Any]], spot: float, net_debit: float) 
         "max_profit_100x": float(np.max(pnl_values) * CONTRACT_MULTIPLIER),
         "max_loss_100x": float(np.min(pnl_values) * CONTRACT_MULTIPLIER),
     }
+
+
+def _strategy_value(
+    legs: list[dict[str, Any]],
+    shocked_spot: float,
+    *,
+    time_pass: float,
+    vol_shift: float,
+    skew_shift: float,
+    base_spot: float | None = None,
+) -> float:
+    value = 0.0
+    reference_spot = base_spot or shocked_spot
+    for leg in legs:
+        strike = float(leg["strike"])
+        dte = max(float(leg.get("dte") or 0.0) - float(time_pass), 0.0)
+        t = dte / 365.0
+        option_type = str(leg.get("type", "")).lower()
+        quantity = float(leg.get("quantity") or 0.0)
+        if t <= 0.0:
+            price = max(shocked_spot - strike, 0.0) if option_type == "call" else max(strike - shocked_spot, 0.0)
+        else:
+            base_iv = float(leg.get("pricing_iv") or leg.get("surface_iv") or 0.0)
+            log_money = np.log(strike / reference_spot) if reference_spot > 0 else 0.0
+            skew_adjustment = -float(skew_shift) * float(np.clip(log_money, -0.30, 0.30)) / 0.30
+            iv = max(0.01, min(5.0, base_iv + float(vol_shift) + skew_adjustment))
+            rate = float(leg.get("risk_free_rate") or leg.get("riskFreeRate") or 0.0)
+            dividend = float(leg.get("dividend_yield") or leg.get("effectiveDividendYield") or 0.0)
+            price = BlackScholesModel.option_price(shocked_spot, strike, t, rate, iv, option_type, dividend)
+        value += quantity * price
+    return float(value)
+
+
+def _aggregate_position_greeks(positions: list[dict[str, Any]]) -> dict[str, float]:
+    totals = {
+        "market_value_100x": 0.0,
+        "cost_basis_100x": 0.0,
+        "unrealized_pnl_100x": 0.0,
+        "delta_100x": 0.0,
+        "gamma_100x": 0.0,
+        "theta_100x": 0.0,
+        "vega_100x": 0.0,
+    }
+    for position in positions:
+        quantity = float(position.get("quantity") or 0.0)
+        totals["market_value_100x"] += float(position.get("market_value_100x") or 0.0)
+        totals["cost_basis_100x"] += float(position.get("cost_basis_100x") or 0.0)
+        totals["unrealized_pnl_100x"] += float(position.get("unrealized_pnl_100x") or 0.0)
+        for greek in ("delta", "gamma", "theta", "vega"):
+            totals[f"{greek}_100x"] += quantity * float(position.get(greek) or 0.0) * CONTRACT_MULTIPLIER
+    return {key: float(value) for key, value in totals.items()}
+
+
+def _portfolio_scenarios(
+    positions: list[dict[str, Any]],
+    spot_shifts: list[float] | tuple[float, ...],
+    vol_shifts: list[float] | tuple[float, ...],
+) -> list[dict[str, Any]]:
+    rows = []
+    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for position in positions:
+        by_symbol.setdefault(str(position.get("symbol", "")).upper(), []).append(position)
+
+    for spot_shift in spot_shifts:
+        for vol_shift in vol_shifts:
+            pnl = 0.0
+            for symbol_positions in by_symbol.values():
+                if not symbol_positions:
+                    continue
+                reference_spot = _infer_symbol_spot(symbol_positions)
+                for position in symbol_positions:
+                    shocked_spot = reference_spot * (1.0 + float(spot_shift))
+                    current = float(position.get("model_price") or 0.0)
+                    unit_position = {**position, "quantity": 1.0}
+                    shocked = _strategy_value(
+                        [unit_position],
+                        shocked_spot,
+                        time_pass=0.0,
+                        vol_shift=float(vol_shift),
+                        skew_shift=0.0,
+                        base_spot=reference_spot,
+                    )
+                    quantity = float(position.get("quantity") or 0.0)
+                    pnl += quantity * (shocked - current) * CONTRACT_MULTIPLIER
+            rows.append(
+                {
+                    "spot_shift": float(spot_shift),
+                    "vol_shift": float(vol_shift),
+                    "pnl_100x": float(pnl),
+                }
+            )
+    return rows
+
+
+def _infer_symbol_spot(positions: list[dict[str, Any]]) -> float:
+    spots = [float(item.get("spot") or 0.0) for item in positions if _is_finite(item.get("spot"))]
+    if spots:
+        return float(np.median(spots))
+    strikes = [float(item.get("strike") or 0.0) for item in positions if _is_finite(item.get("strike"))]
+    if not strikes:
+        return 100.0
+    return float(np.median(strikes))
+
+
+def _hedge_tradeoffs(contract: dict[str, Any], metric: str) -> str:
+    greek = metric.replace("_100x", "")
+    offset = {
+        "delta": "directional exposure",
+        "vega": "volatility exposure",
+        "theta": "daily carry",
+    }.get(greek, "target exposure")
+    return (
+        f"Uses the listed {contract.get('type')} as a single-contract hedge for {offset}; "
+        "residual risk remains in gamma, skew, liquidity, and expiry basis."
+    )
 
 
 def _breakevens(rows: list[dict[str, float]]) -> list[float]:

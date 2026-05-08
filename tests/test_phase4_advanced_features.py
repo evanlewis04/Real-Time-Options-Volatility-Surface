@@ -7,8 +7,14 @@ from src.quant.advanced_features import (
     build_option_strategy,
     cross_sectional_vol_map,
     earnings_vol_event_engine,
+    evaluate_surface_alerts,
+    optimize_portfolio_hedges,
+    parse_portfolio_positions,
+    portfolio_risk_summary,
     relative_value_dashboard,
+    strategy_scenario_engine,
     surface_iv_for_contract,
+    watchlist_presets,
 )
 
 
@@ -133,3 +139,71 @@ def test_surface_iv_interpolation_and_strategy_pricing_use_fitted_surface():
     assert strategy["greeks"]["vega"] > 0.0
     assert len(strategy["breakevens"]) == 2
     assert strategy["max_profit_100x"] > strategy["max_loss_100x"]
+
+
+def test_strategy_scenario_engine_returns_spot_vol_and_time_axes():
+    strategy = build_option_strategy(_strategy_chain(), 100.0, "straddle")
+
+    scenarios = strategy_scenario_engine(
+        strategy,
+        100.0,
+        spot_shifts=[-0.05, 0.0, 0.05],
+        time_pass_days=[0.0, 7.0],
+        vol_shifts=[-0.02, 0.0, 0.02],
+        skew_shifts=[0.0],
+    )
+
+    assert scenarios["available"] is True
+    assert scenarios["axes"]["spot_shifts"] == [-0.05, 0.0, 0.05]
+    assert len(scenarios["points"]) == 18
+    assert len(scenarios["spot_vol_heatmap"]) == 9
+    assert any(row["pnl_100x"] > 0.0 for row in scenarios["spot_vol_heatmap"])
+
+
+def test_portfolio_import_risk_and_optimization_are_deterministic():
+    parsed = parse_portfolio_positions(
+        "symbol,expiry,strike,type,quantity,cost\n"
+        "AAPL,2026-06-19,100,call,2,4.50\n"
+        "AAPL,2026-06-19,90,put,-1,2.00\n"
+    )
+    market = {"AAPL": {"spot": 100.0, "chain": _strategy_chain()}}
+
+    portfolio = portfolio_risk_summary(parsed["positions"], market)
+    optimization = optimize_portfolio_hedges(portfolio, objective="delta-neutral")
+    max_loss = optimize_portfolio_hedges(portfolio, objective="max loss constraint")
+
+    assert parsed["available"] is True
+    assert portfolio["available"] is True
+    assert portfolio["totals"]["market_value_100x"] > 0.0
+    assert portfolio["totals"]["delta_100x"] != 0.0
+    assert len(portfolio["scenario_pnl"]) == 9
+    assert optimization["available"] is True
+    assert {"contract", "size", "estimated_cost", "trade_offs"}.issubset(optimization["suggestions"][0])
+    assert max_loss["available"] is True
+    assert max_loss["objective"] == "max loss constraint"
+
+
+def test_alerts_log_locally_and_watchlist_presets_include_events(tmp_path):
+    log_path = tmp_path / "alerts.jsonl"
+
+    alerts = evaluate_surface_alerts(
+        "AAPL",
+        {
+            "iv_rank": 0.91,
+            "front_risk_reversal_25d": -0.08,
+            "svi_rmse": 0.05,
+            "rich_cheap_scanner": {"candidates": [{"residual": -0.14}]},
+        },
+        {"data_delay_minutes": 45},
+        log_path=log_path,
+        timestamp=pd.Timestamp("2026-05-07T12:00:00").to_pydatetime(),
+    )
+    presets = watchlist_presets(
+        [{"symbol": "AAPL", "event_type": "earnings", "event_date": "2026-05-09"}],
+        as_of=pd.Timestamp("2026-05-07").date(),
+    )
+
+    assert alerts["alert_count"] == 5
+    assert log_path.read_text(encoding="utf-8").count("\n") == 5
+    assert presets["Mega-cap tech"][:2] == ["AAPL", "MSFT"]
+    assert presets["Earnings this week"] == ["AAPL"]

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 CONTROL_HELP = {
     "universe": "Symbols used for market table, correlation, and comparison panels.",
+    "watchlist_preset": "Predefined symbol universes for quick workspace switching.",
     "primary_underlying": "Underlying used for surface, chain, skew, and term views.",
     "show_3d_surface": "Toggle the 3D annualized-IV surface.",
     "surface_x_axis": "Surface coordinate: strike, spot moneyness, log spot moneyness, or model call delta.",
@@ -18,6 +19,8 @@ CONTROL_HELP = {
     "max_quote_age_days": "Maximum quote age for rows with provider timestamps; untimestamped rows are kept.",
     "option_price_source": "Market price used to recompute IV for surface construction.",
     "pricing_model": "Pricing model used for contract prices, residuals, and Greeks.",
+    "portfolio_csv": "CSV import with symbol, expiry, strike, type, quantity, and cost columns.",
+    "hedge_objective": "Portfolio optimization target used to rank deterministic hedge suggestions.",
     "show_advanced_greeks": "Show contract-level second-order Greek sensitivities in a separate table.",
 }
 
