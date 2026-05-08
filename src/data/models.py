@@ -94,6 +94,11 @@ class OptionQuote:
     moneyness: Optional[float] = None
     bid_ask_spread: Optional[float] = None
     bid_ask_spread_pct: Optional[float] = None
+    quote_reliability_score: Optional[float] = None
+    fit_weight: Optional[float] = None
+    fit_penalty_reasons: Optional[str] = None
+    fit_hard_rejection_reasons: Optional[str] = None
+    fit_eligible: Optional[bool] = None
 
     @classmethod
     def from_series(cls, row: pd.Series) -> "OptionQuote":
@@ -181,6 +186,11 @@ class OptionQuote:
             moneyness=_float_or_none(row.get("moneyness")),
             bid_ask_spread=_float_or_none(row.get("bidAskSpread")),
             bid_ask_spread_pct=_float_or_none(row.get("bidAskSpreadPct")),
+            quote_reliability_score=_float_or_none(row.get("quoteReliabilityScore")),
+            fit_weight=_float_or_none(row.get("fitWeight")),
+            fit_penalty_reasons=_str_or_none(row.get("fitPenaltyReasons")),
+            fit_hard_rejection_reasons=_str_or_none(row.get("fitHardRejectionReasons")),
+            fit_eligible=_bool_or_none(row.get("fitEligible")),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -263,6 +273,11 @@ class OptionQuote:
             "quoteQuality": self.quote_quality,
             "bidAskSpread": self.bid_ask_spread,
             "bidAskSpreadPct": self.bid_ask_spread_pct,
+            "quoteReliabilityScore": self.quote_reliability_score,
+            "fitWeight": self.fit_weight,
+            "fitPenaltyReasons": self.fit_penalty_reasons,
+            "fitHardRejectionReasons": self.fit_hard_rejection_reasons,
+            "fitEligible": self.fit_eligible,
             "time_to_expiry": self.dte / 365.0 if self.dte else np.nan,
         }
 
@@ -347,6 +362,10 @@ class MarketDataSnapshot:
     quality_score: Optional[float] = None
     quality_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     expiry_quality: tuple[tuple[str, dict[str, Any]], ...] = field(default_factory=tuple)
+    quote_reliability_summary: dict[str, Any] = field(default_factory=dict)
+    fit_penalty_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    fit_hard_rejection_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
+    expiry_reliability: tuple[tuple[str, dict[str, Any]], ...] = field(default_factory=tuple)
     max_quote_age_days: Optional[int] = None
     option_price_source: str = "mark"
     pricing_model: str = "bsm_dividends"
@@ -468,6 +487,12 @@ class MarketDataSnapshot:
             quality_score=_float_or_none(metadata.get("quality_score")),
             quality_reason_buckets=_int_metadata_tuple(metadata.get("quality_reason_buckets")),
             expiry_quality=_nested_any_metadata_tuple(metadata.get("expiry_quality")),
+            quote_reliability_summary=dict(metadata.get("quote_reliability_summary") or {}),
+            fit_penalty_reason_buckets=_int_metadata_tuple(metadata.get("fit_penalty_reason_buckets")),
+            fit_hard_rejection_reason_buckets=_int_metadata_tuple(
+                metadata.get("fit_hard_rejection_reason_buckets")
+            ),
+            expiry_reliability=_nested_any_metadata_tuple(metadata.get("expiry_reliability")),
             max_quote_age_days=_int_or_none(metadata.get("max_quote_age_days")),
             option_price_source=str(metadata.get("option_price_source") or "mark"),
             pricing_model=str(metadata.get("pricing_model") or "bsm_dividends"),
@@ -586,6 +611,10 @@ class MarketDataSnapshot:
             "quality_score": self.quality_score,
             "quality_reason_buckets": dict(self.quality_reason_buckets),
             "expiry_quality": dict(self.expiry_quality),
+            "quote_reliability_summary": dict(self.quote_reliability_summary),
+            "fit_penalty_reason_buckets": dict(self.fit_penalty_reason_buckets),
+            "fit_hard_rejection_reason_buckets": dict(self.fit_hard_rejection_reason_buckets),
+            "expiry_reliability": dict(self.expiry_reliability),
             "max_quote_age_days": self.max_quote_age_days,
             "option_price_source": self.option_price_source,
             "pricing_model": self.pricing_model,

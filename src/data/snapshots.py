@@ -110,6 +110,26 @@ def load_snapshot(metadata_path: Path | str) -> MarketDataSnapshot:
         rejection_reasons=tuple(
             (str(reason), int(count)) for reason, count in (metadata.get("rejection_reasons") or {}).items()
         ),
+        data_quality_score=_float_or_none(metadata.get("data_quality_score")),
+        quality_score=_float_or_none(metadata.get("quality_score")),
+        quality_reason_buckets=tuple(
+            (str(reason), int(count)) for reason, count in (metadata.get("quality_reason_buckets") or {}).items()
+        ),
+        expiry_quality=tuple(
+            (str(expiry), dict(payload)) for expiry, payload in (metadata.get("expiry_quality") or {}).items()
+        ),
+        quote_reliability_summary=dict(metadata.get("quote_reliability_summary") or {}),
+        fit_penalty_reason_buckets=tuple(
+            (str(reason), int(count))
+            for reason, count in (metadata.get("fit_penalty_reason_buckets") or {}).items()
+        ),
+        fit_hard_rejection_reason_buckets=tuple(
+            (str(reason), int(count))
+            for reason, count in (metadata.get("fit_hard_rejection_reason_buckets") or {}).items()
+        ),
+        expiry_reliability=tuple(
+            (str(expiry), dict(payload)) for expiry, payload in (metadata.get("expiry_reliability") or {}).items()
+        ),
         max_quote_age_days=_int_or_none(metadata.get("max_quote_age_days")),
         option_price_source=metadata.get("option_price_source", "mark"),
         pricing_model=metadata.get("pricing_model", "bsm_dividends"),
@@ -224,6 +244,14 @@ def _snapshot_metadata(snapshot: MarketDataSnapshot) -> dict[str, Any]:
         "wide_spread_rejected_count": snapshot.wide_spread_rejected_count,
         "old_quote_rejected_count": snapshot.old_quote_rejected_count,
         "rejection_reasons": dict(snapshot.rejection_reasons),
+        "data_quality_score": snapshot.data_quality_score,
+        "quality_score": snapshot.quality_score,
+        "quality_reason_buckets": dict(snapshot.quality_reason_buckets),
+        "expiry_quality": dict(snapshot.expiry_quality),
+        "quote_reliability_summary": dict(snapshot.quote_reliability_summary),
+        "fit_penalty_reason_buckets": dict(snapshot.fit_penalty_reason_buckets),
+        "fit_hard_rejection_reason_buckets": dict(snapshot.fit_hard_rejection_reason_buckets),
+        "expiry_reliability": dict(snapshot.expiry_reliability),
         "max_quote_age_days": snapshot.max_quote_age_days,
         "option_price_source": snapshot.option_price_source,
         "pricing_model": snapshot.pricing_model,

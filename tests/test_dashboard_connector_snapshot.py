@@ -143,6 +143,9 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert "2026-06-19" in dict(snapshot.expiry_events)
     assert snapshot.data_quality_score == 100.0
     assert dict(snapshot.expiry_quality)["2026-06-19"]["valid_quotes"] == 1
+    assert snapshot.options[0].quote_reliability_score == 1.0
+    assert snapshot.options[0].fit_eligible is True
+    assert snapshot.quote_reliability_summary["fit_eligible_count"] == 1
 
 
 def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
@@ -165,6 +168,9 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert frame.iloc[0]["selectedMarketPrice"] == 8.2
     assert frame.iloc[0]["selectedPriceSource"] == "mark"
     assert frame.iloc[0]["computedIV"] > 0.0
+    assert frame.iloc[0]["quoteReliabilityScore"] == 1.0
+    assert frame.iloc[0]["fitWeight"] == 1.0
+    assert bool(frame.iloc[0]["fitEligible"]) is True
     assert meta["source"] == "fixture"
     assert meta["valid_rows"] == 1
     assert meta["option_price_source"] == "mark"
@@ -192,6 +198,11 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert meta["quality_reason_buckets"] == {}
     assert meta["expiry_quality"]["2026-06-19"]["valid_quotes"] == 1
     assert meta["expiry_quality"]["2026-06-19"]["score"] == 100.0
+    assert meta["quote_reliability_summary"]["median_score"] == 1.0
+    assert meta["quote_reliability_summary"]["fit_eligible_count"] == 1
+    assert meta["quote_reliability_summary"]["fit_excluded_count"] == 0
+    assert meta["expiry_reliability"]["2026-06-19"]["fit_eligible_count"] == 1
+    assert meta["expiry_quality"]["2026-06-19"]["quote_reliability"]["median_score"] == 1.0
 
 
 def test_connector_configures_liquidity_filters_and_clears_cache(tmp_path):

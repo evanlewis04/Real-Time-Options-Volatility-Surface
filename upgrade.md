@@ -68,23 +68,23 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 1: Quote Reliability Scoring
 
-- [ ] Create a row-level `QuoteReliabilityScore`.
+- [x] Create a row-level `QuoteReliabilityScore`.
   - Score each option row from `0.0` to `1.0`.
   - Inputs should include bid/ask spread, quote age, last-only status, volume, open interest, no-arbitrage flags, moneyness distance, provider IV validity, selected market price source, and expiry.
   - Suggested file: `src/quant/quote_quality.py`.
   - Acceptance: deterministic tests prove reliable ATM rows score higher than stale/wide/extreme/no-arb rows.
 
-- [ ] Add row-level reason labels.
+- [x] Add row-level reason labels.
   - Keep both hard rejection reasons and soft penalty reasons.
   - Example soft penalties: `wide_spread_penalty`, `stale_quote_penalty`, `low_liquidity_penalty`, `extreme_moneyness_penalty`, `last_only_penalty`.
   - Acceptance: dashboard metadata can explain why a quote received a low weight.
 
-- [ ] Expose reliability fields in normalized chain snapshots.
+- [x] Expose reliability fields in normalized chain snapshots.
   - Add columns such as `quoteReliabilityScore`, `fitWeight`, `fitPenaltyReasons`, and `fitEligible`.
   - Suggested files: `dashboard_connector.py`, `src/data/models.py`.
   - Acceptance: `get_options_chain_snapshot` includes the new fields and preserves existing columns.
 
-- [ ] Add expiry-level quality summaries.
+- [x] Add expiry-level quality summaries.
   - Summarize median score, low-score count, fit-eligible count, excluded count, and dominant penalty reasons by expiry.
   - Acceptance: metadata includes stable expiry summaries for the DataQualityPanel.
 

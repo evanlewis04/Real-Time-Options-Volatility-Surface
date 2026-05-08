@@ -74,6 +74,7 @@ from src.quant.model_selection import (
     pricing_model_metadata,
 )
 from src.quant.price_decomposition import apply_price_decomposition, price_decomposition_metadata
+from src.quant.quote_quality import apply_quote_reliability_scores
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
 from src.quant.sabr import calibrate_sabr_by_expiry
@@ -1000,6 +1001,8 @@ class DashboardConnector:
         meta.update(contract_greeks_metadata(df, self.pricing_model))
         meta.update(parity_meta)
         meta.update(arbitrage_meta)
+        df, reliability_meta = apply_quote_reliability_scores(df, meta)
+        meta.update(reliability_meta)
         meta.update(self._skew_metadata(df, spot_price))
         meta.update(self._expected_move_metadata(df, spot_price))
         meta.update(self._data_quality_metadata(df, meta))
