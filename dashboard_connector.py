@@ -32,13 +32,18 @@ from src.quant.advanced_features import (
     broker_integration_abstraction,
     build_option_strategy,
     compare_saved_snapshots,
+    create_async_refresh_engine,
     cross_sectional_vol_map,
     earnings_vol_event_engine,
     estimate_transaction_costs,
     evaluate_surface_alerts,
     export_analysis_notebook,
+    forecast_volatility,
+    generate_research_report,
     list_surface_workspaces,
     load_surface_workspace,
+    ml_anomaly_detector,
+    news_event_overlay,
     optimize_portfolio_hedges,
     paper_trading_simulator,
     parse_portfolio_positions,
@@ -47,6 +52,7 @@ from src.quant.advanced_features import (
     run_signal_backtest,
     save_surface_workspace,
     strategy_scenario_engine,
+    classify_vol_regime,
     watchlist_presets,
 )
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
@@ -112,6 +118,7 @@ class DashboardConnector:
         self.chain_cache: Dict[str, Tuple[pd.DataFrame, Dict[str, Any], datetime]] = {}
         self.surface_metadata: Dict[str, Dict[str, Any]] = {}
         self.surface_grids: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+        self.async_refresh_engine = create_async_refresh_engine(max_workers=2)
 
     def configure_liquidity_filters(
         self,
@@ -623,6 +630,94 @@ class DashboardConnector:
         """Export the supplied analysis payload to a reproducible local notebook."""
         return export_analysis_notebook(analysis, path, **kwargs)
 
+    def generate_research_report(
+        self,
+        symbol: str,
+        path: str | Path | None = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Generate a local HTML research report for the current dashboard state."""
+        key = symbol.upper()
+        if key not in self.surface_metadata:
+            try:
+                self.get_vol_surface_data(key)
+            except Exception:
+                logger.debug("Surface metadata unavailable before report generation for %s", key)
+        current = self.get_current_data(key)
+        metadata = self.surface_metadata.get(key, {})
+        report_path = Path(path) if path is not None else Path("reports") / f"{key}_surface_report.html"
+        analysis = {
+            "symbol": key,
+            "spot": current.get("price"),
+            "data_timestamp": (metadata.get("timestamp") or current.get("timestamp") or datetime.now()).isoformat()
+            if hasattr(metadata.get("timestamp") or current.get("timestamp") or datetime.now(), "isoformat")
+            else str(metadata.get("timestamp") or current.get("timestamp") or datetime.now()),
+            "model_assumptions": metadata.get("pricing_model_label") or current.get("pricing_model_label"),
+            "surface_summary": {
+                "atm_iv": current.get("iv_30d"),
+                "iv_rank": metadata.get("iv_rank"),
+                "iv_percentile": metadata.get("iv_percentile"),
+                "surface_points": metadata.get("surface_points"),
+                "term_slope": (metadata.get("surface_smoothing") or {}).get("term_slope"),
+            },
+            "diagnostics": {
+                "surface_quality_score": metadata.get("surface_quality_score"),
+                "fit_diagnostics": metadata.get("fit_diagnostics"),
+                "warnings": metadata.get("warnings"),
+                "source": metadata.get("surface_source") or current.get("price_source"),
+                "mode": metadata.get("surface_mode") or current.get("data_mode"),
+            },
+            "provenance": {
+                "surface_source": metadata.get("surface_source"),
+                "surface_mode": metadata.get("surface_mode"),
+                "option_price_source": metadata.get("option_price_source"),
+            },
+        }
+        return generate_research_report(analysis, report_path, title=f"{key} Volatility Surface Report", **kwargs)
+
+    def get_ml_anomaly_detector(self, symbol: str, observations: Any | None = None) -> Dict[str, Any]:
+        """Detect anomalous local surface moves or residuals for ``symbol``."""
+        return ml_anomaly_detector(observations or self._local_snapshot_features(symbol))
+
+    def get_vol_regime_classifier(self, symbol: str, observations: Any | None = None) -> Dict[str, Any]:
+        """Classify the selected symbol's volatility regime with historical analogs."""
+        key = symbol.upper()
+        current = self._advanced_symbol_profile(key)
+        return classify_vol_regime(observations or self._local_snapshot_features(key), current=current)
+
+    def get_forecasting_module(self, symbol: str, observations: Any | None = None) -> Dict[str, Any]:
+        """Run deterministic volatility forecasting baselines for ``symbol``."""
+        return forecast_volatility(observations or self._local_snapshot_features(symbol))
+
+    def get_news_event_overlay(self, symbol: str, surface_jumps: Any | None = None) -> Dict[str, Any]:
+        """Return trusted event overlay markers for the current symbol."""
+        key = symbol.upper()
+        events = self.event_provider.get(key).metadata_dict().get("events") or []
+        if surface_jumps is None:
+            surface_jumps = (self.surface_metadata.get(key, {}).get("surface_change_heatmaps") or {}).get("records") or []
+        return news_event_overlay(events, surface_jumps)
+
+    def request_async_refresh(self, symbol: str) -> Dict[str, Any]:
+        """Schedule a nonblocking refresh of current data, chain, and surface for ``symbol``."""
+        key = symbol.upper()
+
+        def loader() -> Dict[str, Any]:
+            current = self.get_current_data(key)
+            snapshot = self.get_market_data_snapshot(key)
+            self.get_vol_surface_data(key)
+            return {
+                "symbol": key,
+                "price": current.get("price"),
+                "option_rows": len(snapshot.options),
+                "refreshed_at": datetime.now().isoformat(),
+            }
+
+        return self.async_refresh_engine.request_refresh(key, loader)
+
+    def get_async_refresh_status(self, symbol: str | None = None) -> Dict[str, Any]:
+        """Return pending/completed async refresh state without blocking the dashboard."""
+        return self.async_refresh_engine.snapshot(symbol.upper() if symbol else None)
+
     def _advanced_symbol_profile(self, symbol: str) -> Dict[str, Any]:
         key = symbol.upper()
         current = self.get_current_data(key)
@@ -649,6 +744,46 @@ class DashboardConnector:
             "mode": current.get("data_mode"),
             "source": current.get("iv_source"),
         }
+
+    def _local_snapshot_features(self, symbol: str) -> List[Dict[str, Any]]:
+        key = symbol.upper()
+        observations: List[Dict[str, Any]] = []
+        snapshot = self.get_latest_persisted_snapshot(key)
+        metadata = self.surface_metadata.get(key, {})
+        if snapshot is not None:
+            frame = snapshot.options_frame()
+            computed_iv = (
+                pd.to_numeric(frame["computedIV"], errors="coerce")
+                if not frame.empty and "computedIV" in frame
+                else pd.Series(dtype=float)
+            )
+            observations.append(
+                {
+                    "symbol": key,
+                    "timestamp": snapshot.spot_timestamp,
+                    "atm_iv": float(computed_iv.median()) if computed_iv.notna().any() else None,
+                    "realized_vol": metadata.get("realized_20d_latest"),
+                    "skew_25d": metadata.get("front_risk_reversal_25d"),
+                    "term_slope": (metadata.get("surface_smoothing") or {}).get("term_slope"),
+                    "fit_rmse": (metadata.get("fit_diagnostics") or {}).get("rmse"),
+                    "data_quality_score": metadata.get("surface_quality_score"),
+                }
+            )
+        if metadata:
+            observations.append(
+                {
+                    "symbol": key,
+                    "timestamp": metadata.get("timestamp") or datetime.now(),
+                    "atm_iv": metadata.get("front_atm_iv") or metadata.get("atm_iv"),
+                    "iv_change": metadata.get("atm_iv_change"),
+                    "realized_vol": metadata.get("realized_20d_latest"),
+                    "skew_25d": metadata.get("front_risk_reversal_25d"),
+                    "term_slope": (metadata.get("surface_smoothing") or {}).get("term_slope"),
+                    "fit_rmse": (metadata.get("fit_diagnostics") or {}).get("rmse"),
+                    "data_quality_score": metadata.get("surface_quality_score"),
+                }
+            )
+        return observations
 
     # ------------------------------------------------------------------
     # System / lifecycle

@@ -6,9 +6,9 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current main head before this session commit: `b8fba24`
+Current main head before this session commit: `7a8f588`
 
-Branch state before this session commit: `main...origin/main [ahead 3]`
+Branch state before this session commit: `main...origin/main [ahead 1]`
 
 ## Upgrade State
 
@@ -16,19 +16,9 @@ Phase 0-3 are complete.
 
 Phase 3: `27/27` complete.
 
-Phase 4: `20/27` complete.
+Phase 4: `27/27` complete.
 
 Completed this session:
-
-1. Saved workspaces
-2. Snapshot comparison
-3. Backtesting framework
-4. Transaction cost model
-5. Paper-trading simulator
-6. Broker integration abstraction
-7. Notebook export
-
-Phase 4 next unchecked items:
 
 1. Research report generator
 2. ML anomaly detector
@@ -37,6 +27,16 @@ Phase 4 next unchecked items:
 5. News/event overlay
 6. WebSocket/async refresh engine
 7. Multi-page app architecture
+
+Phase 5 next unchecked items:
+
+1. Introduce typed configuration
+2. Add structured logging
+3. Add performance timing
+4. Add deterministic random seed only for demo mode
+5. Move demo data into a named demo provider
+6. Add fixtures for option chains
+7. Add provider contract tests
 
 ## Latest Verification Pattern
 
@@ -50,7 +50,7 @@ $env:PYTHONPATH='.'; python scripts\healthcheck.py
 python diagnostic.py
 ```
 
-For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200. Latest smoke passed on port `8532`.
+Latest verification passed on 2026-05-08. Streamlit HTTP smoke passed on port `8534`.
 
 ## New Session Prompt
 
@@ -61,8 +61,8 @@ Repo:
 C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
 
 Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Implement the next 7 unchecked Phase 4 items in order if they fit cleanly.
-Preserve provenance, use deterministic offline tests, run full verification, update SESSION_HANDOFF.md, commit changes, and report the updated Phase 4 count.
+Implement the next 7 unchecked Phase 5 items in order if they fit cleanly.
+Preserve provenance, use deterministic offline tests, run full verification, update SESSION_HANDOFF.md, commit changes, and report the updated Phase 5 count.
 ```
 
 ## Notes
@@ -70,4 +70,4 @@ Preserve provenance, use deterministic offline tests, run full verification, upd
 - Keep future handoffs short. Do not paste long summaries of completed phases into the chat.
 - Prefer targeted searches/reads over loading whole files.
 - Preserve generated plots/log/cache files unless the task explicitly touches them; diagnostic runs may regenerate plot artifacts, so restore or ignore those before committing unrelated work.
-- The healthcheck needs `PYTHONPATH=.` in this environment.
+- The healthcheck uses deterministic Streamlit fallback mode for AppTest so the health command remains bounded offline.

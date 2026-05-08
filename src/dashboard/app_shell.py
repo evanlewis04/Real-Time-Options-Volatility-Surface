@@ -16,6 +16,8 @@ def run_dashboard() -> None:
     import streamlit as st
     from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
     from src.dashboard.loading import LoadingState, load_with_status, render_empty_state
+    from src.dashboard.pages import default_page_registry, page_titles
+    from src.dashboard.state import DashboardStateService
     from src.dashboard.surface_view import extract_smile, surface_axis, surface_stats
     from src.dashboard.tables import dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
     from src.dashboard.theme import apply_chart_layout, inject_theme, status_pill
@@ -189,6 +191,52 @@ def run_dashboard() -> None:
             from src.quant.advanced_features import watchlist_presets
 
             return watchlist_presets()
+
+        def generate_research_report(self, symbol: str, path=None, **kwargs):
+            from pathlib import Path
+
+            from src.quant.advanced_features import generate_research_report
+
+            output = Path(path) if path is not None else Path("reports") / f"{symbol.upper()}_surface_report.html"
+            return generate_research_report(
+                {
+                    "symbol": symbol.upper(),
+                    "data_timestamp": self.timestamp.isoformat(),
+                    "model_assumptions": "Static fallback model metadata.",
+                    "surface_summary": self.get_current_data(symbol),
+                    "diagnostics": self.get_surface_metadata(symbol),
+                },
+                output,
+                timestamp=self.timestamp,
+            )
+
+        def get_ml_anomaly_detector(self, symbol: str, observations=None):
+            from src.quant.advanced_features import ml_anomaly_detector
+
+            return ml_anomaly_detector(observations or [])
+
+        def get_vol_regime_classifier(self, symbol: str, observations=None):
+            from src.quant.advanced_features import classify_vol_regime
+
+            return classify_vol_regime(observations or [], current=self.get_current_data(symbol))
+
+        def get_forecasting_module(self, symbol: str, observations=None):
+            from src.quant.advanced_features import forecast_volatility
+
+            return forecast_volatility(observations or [])
+
+        def get_news_event_overlay(self, symbol: str, surface_jumps=None):
+            from src.quant.advanced_features import news_event_overlay
+
+            return news_event_overlay([], surface_jumps or [])
+
+        def request_async_refresh(self, symbol: str):
+            self.timestamp = datetime.now()
+            return {"key": symbol.upper(), "status": "scheduled", "already_running": False}
+
+        def get_async_refresh_status(self, symbol: str | None = None):
+            key = symbol.upper() if symbol else "fallback"
+            return {"available": True, "source": "fallback_refresh", "refreshes": {key: {"status": "complete"}}}
 
         def get_market_status(self):
             from src.data.market_calendar import MarketCalendar
@@ -471,6 +519,12 @@ def run_dashboard() -> None:
     )
     connector.configure_option_price_source(data_key[4])
     connector.configure_pricing_model(data_key[5])
+    dashboard_state = DashboardStateService()
+    dashboard_state.set_context(
+        selected_symbol=surface_symbol,
+        selected_symbols=selected_symbols,
+        data_key=data_key,
+    )
 
     current_data = load_with_status(
         st,
@@ -773,8 +827,9 @@ def run_dashboard() -> None:
         build_market_snapshot,
     )
 
+    page_registry = default_page_registry()
     surface_tab, chain_tab, skew_tab, local_vol_tab, relative_tab, strategy_tab, risk_tab, diagnostics_tab = st.tabs(
-        ["Surface", "Chain", "Skew & Term", "Local Vol", "Relative Value", "Strategy Lab", "Risk", "Diagnostics"]
+        page_titles(page_registry)
     )
 
     with surface_tab:
@@ -2486,6 +2541,39 @@ def run_dashboard() -> None:
             st.json(health.get("overall", {}))
         with col2:
             st.json(health.get("data_contract", {}))
+
+        report_cols = st.columns([1, 1, 1])
+        with report_cols[0]:
+            if st.button("Generate research report", width="stretch"):
+                report = connector.generate_research_report(surface_symbol)
+                if report.get("available"):
+                    st.success(f"Report written to {report.get('path')}")
+                else:
+                    st.error(report.get("reason", "Report generation failed"))
+        with report_cols[1]:
+            if st.button("Async refresh", width="stretch"):
+                st.json(connector.request_async_refresh(surface_symbol))
+        with report_cols[2]:
+            st.json(connector.get_async_refresh_status(surface_symbol))
+
+        st.markdown("#### Advanced Research Modules")
+        research_cols = st.columns(4)
+        with research_cols[0]:
+            st.json(connector.get_ml_anomaly_detector(surface_symbol))
+        with research_cols[1]:
+            st.json(connector.get_vol_regime_classifier(surface_symbol))
+        with research_cols[2]:
+            st.json(connector.get_forecasting_module(surface_symbol))
+        with research_cols[3]:
+            st.json(connector.get_news_event_overlay(surface_symbol))
+
+        st.markdown("#### Page State")
+        st.json(
+            {
+                "state": dashboard_state.snapshot(),
+                "pages": [{"key": page.key, "title": page.title, "workflow": page.workflow} for page in page_registry],
+            }
+        )
 
         st.markdown("#### Market Calendar")
         st.json({k: str(v) if isinstance(v, datetime) else v for k, v in market_status.items()})

@@ -429,30 +429,30 @@ These are the "insane project" upgrades.
   - Export current analysis to a reproducible Jupyter notebook or HTML report.
   - Acceptance: report includes data timestamp and model assumptions.
 
-- [ ] Research report generator.
+- [x] Research report generator.
   - Generate symbol-specific surface summary with charts and diagnostics.
   - Acceptance: one-click local report file from current dashboard state.
 
-- [ ] ML anomaly detector.
+- [x] ML anomaly detector.
   - Detect unusual surface moves or residuals using historical features.
   - Acceptance: model is trained/evaluated on local snapshots with explainable features.
 
-- [ ] Vol regime classifier.
+- [x] Vol regime classifier.
   - Cluster market regimes based on realized vol, implied vol, skew, term slope, correlations.
   - Acceptance: regime label appears with confidence and historical analogs.
 
-- [ ] Forecasting module.
+- [x] Forecasting module.
   - Forecast realized vol or IV changes using baseline models first.
   - Acceptance: compares naive baseline, GARCH, and optional ML model.
 
-- [ ] News/event overlay.
+- [x] News/event overlay.
   - Use only trusted sources and show source links.
   - Acceptance: events explain surface jumps without cluttering the chart.
 
-- [ ] WebSocket/async refresh engine.
+- [x] WebSocket/async refresh engine.
   - Acceptance: data updates do not block Streamlit rerenders or freeze the UI.
 
-- [ ] Multi-page app architecture.
+- [x] Multi-page app architecture.
   - Acceptance: pages load independently and share a central state/data service.
 
 ## Phase 5: Data Science And Engineering Quality

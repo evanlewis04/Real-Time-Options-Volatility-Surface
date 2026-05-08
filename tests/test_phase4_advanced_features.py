@@ -6,17 +6,23 @@ import pytest
 from src.quant.advanced_features import (
     broker_integration_abstraction,
     build_option_strategy,
+    classify_vol_regime,
     compare_saved_snapshots,
+    create_async_refresh_engine,
     cross_sectional_vol_map,
     earnings_vol_event_engine,
     estimate_transaction_costs,
     evaluate_surface_alerts,
     export_analysis_notebook,
+    forecast_volatility,
+    generate_research_report,
     list_surface_workspaces,
     optimize_portfolio_hedges,
     paper_trading_simulator,
     parse_portfolio_positions,
     portfolio_risk_summary,
+    ml_anomaly_detector,
+    news_event_overlay,
     relative_value_dashboard,
     run_signal_backtest,
     load_surface_workspace,
@@ -338,3 +344,132 @@ def test_notebook_export_writes_reproducible_payload_with_timestamp(tmp_path):
     assert '"nbformat": 4' in notebook
     assert "2026-05-08T09:30:00" in notebook
     assert "BSM with dividends, SVI smoothing" in notebook
+
+
+def test_research_report_generator_writes_html_with_provenance(tmp_path):
+    output = tmp_path / "AAPL_surface_report.html"
+    result = generate_research_report(
+        {
+            "symbol": "AAPL",
+            "data_timestamp": "2026-05-08T09:30:00",
+            "model_assumptions": "BSM with dividends, SVI smoothing",
+            "surface_summary": {"atm_iv": 0.24, "iv_rank": 0.72},
+            "diagnostics": {"surface_quality_score": 94.0, "warnings": []},
+            "charts": {"surface_heatmap": {"type": "heatmap", "points": 16}},
+        },
+        output,
+        timestamp=pd.Timestamp("2026-05-08T09:45:00").to_pydatetime(),
+    )
+
+    html = output.read_text(encoding="utf-8")
+    assert result["available"] is True
+    assert result["source"] == "local_html_research_report"
+    assert "AAPL" in html
+    assert "2026-05-08T09:30:00" in html
+    assert "Surface Summary" in html
+
+
+def test_ml_anomaly_detector_flags_unusual_surface_move_with_explainable_feature():
+    rows = [
+        {"timestamp": "2026-05-01", "symbol": "AAPL", "atm_iv": 0.20, "iv_change": 0.001, "residual": 0.01},
+        {"timestamp": "2026-05-02", "symbol": "AAPL", "atm_iv": 0.21, "iv_change": 0.002, "residual": 0.02},
+        {"timestamp": "2026-05-03", "symbol": "AAPL", "atm_iv": 0.20, "iv_change": -0.001, "residual": 0.01},
+        {"timestamp": "2026-05-04", "symbol": "AAPL", "atm_iv": 0.36, "iv_change": 0.120, "residual": 0.18},
+    ]
+
+    result = ml_anomaly_detector(rows, contamination=0.25, min_score=2.0)
+
+    assert result["available"] is True
+    assert result["training_rows"] == 4
+    assert result["anomaly_count"] == 1
+    assert result["anomalies"][0]["timestamp"].startswith("2026-05-04")
+    assert result["anomalies"][0]["primary_feature"] in {"atm_iv", "iv_change", "residual"}
+    assert result["feature_importance"][0]["feature"] in result["feature_columns"]
+
+
+def test_vol_regime_classifier_returns_confidence_and_historical_analogs():
+    observations = [
+        {"timestamp": "2026-04-01", "realized_vol": 0.14, "atm_iv": 0.18, "skew_25d": -0.02, "term_slope": 0.01, "correlation": 0.25},
+        {"timestamp": "2026-04-15", "realized_vol": 0.24, "atm_iv": 0.30, "skew_25d": -0.04, "term_slope": 0.02, "correlation": 0.40},
+        {"timestamp": "2026-05-01", "realized_vol": 0.46, "atm_iv": 0.65, "skew_25d": -0.11, "term_slope": -0.04, "correlation": 0.72},
+    ]
+
+    result = classify_vol_regime(
+        observations,
+        current={"realized_vol": 0.48, "atm_iv": 0.63, "skew_25d": -0.10, "term_slope": -0.05, "correlation": 0.70},
+    )
+
+    assert result["available"] is True
+    assert result["regime"] == "stress"
+    assert 0.0 <= result["confidence"] <= 1.0
+    assert result["historical_analogs"][0]["timestamp"].startswith("2026-05-01")
+
+
+def test_forecasting_module_compares_naive_garch_and_linear_baselines():
+    rows = [
+        {"timestamp": f"2026-05-{day:02d}", "realized_vol": value}
+        for day, value in enumerate([0.20, 0.21, 0.22, 0.24, 0.23, 0.25], start=1)
+    ]
+
+    result = forecast_volatility(rows, horizon_days=5)
+
+    assert result["available"] is True
+    assert set(result["forecasts"]) == {"naive", "garch_proxy", "linear_ml"}
+    assert set(result["metrics"]) == {"naive", "garch_proxy", "linear_ml"}
+    assert result["best_model"] in result["forecasts"]
+    assert len(result["backtest_rows"]) == 3
+
+
+def test_news_event_overlay_uses_trusted_sources_and_links_surface_jumps():
+    result = news_event_overlay(
+        [
+            {
+                "symbol": "AAPL",
+                "event_type": "earnings",
+                "event_date": "2026-05-08",
+                "description": "AAPL earnings",
+                "source": "company_ir",
+                "source_url": "https://investor.example/aapl",
+            },
+            {"symbol": "AAPL", "event_type": "rumor", "event_date": "2026-05-08", "source": "social"},
+        ],
+        [{"timestamp": "2026-05-08T10:00:00", "iv_change": 0.045}],
+    )
+
+    assert result["available"] is True
+    assert result["marker_count"] == 1
+    assert result["markers"][0]["source_url"] == "https://investor.example/aapl"
+    assert result["markers"][0]["matched_jump"]["iv_change"] == pytest.approx(0.045)
+    assert result["rejected"][0]["reason"] == "untrusted source without link"
+
+
+def test_async_refresh_engine_schedules_without_blocking_and_returns_snapshot():
+    engine = create_async_refresh_engine(max_workers=1)
+    try:
+        scheduled = engine.request_refresh("AAPL", lambda: {"rows": 12})
+        snapshot = engine.snapshot("AAPL")
+        completed = engine.wait_for("AAPL", timeout=2.0)
+    finally:
+        engine.shutdown()
+
+    assert scheduled["status"] == "scheduled"
+    assert snapshot["available"] is True
+    assert completed["status"] == "complete"
+    assert completed["value"]["rows"] == 12
+
+
+def test_multi_page_registry_uses_shared_dashboard_state_service():
+    from src.dashboard.pages import default_page_registry, page_by_key, page_titles
+    from src.dashboard.state import DashboardStateService
+
+    state = DashboardStateService()
+    state.set_context(selected_symbol="msft", selected_symbols=["aapl", "msft"], data_key=(1, "mark"))
+    state.put("surface:MSFT", {"points": 25})
+    registry = default_page_registry()
+    page = page_by_key("surface", registry)
+
+    assert page is not None
+    assert page.title == "Surface"
+    assert page_titles(registry)[0] == "Surface"
+    assert state.snapshot()["selected_symbol"] == "MSFT"
+    assert state.get_or_load("surface:MSFT", lambda: {"points": 1})["points"] == 25

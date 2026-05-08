@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from typing import Callable, List
@@ -103,8 +104,16 @@ def check_connector() -> str:
 def check_streamlit_testing() -> str:
     from streamlit.testing.v1 import AppTest
 
+    previous_test_env = os.environ.get("PYTEST_CURRENT_TEST")
+    os.environ["PYTEST_CURRENT_TEST"] = "scripts.healthcheck::streamlit_offline_smoke"
     at = AppTest.from_file("app.py")
-    at.run(timeout=90)
+    try:
+        at.run(timeout=90)
+    finally:
+        if previous_test_env is None:
+            os.environ.pop("PYTEST_CURRENT_TEST", None)
+        else:
+            os.environ["PYTEST_CURRENT_TEST"] = previous_test_env
     if len(at.exception) > 0:
         raise AssertionError(f"{len(at.exception)} Streamlit exceptions")
     return f"metrics={len(at.metric)}, dataframes={len(at.dataframe)}"

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date, datetime
+from html import escape
 from io import StringIO
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -18,6 +21,18 @@ from src.quant.expected_move import expected_moves_by_expiry
 CONTRACT_MULTIPLIER = 100
 WORKSPACE_SCHEMA_VERSION = 1
 NOTEBOOK_NBFORMAT = 4
+TRUSTED_EVENT_SOURCES = {
+    "local_event_calendar",
+    "event_calendar",
+    "company_ir",
+    "sec",
+    "fomc",
+    "federal_reserve",
+    "bls",
+    "bea",
+    "treasury",
+    "fixture",
+}
 
 
 def relative_value_dashboard(
@@ -1121,6 +1136,491 @@ def export_analysis_notebook(
         "cell_count": len(notebook["cells"]),
         "data_timestamp": safe_analysis.get("data_timestamp"),
         "model_assumptions": safe_analysis.get("model_assumptions"),
+    }
+
+
+def generate_research_report(
+    analysis: dict[str, Any],
+    path: Path | str,
+    *,
+    title: str = "Volatility Surface Research Report",
+    timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    """Write a deterministic local HTML research report with provenance."""
+    exported_at = timestamp or datetime.utcnow()
+    safe_analysis = _json_safe(analysis)
+    symbol = str(safe_analysis.get("symbol") or "UNKNOWN").upper()
+    data_timestamp = safe_analysis.get("data_timestamp") or safe_analysis.get("timestamp") or "unknown"
+    assumptions = safe_analysis.get("model_assumptions") or safe_analysis.get("pricing_model_label") or "not supplied"
+    sections = {
+        "Surface Summary": safe_analysis.get("surface_summary")
+        or {
+            key: safe_analysis.get(key)
+            for key in ("spot", "atm_iv", "iv_rank", "iv_percentile", "term_slope", "surface_points")
+            if key in safe_analysis
+        },
+        "Diagnostics": safe_analysis.get("diagnostics")
+        or {
+            key: safe_analysis.get(key)
+            for key in ("data_quality_score", "surface_quality_score", "fit_diagnostics", "warnings")
+            if key in safe_analysis
+        },
+        "Charts": safe_analysis.get("charts") or safe_analysis.get("chart_specs") or {},
+    }
+    html = "\n".join(
+        [
+            "<!doctype html>",
+            '<html lang="en">',
+            "<head>",
+            '<meta charset="utf-8">',
+            f"<title>{escape(title)}</title>",
+            "<style>",
+            "body{font-family:Arial,sans-serif;margin:32px;color:#182230;background:#fff;}",
+            "h1{font-size:24px;margin-bottom:4px;} h2{font-size:17px;margin-top:26px;border-bottom:1px solid #d0d5dd;padding-bottom:6px;}",
+            ".meta{color:#475467;font-size:13px;line-height:1.6;} pre{background:#f8fafc;border:1px solid #eaecf0;padding:12px;overflow:auto;}",
+            "table{border-collapse:collapse;width:100%;font-size:13px;} td,th{border-bottom:1px solid #eaecf0;padding:7px;text-align:left;}",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>{escape(title)}</h1>",
+            (
+                f'<div class="meta">Symbol: {escape(symbol)}<br>'
+                f"Exported at: {escape(exported_at.isoformat())}<br>"
+                f"Data timestamp: {escape(str(data_timestamp))}<br>"
+                f"Model assumptions: {escape(str(assumptions))}</div>"
+            ),
+            *_html_sections(sections),
+            "<h2>Provenance Payload</h2>",
+            f"<pre>{escape(json.dumps(safe_analysis, indent=2, sort_keys=True))}</pre>",
+            "</body>",
+            "</html>",
+        ]
+    )
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(html, encoding="utf-8")
+    return {
+        "available": True,
+        "source": "local_html_research_report",
+        "path": str(output_path),
+        "symbol": symbol,
+        "data_timestamp": data_timestamp,
+        "model_assumptions": assumptions,
+        "section_count": len(sections),
+    }
+
+
+def ml_anomaly_detector(
+    observations: Any,
+    *,
+    feature_columns: list[str] | tuple[str, ...] | None = None,
+    contamination: float = 0.10,
+    min_score: float = 2.0,
+) -> dict[str, Any]:
+    """Detect unusual surface moves and residuals with explainable robust z-scores."""
+    frame = _feature_frame(observations, feature_columns or _default_anomaly_features())
+    if len(frame) < 3:
+        return _unavailable("Need at least three local snapshot feature rows for anomaly detection")
+
+    features = [column for column in frame.columns if column not in {"symbol", "timestamp"}]
+    scores = pd.DataFrame(index=frame.index)
+    medians: dict[str, float] = {}
+    scales: dict[str, float] = {}
+    for column in features:
+        values = pd.to_numeric(frame[column], errors="coerce")
+        median = float(values.median())
+        mad = float((values - median).abs().median())
+        scale = mad * 1.4826 if mad > 1e-12 else float(values.std(ddof=0) or 1.0)
+        if not np.isfinite(scale) or scale <= 1e-12:
+            scale = 1.0
+        medians[column] = median
+        scales[column] = scale
+        scores[column] = ((values - median) / scale).abs().fillna(0.0)
+
+    frame["anomaly_score"] = scores.max(axis=1)
+    frame["primary_feature"] = scores.idxmax(axis=1)
+    cutoff_rank = max(1, int(np.ceil(len(frame) * max(0.0, min(float(contamination), 1.0)))))
+    ranked = frame.sort_values(["anomaly_score", "timestamp"], ascending=[False, True]).reset_index(drop=True)
+    cutoff_score = max(float(min_score), float(ranked.head(cutoff_rank)["anomaly_score"].min()))
+    anomalies = ranked[ranked["anomaly_score"] >= cutoff_score].copy()
+    feature_importance = (
+        scores.mean(axis=0).sort_values(ascending=False).rename("mean_abs_robust_z").reset_index()
+    )
+    feature_importance.columns = ["feature", "importance"]
+    return {
+        "available": True,
+        "source": "local_snapshot_robust_zscore",
+        "model": "median_mad_anomaly_detector",
+        "training_rows": int(len(frame)),
+        "feature_columns": features,
+        "feature_medians": medians,
+        "feature_scales": scales,
+        "cutoff_score": cutoff_score,
+        "anomaly_count": int(len(anomalies)),
+        "anomalies": anomalies.replace({np.nan: None}).to_dict("records"),
+        "feature_importance": feature_importance.to_dict("records"),
+    }
+
+
+def classify_vol_regime(
+    observations: Any,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Classify the current volatility regime and return historical analogs."""
+    frame = _feature_frame(observations, _default_regime_features())
+    if frame.empty:
+        return _unavailable("Need realized, implied, skew, term, or correlation features for regime classification")
+    latest = _regime_vector(current) if current else _row_vector(frame.iloc[-1], _default_regime_features())
+    if not latest:
+        return _unavailable("Current regime features are unavailable")
+
+    scores = {
+        "calm": _regime_distance(latest, {"realized_vol": 0.14, "atm_iv": 0.18, "skew_25d": -0.02, "term_slope": 0.01, "correlation": 0.25}),
+        "normal": _regime_distance(latest, {"realized_vol": 0.22, "atm_iv": 0.27, "skew_25d": -0.04, "term_slope": 0.02, "correlation": 0.40}),
+        "event_risk": _regime_distance(latest, {"realized_vol": 0.25, "atm_iv": 0.42, "skew_25d": -0.03, "term_slope": -0.03, "correlation": 0.35}),
+        "stress": _regime_distance(latest, {"realized_vol": 0.45, "atm_iv": 0.62, "skew_25d": -0.10, "term_slope": -0.05, "correlation": 0.70}),
+    }
+    label = min(scores, key=scores.get)
+    ordered_distances = sorted(scores.values())
+    confidence = 1.0
+    if len(ordered_distances) > 1:
+        confidence = float(np.clip((ordered_distances[1] - ordered_distances[0]) / (ordered_distances[1] + 1e-12), 0.0, 1.0))
+    analogs = _historical_analogs(frame, latest, limit=5)
+    return {
+        "available": True,
+        "source": "local_feature_regime_classifier",
+        "regime": label,
+        "confidence": confidence,
+        "features": latest,
+        "regime_distances": scores,
+        "historical_analogs": analogs,
+    }
+
+
+def forecast_volatility(
+    observations: Any,
+    *,
+    target_column: str = "realized_vol",
+    horizon_days: int = 5,
+) -> dict[str, Any]:
+    """Forecast realized volatility with naive, GARCH-style, and linear baselines."""
+    frame = _feature_frame(observations, (target_column, "atm_iv", "iv_change"))
+    if target_column not in frame or frame[target_column].dropna().shape[0] < 4:
+        return _unavailable("Need at least four volatility observations for forecasting")
+    values = pd.to_numeric(frame[target_column], errors="coerce").dropna().astype(float).reset_index(drop=True)
+    backtest_rows = []
+    model_errors = {"naive": [], "garch_proxy": [], "linear_ml": []}
+    for idx in range(3, len(values)):
+        train = values.iloc[:idx]
+        actual = float(values.iloc[idx])
+        forecasts = _vol_forecasts(train, horizon_days)
+        for model, forecast in forecasts.items():
+            model_errors[model].append(abs(float(forecast) - actual))
+        backtest_rows.append({"index": int(idx), "actual": actual, **forecasts})
+    final_forecasts = _vol_forecasts(values, horizon_days)
+    metrics = {
+        model: {"mae": float(np.mean(errors)) if errors else None, "observations": len(errors)}
+        for model, errors in model_errors.items()
+    }
+    best_model = min((name for name, metric in metrics.items() if metric["mae"] is not None), key=lambda name: metrics[name]["mae"])
+    return {
+        "available": True,
+        "source": "local_vol_forecasting_baselines",
+        "target_column": target_column,
+        "horizon_days": int(horizon_days),
+        "forecasts": final_forecasts,
+        "metrics": metrics,
+        "best_model": best_model,
+        "backtest_rows": backtest_rows,
+        "model_notes": {
+            "naive": "last observed volatility",
+            "garch_proxy": "EWMA variance proxy with long-run mean reversion",
+            "linear_ml": "deterministic linear trend baseline",
+        },
+    }
+
+
+def news_event_overlay(
+    events: Any,
+    surface_jumps: Any | None = None,
+    *,
+    trusted_sources: set[str] | tuple[str, ...] | list[str] | None = None,
+    max_markers: int = 12,
+) -> dict[str, Any]:
+    """Build trusted event markers that can explain surface jumps without clutter."""
+    trusted = {str(item).strip().lower() for item in (trusted_sources or TRUSTED_EVENT_SOURCES)}
+    event_records = _coerce_records(events)
+    jump_frame = _feature_frame(surface_jumps or [], ("iv_change", "atm_iv_change", "mean_iv_change"))
+    markers = []
+    rejected = []
+    for event in event_records:
+        source = str(event.get("source") or "").strip()
+        source_key = source.lower().split(":")[0]
+        source_url = event.get("source_url") or event.get("url") or event.get("link")
+        if source_key not in trusted and not source_url:
+            rejected.append({**event, "reason": "untrusted source without link"})
+            continue
+        event_date = pd.to_datetime(event.get("event_date") or event.get("date"), errors="coerce")
+        if pd.isna(event_date):
+            rejected.append({**event, "reason": "invalid event date"})
+            continue
+        jump = _nearest_jump(jump_frame, event_date)
+        markers.append(
+            {
+                "date": event_date.date().isoformat(),
+                "symbol": str(event.get("symbol") or "*").upper(),
+                "event_type": str(event.get("event_type") or event.get("type") or "other").lower(),
+                "description": str(event.get("description") or "Event"),
+                "source": source or "linked_source",
+                "source_url": source_url,
+                "matched_jump": jump,
+                "importance": abs(float((jump or {}).get("iv_change") or 0.0)),
+            }
+        )
+    markers = sorted(markers, key=lambda item: (-item["importance"], item["date"], item["event_type"]))[:max_markers]
+    return {
+        "available": bool(markers),
+        "source": "trusted_event_overlay",
+        "trusted_sources": sorted(trusted),
+        "marker_count": len(markers),
+        "markers": markers,
+        "rejected": rejected,
+    }
+
+
+class AsyncRefreshEngine:
+    """Small nonblocking refresh coordinator for dashboard data fetches."""
+
+    def __init__(self, *, max_workers: int = 2):
+        self.executor = ThreadPoolExecutor(max_workers=max(1, int(max_workers)))
+        self._lock = threading.Lock()
+        self._futures: dict[str, Future] = {}
+        self._results: dict[str, dict[str, Any]] = {}
+
+    def request_refresh(self, key: str, loader: Callable[[], Any]) -> dict[str, Any]:
+        normalized = str(key)
+        with self._lock:
+            active = self._futures.get(normalized)
+            if active is not None and not active.done():
+                return {"key": normalized, "status": "pending", "already_running": True}
+            future = self.executor.submit(loader)
+            self._futures[normalized] = future
+        return {"key": normalized, "status": "scheduled", "already_running": False}
+
+    def snapshot(self, key: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            keys = [str(key)] if key is not None else sorted(set(self._futures) | set(self._results))
+            rows = {name: self._status_for_locked(name) for name in keys}
+        return {"available": True, "source": "async_refresh_engine", "refreshes": rows}
+
+    def wait_for(self, key: str, timeout: float | None = None) -> dict[str, Any]:
+        normalized = str(key)
+        with self._lock:
+            future = self._futures.get(normalized)
+        if future is None:
+            return {"key": normalized, "status": "missing"}
+        try:
+            value = future.result(timeout=timeout)
+            result = {"key": normalized, "status": "complete", "value": _json_safe(value)}
+        except Exception as exc:  # pragma: no cover - defensive path for UI runtime
+            result = {"key": normalized, "status": "failed", "error": str(exc)}
+        with self._lock:
+            self._results[normalized] = result
+        return result
+
+    def shutdown(self) -> None:
+        self.executor.shutdown(wait=False, cancel_futures=True)
+
+    def _status_for_locked(self, key: str) -> dict[str, Any]:
+        future = self._futures.get(key)
+        cached = self._results.get(key)
+        if future is None:
+            return cached or {"key": key, "status": "missing"}
+        if not future.done():
+            return {"key": key, "status": "pending"}
+        if cached is not None:
+            return cached
+        try:
+            value = future.result()
+            status = {"key": key, "status": "complete", "value": _json_safe(value)}
+        except Exception as exc:  # pragma: no cover - defensive path for UI runtime
+            status = {"key": key, "status": "failed", "error": str(exc)}
+        self._results[key] = status
+        return status
+
+
+def create_async_refresh_engine(*, max_workers: int = 2) -> AsyncRefreshEngine:
+    """Create a nonblocking refresh engine suitable for Streamlit session state."""
+    return AsyncRefreshEngine(max_workers=max_workers)
+
+
+def _html_sections(sections: dict[str, Any]) -> list[str]:
+    out = []
+    for title, payload in sections.items():
+        out.append(f"<h2>{escape(str(title))}</h2>")
+        if isinstance(payload, dict):
+            rows = "".join(
+                f"<tr><th>{escape(str(key))}</th><td>{escape(json.dumps(_json_safe(value), sort_keys=True))}</td></tr>"
+                for key, value in payload.items()
+            )
+            out.append(f"<table>{rows}</table>" if rows else "<p>No data supplied.</p>")
+        elif isinstance(payload, list):
+            out.append(f"<pre>{escape(json.dumps(_json_safe(payload), indent=2, sort_keys=True))}</pre>")
+        else:
+            out.append(f"<p>{escape(str(payload))}</p>")
+    return out
+
+
+def _default_anomaly_features() -> tuple[str, ...]:
+    return (
+        "atm_iv",
+        "iv_change",
+        "atm_iv_change",
+        "mean_iv_change",
+        "residual",
+        "rich_cheap_residual",
+        "skew_25d",
+        "term_slope",
+        "fit_rmse",
+        "svi_rmse",
+        "data_quality_score",
+    )
+
+
+def _default_regime_features() -> tuple[str, ...]:
+    return ("realized_vol", "realized_20d", "atm_iv", "iv_30d", "skew_25d", "term_slope", "correlation")
+
+
+def _feature_frame(observations: Any, feature_columns: list[str] | tuple[str, ...]) -> pd.DataFrame:
+    records = _coerce_records(observations)
+    if not records:
+        return pd.DataFrame()
+    frame = pd.DataFrame(records)
+    rename: dict[str, str] = {}
+    aliases = {
+        "timestamp": ("timestamp", "data_timestamp", "date", "as_of"),
+        "symbol": ("symbol", "Symbol"),
+        "realized_vol": ("realized_vol", "realized_20d", "realized_20d_latest"),
+        "atm_iv": ("atm_iv", "iv_30d", "front_iv"),
+        "iv_change": ("iv_change", "atm_iv_change", "mean_iv_change"),
+        "residual": ("residual", "rich_cheap_residual"),
+        "fit_rmse": ("fit_rmse", "svi_rmse", "heston_research_rmse"),
+        "correlation": ("correlation", "avg_correlation", "realized_correlation"),
+    }
+    lower = {str(column).lower(): column for column in frame.columns}
+    for canonical, names in aliases.items():
+        if canonical in frame:
+            continue
+        for name in names:
+            column = lower.get(str(name).lower())
+            if column is not None:
+                rename[column] = canonical
+                break
+    if rename:
+        frame = frame.rename(columns=rename)
+    keep = [column for column in ("symbol", "timestamp") if column in frame]
+    for column in feature_columns:
+        if column in frame and column not in keep:
+            keep.append(column)
+    if not keep:
+        return pd.DataFrame()
+    out = frame[keep].copy()
+    if "timestamp" in out:
+        out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce").astype(str)
+    for column in out.columns:
+        if column not in {"symbol", "timestamp"}:
+            out[column] = pd.to_numeric(out[column], errors="coerce")
+    numeric = [column for column in out.columns if column not in {"symbol", "timestamp"}]
+    return out.dropna(subset=numeric, how="all").reset_index(drop=True)
+
+
+def _regime_vector(row: dict[str, Any]) -> dict[str, float]:
+    return {
+        key: value
+        for key, value in {
+            "realized_vol": _first_finite(row, "realized_vol", "realized_20d", "realized_20d_latest"),
+            "atm_iv": _first_finite(row, "atm_iv", "iv_30d", "front_iv"),
+            "skew_25d": _first_finite(row, "skew_25d", "front_risk_reversal_25d"),
+            "term_slope": _first_finite(row, "term_slope", "slope_per_30d"),
+            "correlation": _first_finite(row, "correlation", "avg_correlation", "realized_correlation"),
+        }.items()
+        if value is not None
+    }
+
+
+def _row_vector(row: pd.Series, feature_columns: tuple[str, ...]) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for column in feature_columns:
+        value = _finite_or_none(row.get(column))
+        if value is not None:
+            key = {"realized_20d": "realized_vol", "iv_30d": "atm_iv"}.get(column, column)
+            out[key] = value
+    return out
+
+
+def _regime_distance(features: dict[str, float], centroid: dict[str, float]) -> float:
+    scales = {
+        "realized_vol": 0.20,
+        "atm_iv": 0.25,
+        "skew_25d": 0.08,
+        "term_slope": 0.08,
+        "correlation": 0.30,
+    }
+    distances = []
+    for key, value in features.items():
+        if key in centroid:
+            distances.append(((float(value) - centroid[key]) / scales.get(key, 1.0)) ** 2)
+    return float(np.sqrt(np.mean(distances))) if distances else float("inf")
+
+
+def _historical_analogs(frame: pd.DataFrame, latest: dict[str, float], *, limit: int) -> list[dict[str, Any]]:
+    rows = []
+    for _, row in frame.iterrows():
+        vector = _row_vector(row, _default_regime_features())
+        distance = _regime_distance(latest, vector)
+        payload = {column: _json_safe(row.get(column)) for column in ("symbol", "timestamp") if column in row}
+        payload.update({"distance": distance, "features": vector})
+        rows.append(payload)
+    return sorted(rows, key=lambda item: item["distance"])[:limit]
+
+
+def _vol_forecasts(values: pd.Series, horizon_days: int) -> dict[str, float]:
+    clean = pd.to_numeric(values, errors="coerce").dropna().astype(float)
+    last = float(clean.iloc[-1])
+    long_run = float(clean.mean())
+    returns_var = clean.pow(2)
+    ewma_var = float(returns_var.ewm(alpha=0.20, adjust=False).mean().iloc[-1])
+    garch_proxy = float(np.sqrt(max(0.0, 0.08 * long_run**2 + 0.87 * ewma_var + 0.05 * last**2)))
+    x = np.arange(len(clean), dtype=float)
+    if len(clean) >= 2 and np.isfinite(clean.std(ddof=0)) and clean.std(ddof=0) > 1e-12:
+        slope, intercept = np.polyfit(x, clean.to_numpy(dtype=float), 1)
+        linear = float(intercept + slope * (len(clean) - 1 + max(1, int(horizon_days))))
+    else:
+        linear = last
+    return {
+        "naive": last,
+        "garch_proxy": max(0.0, garch_proxy),
+        "linear_ml": max(0.0, linear),
+    }
+
+
+def _nearest_jump(jump_frame: pd.DataFrame, event_date: pd.Timestamp) -> dict[str, Any] | None:
+    if jump_frame.empty or "timestamp" not in jump_frame:
+        return None
+    work = jump_frame.copy()
+    work["timestamp_dt"] = pd.to_datetime(work["timestamp"], errors="coerce")
+    work = work.dropna(subset=["timestamp_dt"])
+    if work.empty:
+        return None
+    work["date_distance"] = (work["timestamp_dt"].dt.normalize() - event_date.normalize()).abs().dt.days
+    value_col = next((column for column in ("iv_change", "atm_iv_change", "mean_iv_change") if column in work), None)
+    if value_col is None:
+        return None
+    row = work.sort_values(["date_distance", value_col], ascending=[True, False]).iloc[0]
+    return {
+        "timestamp": row["timestamp_dt"].isoformat(),
+        "days_from_event": int(row["date_distance"]),
+        "iv_change": _finite_or_none(row.get(value_col)),
     }
 
 
