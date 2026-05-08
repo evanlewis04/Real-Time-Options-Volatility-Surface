@@ -108,11 +108,14 @@ Tests cover Black-Scholes pricing, put-call parity, Greeks signs/bounds,
 price-to-IV round trips, option-chain cleaning, provider contracts, and
 deterministic Streamlit AppTest states.
 
-## Architecture
+## Architecture And Glossary
 
 The data path is documented in [docs/architecture.md](docs/architecture.md):
 providers -> normalized canonical models -> quant engine -> connector ->
 dashboard, with offline tests attached to the normalized and rendered states.
+Reviewer-facing definitions for IV, DTE, moneyness, skew, risk reversal,
+butterfly, IV rank, SVI, and data provenance modes live in
+[docs/glossary.md](docs/glossary.md).
 
 ## Data Honesty
 

@@ -508,7 +508,7 @@ These are the "insane project" upgrades.
 - [x] Add architecture diagram.
   - Acceptance: docs show providers -> normalized data -> quant engine -> dashboard.
 
-- [ ] Add glossary.
+- [x] Add glossary.
   - Terms: IV, DTE, moneyness, log-moneyness, delta, skew, risk reversal, butterfly, IV rank, SVI.
   - Acceptance: concise docs for non-expert reviewers without cluttering app UI.
 
