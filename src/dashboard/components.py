@@ -1,0 +1,117 @@
+"""Phase 6 dashboard component registry."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DashboardComponentSpec:
+    """Named UI component and the provenance fields it must keep visible."""
+
+    key: str
+    title: str
+    workflow: str
+    required_views: tuple[str, ...]
+    provenance_fields: tuple[str, ...]
+
+
+SurfaceWorkspace = DashboardComponentSpec(
+    key="surface_workspace",
+    title="SurfaceWorkspace",
+    workflow="surface_analysis",
+    required_views=("3d_surface", "heatmap", "raw_points", "fit_residuals", "axis_controls"),
+    provenance_fields=("surface_mode", "surface_source", "surface_quality_score", "pricing_model_label"),
+)
+
+ChainExplorer = DashboardComponentSpec(
+    key="chain_explorer",
+    title="ChainExplorer",
+    workflow="chain_explorer",
+    required_views=("chain_grid", "filters", "iv_greeks", "liquidity_flags", "row_details"),
+    provenance_fields=("source", "mode", "liquidity_filtered_count", "option_price_source"),
+)
+
+SkewLab = DashboardComponentSpec(
+    key="skew_lab",
+    title="SkewLab",
+    workflow="skew_metrics",
+    required_views=("smile_by_expiry", "delta_skew", "risk_reversal", "butterfly", "raw_vs_fitted"),
+    provenance_fields=("surface_source", "surface_mode", "fit_diagnostics"),
+)
+
+TermStructurePanel = DashboardComponentSpec(
+    key="term_structure_panel",
+    title="TermStructurePanel",
+    workflow="term_structure",
+    required_views=("atm_iv_curve", "realized_vol_overlay", "event_markers", "front_back_spread"),
+    provenance_fields=("source", "surface_mode", "event_source"),
+)
+
+DataQualityPanel = DashboardComponentSpec(
+    key="data_quality_panel",
+    title="DataQualityPanel",
+    workflow="data_quality",
+    required_views=("source", "timestamp", "cache_age", "rejected_rows", "violations", "fit_errors"),
+    provenance_fields=("source", "timestamp", "cache_age_seconds", "quality_reason_buckets"),
+)
+
+ScannerPanel = DashboardComponentSpec(
+    key="scanner_panel",
+    title="ScannerPanel",
+    workflow="cross_symbol_scanner",
+    required_views=("iv_rank", "skew", "term_slope", "rich_cheap_residuals"),
+    provenance_fields=("source", "mode", "surface_source"),
+)
+
+StrategyBuilder = DashboardComponentSpec(
+    key="strategy_builder",
+    title="StrategyBuilder",
+    workflow="strategy_pricing",
+    required_views=("leg_editor", "payoff_chart", "greeks_table", "scenario_controls", "surface_pricing"),
+    provenance_fields=("source", "pricing_model_label", "surface_source"),
+)
+
+PortfolioRiskPanel = DashboardComponentSpec(
+    key="portfolio_risk_panel",
+    title="PortfolioRiskPanel",
+    workflow="portfolio_risk",
+    required_views=("position_import", "aggregate_greeks", "scenario_pnl", "concentration", "hedges"),
+    provenance_fields=("source", "mode", "pricing_model_label"),
+)
+
+DiagnosticsPanel = DashboardComponentSpec(
+    key="diagnostics_panel",
+    title="DiagnosticsPanel",
+    workflow="provenance_health",
+    required_views=("provider_health", "latency", "exceptions", "capabilities", "latest_logs"),
+    provenance_fields=("overall", "data_contract", "performance"),
+)
+
+ReportExportPanel = DashboardComponentSpec(
+    key="report_export_panel",
+    title="ReportExportPanel",
+    workflow="report_export",
+    required_views=("html_export", "notebook_export", "workspace_export"),
+    provenance_fields=("source", "mode", "data_timestamp", "model_assumptions"),
+)
+
+
+PHASE6_COMPONENTS: tuple[DashboardComponentSpec, ...] = (
+    SurfaceWorkspace,
+    ChainExplorer,
+    SkewLab,
+    TermStructurePanel,
+    DataQualityPanel,
+    ScannerPanel,
+    StrategyBuilder,
+    PortfolioRiskPanel,
+    DiagnosticsPanel,
+    ReportExportPanel,
+)
+
+
+def phase6_component_titles() -> list[str]:
+    """Return Phase 6 component titles in implementation order."""
+    return [component.title for component in PHASE6_COMPONENTS]
+

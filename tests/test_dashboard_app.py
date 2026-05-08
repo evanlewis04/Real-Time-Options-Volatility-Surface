@@ -24,7 +24,19 @@ def test_dashboard_default_state_renders_key_sections():
     assert len(at.metric) >= 10
     assert any(metric.label == "ATM dIV" for metric in at.metric)
     assert any(metric.label == "Exp Move" for metric in at.metric)
-    assert len(at.tabs) == 8
+    assert len(at.tabs) == 10
+    assert [tab.label for tab in at.tabs] == [
+        "SurfaceWorkspace",
+        "ChainExplorer",
+        "SkewLab",
+        "TermStructurePanel",
+        "DataQualityPanel",
+        "ScannerPanel",
+        "StrategyBuilder",
+        "PortfolioRiskPanel",
+        "DiagnosticsPanel",
+        "ReportExportPanel",
+    ]
     assert len(at.dataframe) >= 2
 
 

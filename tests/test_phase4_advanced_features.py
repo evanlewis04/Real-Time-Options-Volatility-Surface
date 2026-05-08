@@ -466,10 +466,10 @@ def test_multi_page_registry_uses_shared_dashboard_state_service():
     state.set_context(selected_symbol="msft", selected_symbols=["aapl", "msft"], data_key=(1, "mark"))
     state.put("surface:MSFT", {"points": 25})
     registry = default_page_registry()
-    page = page_by_key("surface", registry)
+    page = page_by_key("surface_workspace", registry)
 
     assert page is not None
-    assert page.title == "Surface"
-    assert page_titles(registry)[0] == "Surface"
+    assert page.title == "SurfaceWorkspace"
+    assert page_titles(registry)[0] == "SurfaceWorkspace"
     assert state.snapshot()["selected_symbol"] == "MSFT"
     assert state.get_or_load("surface:MSFT", lambda: {"points": 1})["points"] == 25

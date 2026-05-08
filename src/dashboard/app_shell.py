@@ -749,6 +749,90 @@ def run_dashboard() -> None:
                 frame[column] = pd.to_numeric(frame[column], errors="coerce")
         return frame.dropna(subset=["strike", "dte", value_col])
 
+    def _fit_points_from_metadata(meta: dict[str, Any]) -> pd.DataFrame:
+        rows = []
+        ssvi_residuals = (meta.get("ssvi_surface") or {}).get("residuals") or []
+        for row in ssvi_residuals:
+            rows.append({**row, "source": "SSVI"})
+        if not rows:
+            for smile in meta.get("svi_smiles") or []:
+                for row in smile.get("residuals") or []:
+                    rows.append(
+                        {
+                            **row,
+                            "dte": smile.get("dte"),
+                            "expiration": smile.get("expiration"),
+                            "source": "SVI",
+                        }
+                    )
+        frame = pd.DataFrame(rows)
+        if frame.empty:
+            return frame
+        for column in ("strike", "dte", "log_moneyness", "observed_iv", "fitted_iv", "residual"):
+            if column in frame:
+                frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        return frame.dropna(subset=["strike", "dte", "observed_iv", "fitted_iv", "residual"])
+
+    def _fit_point_axis(frame: pd.DataFrame, axis: str, spot: float) -> tuple[pd.Series, str, str]:
+        axis_key = str(axis or "strike").lower().replace(" ", "_").replace("-", "_")
+        if axis_key in {"moneyness", "spot_moneyness"}:
+            return frame["strike"] / spot, "Moneyness (K/S)", "Moneyness"
+        if axis_key in {"log_moneyness", "logmoneyness"} and "log_moneyness" in frame:
+            return frame["log_moneyness"], "Log-moneyness ln(K/S)", "Log-moneyness"
+        if axis_key in {"delta", "call_delta"}:
+            from src.pricing.black_scholes import OptionGreeks
+
+            values = []
+            for row in frame.itertuples():
+                try:
+                    values.append(
+                        OptionGreeks.delta(
+                            spot,
+                            float(row.strike),
+                            max(float(row.dte) / 365.0, 1e-8),
+                            0.0,
+                            max(float(row.fitted_iv), 1e-8),
+                            "call",
+                        )
+                    )
+                except (TypeError, ValueError, AttributeError):
+                    values.append(np.nan)
+            return pd.Series(values, index=frame.index), "Call delta", "Call delta"
+        return frame["strike"], "Strike", "Strike"
+
+    def _analysis_export_payload() -> dict[str, Any]:
+        data_timestamp = surface_meta.get("timestamp") or surface_meta.get("spot_timestamp") or current_data.get("timestamp")
+        if hasattr(data_timestamp, "isoformat"):
+            data_timestamp = data_timestamp.isoformat()
+        return {
+            "symbol": surface_symbol,
+            "spot": current_data.get("price"),
+            "data_timestamp": str(data_timestamp or datetime.now().isoformat()),
+            "model_assumptions": surface_meta.get("pricing_model_label") or current_data.get("pricing_model_label"),
+            "surface_summary": {
+                "atm_iv": stats.get("atm_iv"),
+                "iv_rank": surface_meta.get("iv_rank"),
+                "iv_percentile": surface_meta.get("iv_percentile"),
+                "surface_points": stats.get("points"),
+                "term_spread": stats.get("term_spread"),
+            },
+            "diagnostics": {
+                "surface_quality_score": surface_meta.get("surface_quality_score"),
+                "fit_diagnostics": surface_meta.get("fit_diagnostics"),
+                "global_fit_diagnostics": surface_meta.get("global_fit_diagnostics"),
+                "warnings": surface_meta.get("warnings"),
+                "source": surface_meta.get("surface_source") or current_data.get("price_source"),
+                "mode": surface_meta.get("surface_mode") or current_data.get("data_mode"),
+            },
+            "provenance": {
+                "surface_source": surface_meta.get("surface_source"),
+                "surface_mode": surface_meta.get("surface_mode"),
+                "option_price_source": surface_meta.get("option_price_source"),
+                "pricing_model": surface_meta.get("pricing_model_label"),
+                "quality_score": surface_meta.get("surface_quality_score"),
+            },
+        }
+
     def _heatmap_from_points(points: list[dict[str, Any]], value_col: str) -> pd.DataFrame:
         frame = _surface_points_frame(points, value_col)
         if frame.empty:
@@ -849,9 +933,20 @@ def run_dashboard() -> None:
     )
 
     page_registry = default_page_registry()
-    surface_tab, chain_tab, skew_tab, local_vol_tab, relative_tab, strategy_tab, risk_tab, diagnostics_tab = st.tabs(
-        page_titles(page_registry)
-    )
+    (
+        surface_tab,
+        chain_tab,
+        skew_tab,
+        term_tab,
+        quality_tab,
+        scanner_tab,
+        strategy_tab,
+        risk_tab,
+        diagnostics_tab,
+        report_tab,
+    ) = st.tabs(page_titles(page_registry))
+    local_vol_tab = surface_tab
+    relative_tab = scanner_tab
 
     with surface_tab:
         st.markdown('<div class="section-header">Volatility Surface</div>', unsafe_allow_html=True)
@@ -864,6 +959,17 @@ def run_dashboard() -> None:
             surface_meta.get("surface_risk_free_rate") or surface_meta.get("risk_free_rate_median"),
             surface_meta.get("surface_dividend_yield") or surface_meta.get("effective_dividend_yield_median"),
         )
+        fit_points = _fit_points_from_metadata(surface_meta)
+        if not fit_points.empty:
+            fit_points = fit_points.copy()
+            fit_points["axis_value"], fit_axis_title, fit_axis_label = _fit_point_axis(
+                fit_points,
+                surface_x_axis,
+                current_data["price"],
+            )
+        else:
+            fit_axis_title = axis_title
+            fit_axis_label = axis_title
 
         if show_3d_surface:
             fig_3d = go.Figure(
@@ -878,10 +984,27 @@ def run_dashboard() -> None:
                     )
                 ]
             )
+            if not fit_points.empty:
+                fig_3d.add_trace(
+                    go.Scatter3d(
+                        x=fit_points["axis_value"],
+                        y=fit_points["dte"],
+                        z=fit_points["observed_iv"],
+                        mode="markers",
+                        name="Raw IV points",
+                        marker=dict(size=3, color="#f97316", opacity=0.78),
+                        customdata=fit_points[["fitted_iv", "residual", "source"]],
+                        hovertemplate=(
+                            f"{fit_axis_label}: %{{x:.3f}}<br>DTE: %{{y:.0f}}<br>"
+                            "Observed IV: %{z:.2%}<br>Fitted IV: %{customdata[0]:.2%}<br>"
+                            "Residual: %{customdata[1]:.2%}<br>%{customdata[2]}<extra></extra>"
+                        ),
+                    )
+                )
             fig_3d.update_layout(
                 title=f"{surface_symbol} Implied Volatility Surface",
                 scene=dict(
-                    xaxis_title=axis_title,
+                    xaxis_title=fit_axis_title,
                     yaxis_title="Days to expiry",
                     zaxis_title="Annualized IV",
                     camera=dict(eye=dict(x=1.45, y=1.35, z=1.0)),
@@ -903,12 +1026,74 @@ def run_dashboard() -> None:
                 )
             ]
         )
+        if not fit_points.empty:
+            fig_heatmap.add_trace(
+                go.Scatter(
+                    x=fit_points["axis_value"],
+                    y=fit_points["dte"],
+                    mode="markers",
+                    name="Raw IV points",
+                    marker=dict(color="#111827", size=6, symbol="circle-open"),
+                    customdata=fit_points[["observed_iv", "fitted_iv", "residual", "source"]],
+                    hovertemplate=(
+                        f"{fit_axis_label}: %{{x:.3f}}<br>DTE: %{{y:.0f}}<br>"
+                        "Observed IV: %{customdata[0]:.2%}<br>"
+                        "Fitted IV: %{customdata[1]:.2%}<br>"
+                        "Residual: %{customdata[2]:.2%}<br>%{customdata[3]}<extra></extra>"
+                    ),
+                )
+            )
         fig_heatmap.update_layout(
             title=f"{surface_symbol} Surface Heatmap",
             xaxis_title=axis_title,
             yaxis_title="Days to expiry",
         )
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
+
+        if not fit_points.empty:
+            residual_fig = go.Figure(
+                data=[
+                    go.Scatter(
+                        x=fit_points["axis_value"],
+                        y=fit_points["residual"],
+                        mode="markers",
+                        marker=dict(
+                            color=fit_points["dte"],
+                            colorscale="Cividis",
+                            colorbar=dict(title="DTE"),
+                            size=8,
+                        ),
+                        customdata=fit_points[["dte", "observed_iv", "fitted_iv", "source"]],
+                        hovertemplate=(
+                            f"{fit_axis_label}: %{{x:.3f}}<br>DTE: %{{customdata[0]:.0f}}<br>"
+                            "Residual: %{y:.2%}<br>Observed IV: %{customdata[1]:.2%}<br>"
+                            "Fitted IV: %{customdata[2]:.2%}<br>%{customdata[3]}<extra></extra>"
+                        ),
+                    )
+                ]
+            )
+            residual_fig.add_hline(y=0, line_width=1, line_color="#667085")
+            residual_fig.update_layout(
+                title=f"{surface_symbol} Fit Residuals",
+                xaxis_title=fit_axis_title,
+                yaxis_title="Fitted minus raw IV",
+            )
+            st.plotly_chart(apply_chart_layout(residual_fig, 340), width="stretch")
+            st.caption(
+                f"Raw/fitted overlay source: {fit_points['source'].iloc[0]}; "
+                f"residual points {fmt_int(len(fit_points))}; "
+                f"surface source {surface_meta.get('surface_source', 'unknown')}; "
+                f"mode {surface_meta.get('surface_mode', 'unknown')}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Fit residuals unavailable",
+                    "No SVI or SSVI residual payload is available for the current fitted surface.",
+                    "Use a symbol with enough valid IV rows for surface calibration.",
+                ),
+                unsafe_allow_html=True,
+            )
 
         tape_payload = surface_meta.get("surface_tape") or {}
         replay_fig = _surface_replay_figure(tape_payload)
@@ -1908,6 +2093,141 @@ def run_dashboard() -> None:
                 unsafe_allow_html=True,
             )
 
+    with term_tab:
+        st.markdown('<div class="section-header">Term Structure Panel</div>', unsafe_allow_html=True)
+        term = pd.DataFrame(stats.get("atm_term", []), columns=["DTE", "ATM IV"])
+        term_fig = go.Figure()
+        if not term.empty:
+            term_fig.add_trace(
+                go.Scatter(
+                    x=term["DTE"],
+                    y=term["ATM IV"],
+                    mode="lines+markers",
+                    name="ATM IV",
+                    line=dict(color="#176B87", width=3),
+                    hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<extra></extra>",
+                )
+            )
+            if hist_metrics.get("available"):
+                r20 = hist_metrics.get("realized_20d_latest")
+                r60 = hist_metrics.get("realized_60d_latest")
+                if r20 is not None:
+                    term_fig.add_hline(
+                        y=float(r20),
+                        line_width=1,
+                        line_dash="dash",
+                        line_color="#b42318",
+                        annotation_text="20D realized",
+                    )
+                if r60 is not None:
+                    term_fig.add_hline(
+                        y=float(r60),
+                        line_width=1,
+                        line_dash="dot",
+                        line_color="#7a5af8",
+                        annotation_text="60D realized",
+                    )
+            event_markers = _term_event_markers(term, expected_moves, expiry_events)
+            if event_markers:
+                marker_frame = pd.DataFrame(event_markers)
+                term_fig.add_trace(
+                    go.Scatter(
+                        x=marker_frame["dte"],
+                        y=marker_frame["atm_iv"],
+                        mode="markers",
+                        name="Events",
+                        marker=dict(color="#c2410c", size=11, symbol="diamond"),
+                        customdata=marker_frame[["label"]],
+                        hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<br>%{customdata[0]}<extra></extra>",
+                    )
+                )
+            term_fig.update_layout(
+                title=f"{surface_symbol} ATM IV Term Structure",
+                xaxis_title="Days to expiry",
+                yaxis_title="Annualized volatility",
+            )
+            st.plotly_chart(apply_chart_layout(term_fig, 460), width="stretch")
+            st.caption(
+                f"Front/back spread {fmt_pct(term_metrics.get('front_back_spread'))}; "
+                f"slope per 30D {fmt_pct(term_metrics.get('slope_per_30d'))}; "
+                f"regime {term_metrics.get('regime', 'unavailable')}; "
+                f"surface source {surface_meta.get('surface_source', 'unknown')}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Term structure unavailable",
+                    "No ATM IV points were available across expiries.",
+                    "Refresh data or choose a symbol with multiple valid expirations.",
+                ),
+                unsafe_allow_html=True,
+            )
+        event_rows = _event_rows(expiry_events)
+        if event_rows:
+            st.dataframe(pd.DataFrame(event_rows), width="stretch", hide_index=True)
+
+    with quality_tab:
+        st.markdown('<div class="section-header">Data Quality Panel</div>', unsafe_allow_html=True)
+        quality_cols = st.columns(5)
+        quality_metrics = [
+            ("Source", surface_meta.get("surface_source") or current_data.get("price_source") or "unknown", surface_mode),
+            ("Cache Age", f"{fmt_int(surface_meta.get('cache_age_seconds'))}s", "chain"),
+            ("Rejected Rows", fmt_int(surface_meta.get("rejected_rows")), "normalization"),
+            ("No-Arb", fmt_int(surface_meta.get("no_arbitrage_violation_count")), "violations"),
+            ("Fit RMSE", fmt_pct((surface_meta.get("fit_diagnostics") or {}).get("rmse")), "SVI"),
+        ]
+        for col, (label, value, delta) in zip(quality_cols, quality_metrics):
+            with col:
+                st.metric(label, value, delta=delta)
+        expiry_quality = surface_meta.get("expiry_quality") or {}
+        if expiry_quality:
+            quality_rows = []
+            for expiry, payload in sorted(expiry_quality.items()):
+                buckets = payload.get("reason_buckets") or {}
+                quality_rows.append(
+                    {
+                        "Expiry": expiry,
+                        "Score": payload.get("score"),
+                        "Valid Quotes": payload.get("valid_quotes"),
+                        "Rejected Quotes": payload.get("rejected_quotes"),
+                        "Surface Quotes": payload.get("surface_quotes"),
+                        "Reason Buckets": ", ".join(
+                            f"{reason}: {count}" for reason, count in sorted(buckets.items()) if count
+                        )
+                        or "none",
+                    }
+                )
+            st.dataframe(
+                pd.DataFrame(quality_rows),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Score": st.column_config.NumberColumn("Score", format="%.1f"),
+                    "Valid Quotes": st.column_config.NumberColumn("Valid Quotes", format="%d"),
+                    "Rejected Quotes": st.column_config.NumberColumn("Rejected Quotes", format="%d"),
+                    "Surface Quotes": st.column_config.NumberColumn("Surface Quotes", format="%d"),
+                },
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Expiry quality unavailable",
+                    "The current surface metadata has no per-expiry quality buckets.",
+                    "Refresh data to rebuild quote-quality diagnostics.",
+                ),
+                unsafe_allow_html=True,
+            )
+        quality_label = f"quality score {quality_score:.1f}/100" if quality_score is not None else "quality score unavailable"
+        st.caption(
+            f"Timestamp {surface_meta.get('timestamp') or surface_meta.get('spot_timestamp') or current_data.get('timestamp')}; "
+            f"{quality_label}; "
+            f"reason buckets {reason_buckets or {}}; "
+            f"fallback reason {surface_meta.get('fallback_reason') or 'none'}."
+        )
+        surface_quality = surface_meta.get("surface_quality") or {}
+        if surface_quality:
+            st.json(surface_quality)
+
     with local_vol_tab:
         st.markdown('<div class="section-header">Dupire Local Volatility</div>', unsafe_allow_html=True)
         local_vol = surface_meta.get("local_volatility") or {}
@@ -1949,6 +2269,66 @@ def run_dashboard() -> None:
             )
 
     with relative_tab:
+        st.markdown('<div class="section-header">Scanner Panel</div>', unsafe_allow_html=True)
+        scanner = surface_meta.get("rich_cheap_scanner") or {}
+        scanner_display = pd.DataFrame(scanner.get("candidates") or [])
+        if scanner.get("available") and not scanner_display.empty:
+            scanner_cols = [
+                "classification",
+                "type",
+                "expiration",
+                "dte",
+                "strike",
+                "market_iv",
+                "fitted_iv",
+                "surface_residual",
+                "residual_z_score",
+                "liquidity_score",
+                "bid_ask_spread_pct",
+                "volume",
+                "open_interest",
+                "reason",
+            ]
+            scanner_cols = [col for col in scanner_cols if col in scanner_display.columns]
+            st.download_button(
+                "Export scanner panel CSV",
+                dataframe_to_csv_bytes(scanner_display[scanner_cols]),
+                file_name=f"{surface_symbol}_scanner_panel.csv",
+                mime="text/csv",
+                key="scanner_panel_export_csv",
+            )
+            st.dataframe(
+                scanner_display[scanner_cols],
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "classification": st.column_config.TextColumn("Class"),
+                    "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                    "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
+                    "market_iv": st.column_config.NumberColumn("Market IV", format="%.2%"),
+                    "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
+                    "surface_residual": st.column_config.NumberColumn("Residual", format="%.2%"),
+                    "residual_z_score": st.column_config.NumberColumn("Z-score", format="%.2f"),
+                    "liquidity_score": st.column_config.NumberColumn("Liquidity", format="%.2f"),
+                    "bid_ask_spread_pct": st.column_config.NumberColumn("Spread", format="%.2%"),
+                },
+            )
+            st.caption(
+                f"Residual scanner source: {scanner.get('source', 'current chain plus SVI fit')}; "
+                f"model {scanner.get('model', 'SVI')}; "
+                f"rich {fmt_int(scanner.get('rich_count'))}; cheap {fmt_int(scanner.get('cheap_count'))}; "
+                f"surface mode {surface_meta.get('surface_mode', 'unknown')}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Residual scanner unavailable",
+                    scanner.get("reason") or "No current chain rows matched fitted-surface residuals.",
+                    "Use a symbol with enough valid strikes for SVI calibration.",
+                ),
+                unsafe_allow_html=True,
+            )
+
         st.markdown('<div class="section-header">Relative Value Dashboard</div>', unsafe_allow_html=True)
         peer_symbols = [symbol for symbol in selected_symbols if symbol != surface_symbol]
         if peer_symbols:
@@ -2664,6 +3044,71 @@ def run_dashboard() -> None:
         warnings_list = surface_meta.get("warnings") or []
         if warnings_list:
             st.warning(" | ".join(str(item) for item in warnings_list[:4]))
+
+    with report_tab:
+        st.markdown('<div class="section-header">Report Export Panel</div>', unsafe_allow_html=True)
+        export_payload = _analysis_export_payload()
+        report_cols = st.columns(3)
+        with report_cols[0]:
+            if st.button("Export HTML report", width="stretch", key="report_panel_html"):
+                report = connector.generate_research_report(surface_symbol)
+                if report.get("available"):
+                    st.success(f"HTML report written to {report.get('path')}")
+                else:
+                    st.error(report.get("reason", "HTML report generation failed"))
+        with report_cols[1]:
+            notebook_path = f"reports/{surface_symbol}_surface_analysis.ipynb"
+            export_notebook = getattr(connector, "export_analysis_notebook", None)
+            if st.button("Export notebook", width="stretch", key="report_panel_notebook"):
+                if export_notebook is None:
+                    st.error("Notebook export is unavailable for this connector.")
+                else:
+                    notebook = export_notebook(export_payload, notebook_path)
+                    if notebook.get("available"):
+                        st.success(f"Notebook written to {notebook.get('path')}")
+                    else:
+                        st.error(notebook.get("reason", "Notebook export failed"))
+        with report_cols[2]:
+            save_workspace = getattr(connector, "save_workspace", None)
+            if st.button("Save workspace", width="stretch", key="report_panel_workspace"):
+                if save_workspace is None:
+                    st.error("Workspace export is unavailable for this connector.")
+                else:
+                    workspace = {
+                        "name": f"{surface_symbol} Phase 6 workspace",
+                        "selected_symbols": selected_symbols,
+                        "filters": {
+                            "min_open_interest": min_open_interest,
+                            "min_volume": min_volume,
+                            "max_bid_ask_spread_pct": max_spread_pct,
+                            "max_quote_age_days": max_quote_age_days,
+                            "surface_x_axis": surface_x_axis,
+                        },
+                        "model_settings": {
+                            "option_price_source": option_price_source,
+                            "pricing_model": pricing_model,
+                        },
+                        "chart_layout": {"show_3d_surface": show_3d_surface, "show_chain": show_chain},
+                        "provenance": export_payload["provenance"],
+                    }
+                    saved = save_workspace(workspace, name=f"{surface_symbol}_phase6_workspace")
+                    if saved.get("available"):
+                        st.success(f"Workspace written to {saved.get('path')}")
+                    else:
+                        st.error(saved.get("reason", "Workspace export failed"))
+        st.caption(
+            f"Export payload source {export_payload['provenance'].get('surface_source') or 'unknown'}; "
+            f"mode {export_payload['provenance'].get('surface_mode') or 'unknown'}; "
+            f"data timestamp {export_payload.get('data_timestamp')}; "
+            f"model assumptions {export_payload.get('model_assumptions') or 'n/a'}."
+        )
+        st.json(export_payload)
+        list_workspaces = getattr(connector, "list_workspaces", None)
+        if list_workspaces is not None:
+            saved_workspaces = list_workspaces()
+            if saved_workspaces:
+                st.markdown("#### Saved Workspaces")
+                st.dataframe(pd.DataFrame(saved_workspaces[:5]), width="stretch", hide_index=True)
 
     st.markdown(
         f"""

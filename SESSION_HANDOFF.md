@@ -6,25 +6,27 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current main head before this session commit: `cf2a480`
+Current main head before this session commit: `e1f44ae`
 
-Branch state before this session commit: `main...origin/main [ahead 4]`
+Branch state before this session commit: `main...origin/main [ahead 5]`
 
 ## Upgrade State
 
-Phase 0-5 are complete.
+Phase 0-6 are complete.
 
-Phase 5: `17/17` complete.
+Phase 6: `10/10` complete.
 
 Completed this session:
 
-1. Added concise reviewer glossary at `docs/glossary.md`
-2. Linked glossary from README without adding explanatory clutter to the app
-3. Added deterministic docs test for the required Phase 5 glossary terms
+1. Added the explicit Phase 6 dashboard component registry and ten-component page order
+2. Exposed Phase 6 tabs for SurfaceWorkspace, ChainExplorer, SkewLab, TermStructurePanel, DataQualityPanel, ScannerPanel, StrategyBuilder, PortfolioRiskPanel, DiagnosticsPanel, and ReportExportPanel
+3. Added raw/fitted IV overlays and fit residuals to SurfaceWorkspace
+4. Added dedicated term-structure, data-quality, scanner, and report/notebook/workspace export panels
+5. Added deterministic tests for the Phase 6 registry and updated dashboard AppTest coverage
 
 Next unchecked section:
 
-1. Phase 6: `SurfaceWorkspace`
+No unchecked upgrade sections remain in `upgrade.md`.
 
 ## Latest Verification Pattern
 
@@ -40,7 +42,7 @@ python scripts\verify.py --skip-healthcheck
 python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts\dashboard_screenshots --viewports desktop
 ```
 
-Latest verification passed on 2026-05-08. Full pytest: `176 passed, 31 warnings`. Streamlit HTTP smoke passed through `dashboard_visual_regression.py`; screenshot capture skipped because Playwright is not installed.
+Latest verification passed on 2026-05-08. Full pytest: `178 passed, 31 warnings`. Healthcheck, diagnostic, and verify passed. Dashboard visual regression exited cleanly with screenshot capture skipped because Playwright is not installed.
 
 ## New Session Prompt
 
@@ -50,9 +52,8 @@ Continue Real-Time Options Volatility Surface upgrade.
 Repo:
 C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
 
-Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Implement the next unchecked Phase 6 item if it fits cleanly.
-Preserve provenance, use deterministic offline tests, run full verification, update SESSION_HANDOFF.md, commit changes, and report the updated Phase 6 count.
+Start by reading SESSION_HANDOFF.md and confirm there are no remaining unchecked sections in upgrade.md.
+Preserve provenance, keep deterministic offline tests, run full verification for any changes, update SESSION_HANDOFF.md, commit changes, and report the current upgrade count.
 ```
 
 ## Notes

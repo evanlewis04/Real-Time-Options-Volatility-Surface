@@ -514,34 +514,34 @@ These are the "insane project" upgrades.
 
 ## Phase 6: Specific UI Components To Build
 
-- [ ] `SurfaceWorkspace`
+- [x] `SurfaceWorkspace`
   - Main surface view with 3D surface, 2D heatmap, raw points overlay, fit residuals, and axis toggles.
 
-- [ ] `ChainExplorer`
+- [x] `ChainExplorer`
   - Option-chain grid with filters, IV/G Greeks, liquidity flags, and row-level details.
 
-- [ ] `SkewLab`
+- [x] `SkewLab`
   - Smile by expiry, delta skew metrics, risk reversal/butterfly table, raw vs fitted curve.
 
-- [ ] `TermStructurePanel`
+- [x] `TermStructurePanel`
   - ATM IV curve, realized vol overlays, event markers, front/back spread.
 
-- [ ] `DataQualityPanel`
+- [x] `DataQualityPanel`
   - Source, timestamp, cache age, rejected rows, no-arbitrage violations, fit errors.
 
-- [ ] `ScannerPanel`
+- [x] `ScannerPanel`
   - Universe-level ranking by IV rank, skew, term slope, residual rich/cheap score.
 
-- [ ] `StrategyBuilder`
+- [x] `StrategyBuilder`
   - Leg editor, payoff chart, Greeks table, scenario controls, surface-based pricing.
 
-- [ ] `PortfolioRiskPanel`
+- [x] `PortfolioRiskPanel`
   - Position import, aggregate Greeks, scenario P&L, concentration and hedge suggestions.
 
-- [ ] `DiagnosticsPanel`
+- [x] `DiagnosticsPanel`
   - Provider health, latency, exceptions, data-source capability, latest logs.
 
-- [ ] `ReportExportPanel`
+- [x] `ReportExportPanel`
   - Export current symbol analysis to HTML or notebook.
 
 ## Suggested File/Module Roadmap
