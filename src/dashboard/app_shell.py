@@ -160,6 +160,22 @@ def run_dashboard() -> None:
         def get_historical_metrics(self, symbol: str, period: str = "1y"):
             return {"available": False, "reason": "No historical provider in fallback mode"}
 
+        def get_relative_value_dashboard(self, left_symbol: str, right_symbol: str):
+            from src.quant.advanced_features import relative_value_dashboard
+
+            return relative_value_dashboard(self.get_current_data(left_symbol), self.get_current_data(right_symbol))
+
+        def get_cross_sectional_vol_map(self, symbols: Iterable[str]):
+            from src.quant.advanced_features import cross_sectional_vol_map
+
+            return cross_sectional_vol_map([self.get_current_data(symbol) for symbol in symbols])
+
+        def get_earnings_event_engine(self, symbol: str):
+            return {"available": False, "reason": "No event provider in fallback mode"}
+
+        def get_strategy_analytics(self, symbol: str, strategy_type: str):
+            return {"available": False, "reason": "No option-chain strategy provider in fallback mode"}
+
         def get_market_status(self):
             from src.data.market_calendar import MarketCalendar
 
@@ -245,6 +261,22 @@ def run_dashboard() -> None:
     @st.cache_data(ttl=60, show_spinner=False)
     def get_market_status_cached():
         return connector.get_market_status()
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_relative_value_cached(left_symbol: str, right_symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+        return connector.get_relative_value_dashboard(left_symbol, right_symbol)
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_cross_sectional_vol_map_cached(symbols_key: Tuple[str, ...], data_key: Tuple[int, int, float, int, str, str]):
+        return connector.get_cross_sectional_vol_map(list(symbols_key))
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_earnings_event_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+        return connector.get_earnings_event_engine(symbol)
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def get_strategy_analytics_cached(symbol: str, strategy_type: str, data_key: Tuple[int, int, float, int, str, str]):
+        return connector.get_strategy_analytics(symbol, strategy_type)
 
 
     available_symbols = [
@@ -664,8 +696,8 @@ def run_dashboard() -> None:
         build_market_snapshot,
     )
 
-    surface_tab, chain_tab, skew_tab, local_vol_tab, risk_tab, diagnostics_tab = st.tabs(
-        ["Surface", "Chain", "Skew & Term", "Local Vol", "Risk", "Diagnostics"]
+    surface_tab, chain_tab, skew_tab, local_vol_tab, relative_tab, strategy_tab, risk_tab, diagnostics_tab = st.tabs(
+        ["Surface", "Chain", "Skew & Term", "Local Vol", "Relative Value", "Strategy Lab", "Risk", "Diagnostics"]
     )
 
     with surface_tab:
@@ -1759,6 +1791,308 @@ def run_dashboard() -> None:
                     "Local volatility disabled",
                     local_vol.get("reason") or "Dupire local vol requires a smoothed high-quality surface.",
                     "Improve quote quality, surface density, and smoothing diagnostics before relying on this approximation.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+    with relative_tab:
+        st.markdown('<div class="section-header">Relative Value Dashboard</div>', unsafe_allow_html=True)
+        peer_symbols = [symbol for symbol in selected_symbols if symbol != surface_symbol]
+        if peer_symbols:
+            peer_symbol = st.selectbox("Peer underlying", peer_symbols, index=0, help="Second symbol for pair overlays.")
+            rv = load_with_status(
+                st,
+                LoadingState(
+                    title=f"{surface_symbol} / {peer_symbol} relative value",
+                    detail="Building pair metrics from option-chain, surface, and realized-volatility profiles.",
+                    stage="relative value",
+                    rows=4,
+                ),
+                lambda: get_relative_value_cached(surface_symbol, peer_symbol, data_key),
+            )
+            if rv.get("available"):
+                overlay = pd.DataFrame(rv.get("normalized_overlays") or [])
+                profiles = pd.DataFrame(rv.get("profiles") or [])
+                if not overlay.empty:
+                    fig_overlay = go.Figure()
+                    fig_overlay.add_trace(
+                        go.Bar(
+                            x=overlay["metric"],
+                            y=overlay["left_normalized"],
+                            name=surface_symbol,
+                            marker_color="#176B87",
+                        )
+                    )
+                    fig_overlay.add_trace(
+                        go.Bar(
+                            x=overlay["metric"],
+                            y=overlay["right_normalized"],
+                            name=peer_symbol,
+                            marker_color="#F59E0B",
+                        )
+                    )
+                    fig_overlay.update_layout(
+                        title=f"{surface_symbol} vs {peer_symbol} Normalized Vol Overlay",
+                        yaxis_title="Normalized value",
+                        barmode="group",
+                    )
+                    st.plotly_chart(apply_chart_layout(fig_overlay, 420), width="stretch")
+                if not profiles.empty:
+                    st.dataframe(
+                        profiles,
+                        width="stretch",
+                        hide_index=True,
+                        column_config={
+                            "symbol": st.column_config.TextColumn("Symbol"),
+                            "atm_iv": st.column_config.NumberColumn("ATM IV", format="%.2%"),
+                            "iv_rank": st.column_config.NumberColumn("IV Rank", format="%.2%"),
+                            "iv_percentile": st.column_config.NumberColumn("IV Percentile", format="%.2%"),
+                            "skew_25d": st.column_config.NumberColumn("25D Skew", format="%.2%"),
+                            "term_slope": st.column_config.NumberColumn("Term Slope", format="%.2%"),
+                            "realized_20d": st.column_config.NumberColumn("20D Realized", format="%.2%"),
+                            "iv_realized_spread": st.column_config.NumberColumn("IV - Realized", format="%.2%"),
+                            "mode": st.column_config.TextColumn("Mode"),
+                            "source": st.column_config.TextColumn("Source"),
+                        },
+                    )
+                    st.caption(
+                        f"Pair source: {rv.get('source', 'symbol profiles')}; "
+                        f"ATM spread {fmt_pct((rv.get('spreads') or {}).get('atm_iv_spread'))}; "
+                        f"skew spread {fmt_pct((rv.get('spreads') or {}).get('skew_spread'))}; "
+                        f"realized spread {fmt_pct((rv.get('spreads') or {}).get('realized_spread'))}."
+                    )
+            else:
+                st.markdown(
+                    render_empty_state(
+                        "Relative value unavailable",
+                        rv.get("reason") or "Pair profiles did not include enough volatility metrics.",
+                        "Select two optionable symbols with surface and realized-volatility data.",
+                    ),
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Peer selection unavailable",
+                    "Relative value needs at least two selected symbols.",
+                    "Add another symbol to the universe.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="section-header">Cross-Sectional Vol Map</div>', unsafe_allow_html=True)
+        xvol = load_with_status(
+            st,
+            LoadingState(
+                title="Cross-sectional volatility map",
+                detail="Ranking selected symbols by IV rank, percentile, skew, term slope, and IV-realized spread.",
+                stage="cross-section",
+                rows=max(3, min(len(selected_symbols), 8)),
+            ),
+            lambda: get_cross_sectional_vol_map_cached(tuple(sorted(selected_symbols)), data_key),
+        )
+        xvol_rows = pd.DataFrame(xvol.get("opportunities") or [])
+        if xvol.get("available") and not xvol_rows.empty:
+            min_score = st.slider(
+                "Min opportunity score",
+                0.0,
+                max(1.0, float(xvol_rows["opportunity_score"].max())),
+                0.0,
+                0.05,
+                help="Minimum cross-sectional score shown in the map.",
+            )
+            xvol_display = xvol_rows[xvol_rows["opportunity_score"] >= min_score].copy()
+            fig_xvol = go.Figure(
+                data=go.Scatter(
+                    x=xvol_display["iv_realized_spread"],
+                    y=xvol_display["iv_rank"],
+                    mode="markers+text",
+                    text=xvol_display["symbol"],
+                    textposition="top center",
+                    marker=dict(
+                        size=np.clip(xvol_display["opportunity_score"].astype(float) * 18 + 8, 8, 34),
+                        color=xvol_display["term_slope"],
+                        colorscale="Cividis",
+                        colorbar=dict(title="Term slope"),
+                    ),
+                    customdata=xvol_display[["iv_percentile", "skew_25d", "opportunity_score"]],
+                    hovertemplate=(
+                        "%{text}<br>IV-realized: %{x:.2%}<br>IV rank: %{y:.2%}<br>"
+                        "IV percentile: %{customdata[0]:.2%}<br>25D skew: %{customdata[1]:.2%}<br>"
+                        "Score: %{customdata[2]:.2f}<extra></extra>"
+                    ),
+                )
+            )
+            fig_xvol.update_layout(
+                title="Universe Vol Opportunity Map",
+                xaxis_title="IV - 20D realized",
+                yaxis_title="IV rank",
+            )
+            st.plotly_chart(apply_chart_layout(fig_xvol, 440), width="stretch")
+            st.download_button(
+                "Export vol map CSV",
+                dataframe_to_csv_bytes(xvol_display),
+                file_name=f"{surface_symbol}_cross_sectional_vol_map.csv",
+                mime="text/csv",
+            )
+            st.dataframe(
+                xvol_display,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "rank": st.column_config.NumberColumn("Rank", format="%d"),
+                    "symbol": st.column_config.TextColumn("Symbol"),
+                    "atm_iv": st.column_config.NumberColumn("ATM IV", format="%.2%"),
+                    "iv_rank": st.column_config.NumberColumn("IV Rank", format="%.2%"),
+                    "iv_percentile": st.column_config.NumberColumn("IV Percentile", format="%.2%"),
+                    "skew_25d": st.column_config.NumberColumn("25D Skew", format="%.2%"),
+                    "term_slope": st.column_config.NumberColumn("Term Slope", format="%.2%"),
+                    "iv_realized_spread": st.column_config.NumberColumn("IV - Realized", format="%.2%"),
+                    "opportunity_score": st.column_config.NumberColumn("Score", format="%.2f"),
+                    "mode": st.column_config.TextColumn("Mode"),
+                    "source": st.column_config.TextColumn("Source"),
+                },
+            )
+            st.caption(
+                f"Map source: {xvol.get('source', 'symbol profiles')}; "
+                f"symbols ranked {fmt_int(xvol.get('symbol_count'))}; "
+                f"metrics: {', '.join(xvol.get('metrics') or [])}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Cross-sectional map unavailable",
+                    xvol.get("reason") or "No selected symbol has enough volatility metrics.",
+                    "Refresh data or select optionable symbols with history.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+    with strategy_tab:
+        st.markdown('<div class="section-header">Earnings Vol Event Engine</div>', unsafe_allow_html=True)
+        event_payload = load_with_status(
+            st,
+            LoadingState(
+                title=f"{surface_symbol} earnings event card",
+                detail="Matching earnings calendar rows to expected-move and ATM term-structure inputs.",
+                stage="earnings event",
+                rows=3,
+            ),
+            lambda: get_earnings_event_cached(surface_symbol, data_key),
+        )
+        if event_payload.get("available"):
+            card = event_payload.get("event_card") or {}
+            event_cols = st.columns(5)
+            event_metrics = [
+                ("Event", card.get("event_date") or "n/a", card.get("description")),
+                ("Implied Move", fmt_money(card.get("implied_move")), fmt_pct(card.get("implied_move_pct"))),
+                ("Hist Move", fmt_pct(card.get("historical_avg_abs_move_pct")), "avg abs"),
+                ("Crush", fmt_pct(card.get("post_event_crush")), "ATM term"),
+                ("Expiry", card.get("expiration") or "n/a", f"DTE {fmt_int(card.get('dte'))}"),
+            ]
+            for col, (label, value, delta) in zip(event_cols, event_metrics):
+                with col:
+                    st.metric(label, value, delta=delta if delta else None)
+            st.caption(
+                f"Event source: {event_payload.get('source', 'event calendar plus option chain')}; "
+                f"method {card.get('method', 'n/a')}; "
+                f"historical observations {fmt_int(event_payload.get('historical_observations'))}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Earnings card unavailable",
+                    event_payload.get("reason") or "No upcoming earnings event matched the current chain.",
+                    "Add a local earnings row in the event calendar or select a symbol with an upcoming event.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+        st.markdown('<div class="section-header">Strategy Builder</div>', unsafe_allow_html=True)
+        strategy_type = st.selectbox(
+            "Strategy",
+            ["straddle", "strangle", "vertical", "calendar", "diagonal", "butterfly", "condor", "risk reversal"],
+            index=0,
+            help="Template strategy to build from the current option chain.",
+        )
+        strategy = load_with_status(
+            st,
+            LoadingState(
+                title=f"{surface_symbol} {strategy_type} strategy",
+                detail="Selecting template legs and repricing each leg with fitted surface IV.",
+                stage="strategy",
+                rows=4,
+            ),
+            lambda: get_strategy_analytics_cached(surface_symbol, strategy_type, data_key),
+        )
+        if strategy.get("available"):
+            strategy_cols = st.columns(5)
+            strategy_metrics = [
+                ("Net Debit", fmt_money(strategy.get("net_debit")), fmt_money(strategy.get("net_debit_100x"))),
+                ("Delta", _fmt_number((strategy.get("greeks") or {}).get("delta")), "net"),
+                ("Gamma", _fmt_number((strategy.get("greeks") or {}).get("gamma")), "net"),
+                ("Theta/day", fmt_money((strategy.get("greeks") or {}).get("theta")), "net"),
+                ("Vega/1%", fmt_money((strategy.get("greeks") or {}).get("vega")), "net"),
+            ]
+            for col, (label, value, delta) in zip(strategy_cols, strategy_metrics):
+                with col:
+                    st.metric(label, value, delta=delta if delta else None)
+            payoff = pd.DataFrame(strategy.get("payoff_points") or [])
+            if not payoff.empty:
+                fig_payoff = go.Figure()
+                fig_payoff.add_trace(
+                    go.Scatter(
+                        x=payoff["spot"],
+                        y=payoff["pnl"],
+                        mode="lines",
+                        name="P&L",
+                        line=dict(color="#176B87", width=3),
+                    )
+                )
+                fig_payoff.add_hline(y=0, line_width=1, line_color="#667085")
+                fig_payoff.update_layout(
+                    title=f"{surface_symbol} {strategy_type.title()} Payoff",
+                    xaxis_title="Terminal spot",
+                    yaxis_title="P&L per share",
+                )
+                st.plotly_chart(apply_chart_layout(fig_payoff, 420), width="stretch")
+            legs = pd.DataFrame(strategy.get("legs") or [])
+            if not legs.empty:
+                st.dataframe(
+                    legs,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "contract": st.column_config.TextColumn("Contract"),
+                        "type": st.column_config.TextColumn("Type"),
+                        "expiration": st.column_config.TextColumn("Expiration"),
+                        "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                        "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
+                        "quantity": st.column_config.NumberColumn("Qty", format="%.0f"),
+                        "surface_iv": st.column_config.NumberColumn("Surface IV", format="%.2%"),
+                        "pricing_iv": st.column_config.NumberColumn("Pricing IV", format="%.2%"),
+                        "model_price": st.column_config.NumberColumn("Model Price", format="$%.2f"),
+                        "market_price": st.column_config.NumberColumn("Market Price", format="$%.2f"),
+                        "delta": st.column_config.NumberColumn("Delta", format="%.4f"),
+                        "gamma": st.column_config.NumberColumn("Gamma", format="%.4f"),
+                        "theta": st.column_config.NumberColumn("Theta/day", format="$%.4f"),
+                        "vega": st.column_config.NumberColumn("Vega/1%", format="$%.4f"),
+                    },
+                )
+            st.caption(
+                f"Strategy source: {strategy.get('source', 'option chain plus fitted surface')}; "
+                f"surface-priced legs {fmt_int(strategy.get('surface_priced_legs'))}/"
+                f"{fmt_int(strategy.get('leg_count'))}; "
+                f"breakevens {', '.join(fmt_money(value) for value in strategy.get('breakevens', [])) or 'n/a'}; "
+                f"grid max profit {fmt_money(strategy.get('max_profit_100x'))}; "
+                f"grid max loss {fmt_money(strategy.get('max_loss_100x'))}."
+            )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "Strategy unavailable",
+                    strategy.get("reason") or "Template legs could not be selected from the current chain.",
+                    "Refresh data, relax filters, or choose another template.",
                 ),
                 unsafe_allow_html=True,
             )

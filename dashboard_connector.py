@@ -28,6 +28,12 @@ from src.data.snapshots import load_latest_snapshot, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.american import american_pricing_metadata, apply_american_pricing
+from src.quant.advanced_features import (
+    build_option_strategy,
+    cross_sectional_vol_map,
+    earnings_vol_event_engine,
+    relative_value_dashboard,
+)
 from src.quant.corporate_actions import CorporateActionProvider, expiry_corporate_action_metadata
 from src.quant.dividends import DividendProvider, apply_dividends_to_options, expiry_dividend_metadata
 from src.quant.arbitrage import apply_no_arbitrage_checks
@@ -90,6 +96,7 @@ class DashboardConnector:
         self.chain_cache_ttl = timedelta(minutes=5)
         self.chain_cache: Dict[str, Tuple[pd.DataFrame, Dict[str, Any], datetime]] = {}
         self.surface_metadata: Dict[str, Dict[str, Any]] = {}
+        self.surface_grids: Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
 
     def configure_liquidity_filters(
         self,
@@ -112,6 +119,7 @@ class DashboardConnector:
         if changed:
             self.chain_cache.clear()
             self.surface_metadata.clear()
+            self.surface_grids.clear()
         settings = getattr(self.options_provider, "liquidity_filter_settings", lambda: {})()
         return dict(settings)
 
@@ -124,6 +132,7 @@ class DashboardConnector:
             self.option_price_source = normalized
             self.chain_cache.clear()
             self.surface_metadata.clear()
+            self.surface_grids.clear()
         return self.option_price_source
 
     def configure_pricing_model(self, pricing_model: str) -> str:
@@ -133,6 +142,7 @@ class DashboardConnector:
             self.pricing_model = normalized
             self.chain_cache.clear()
             self.surface_metadata.clear()
+            self.surface_grids.clear()
         return MODEL_LABELS[self.pricing_model]
 
     # ------------------------------------------------------------------
@@ -298,6 +308,7 @@ class DashboardConnector:
             metadata.update(self._rich_cheap_metadata(surface_chain, metadata))
             metadata.update(self._surface_shock_metadata(surface_chain, spot))
             self.surface_metadata[key] = metadata
+            self.surface_grids[key] = (strikes, expiries, vols)
             return strikes, expiries, vols
         except Exception as exc:
             logger.warning("Real chain surface failed for %s: %s", key, exc)
@@ -368,6 +379,7 @@ class DashboardConnector:
             metadata.update(self._rich_cheap_metadata(chain, metadata, iv_column="impliedVolatility"))
             metadata.update(self._surface_shock_metadata(chain, spot, iv_column="impliedVolatility"))
             self.surface_metadata[key] = metadata
+            self.surface_grids[key] = (strikes, expiries, vols)
             return strikes, expiries, vols
 
     def get_surface_metadata(self, symbol: str) -> Dict[str, Any]:
@@ -432,6 +444,67 @@ class DashboardConnector:
             "realized_estimator_latest": latest_realized_volatility(realized_estimators),
         }
 
+    def get_relative_value_dashboard(self, left_symbol: str, right_symbol: str) -> Dict[str, Any]:
+        """Return a pair comparison view with normalized volatility overlays."""
+        left = self._advanced_symbol_profile(left_symbol)
+        right = self._advanced_symbol_profile(right_symbol)
+        return relative_value_dashboard(left, right)
+
+    def get_cross_sectional_vol_map(self, symbols: Iterable[str]) -> Dict[str, Any]:
+        """Return sorted cross-sectional volatility opportunities for a universe."""
+        profiles = [self._advanced_symbol_profile(symbol) for symbol in symbols if symbol]
+        return cross_sectional_vol_map(profiles)
+
+    def get_earnings_event_engine(self, symbol: str) -> Dict[str, Any]:
+        """Return an implied earnings move card for ``symbol`` when events are available."""
+        key = symbol.upper()
+        snapshot = self.get_market_data_snapshot(key)
+        events = (snapshot.metadata_dict().get("events") or [])
+        return earnings_vol_event_engine(key, snapshot.options_frame(), snapshot.spot, events)
+
+    def get_strategy_analytics(self, symbol: str, strategy_type: str) -> Dict[str, Any]:
+        """Build and price a template strategy against the current fitted surface."""
+        key = symbol.upper()
+        snapshot = self.get_market_data_snapshot(key)
+        strikes, expiries, vols = self.surface_grids.get(key, (None, None, None))
+        if strikes is None or expiries is None or vols is None:
+            strikes, expiries, vols = self.get_vol_surface_data(key)
+        return build_option_strategy(
+            snapshot.options_frame(),
+            snapshot.spot,
+            strategy_type,
+            strike_grid=strikes,
+            expiry_grid=expiries,
+            surface=vols,
+        )
+
+    def _advanced_symbol_profile(self, symbol: str) -> Dict[str, Any]:
+        key = symbol.upper()
+        current = self.get_current_data(key)
+        metadata = self.surface_metadata.get(key, {})
+        historical = {"available": False}
+        realized_latest = {}
+        if metadata:
+            try:
+                historical = self.get_historical_metrics(key)
+                realized_latest = historical.get("realized_estimator_latest") or {}
+            except Exception:
+                logger.debug("Historical profile metrics unavailable for %s", key)
+        return {
+            "symbol": key,
+            "iv_30d": current.get("iv_30d"),
+            "iv_60d": current.get("iv_60d"),
+            "iv_90d": current.get("iv_90d"),
+            "iv_rank": metadata.get("iv_rank"),
+            "iv_percentile": metadata.get("iv_percentile"),
+            "front_risk_reversal_25d": metadata.get("front_risk_reversal_25d"),
+            "term_slope": (metadata.get("surface_smoothing") or {}).get("term_slope"),
+            "realized_20d_latest": historical.get("realized_20d_latest")
+            or realized_latest.get("close_to_close_20d"),
+            "mode": current.get("data_mode"),
+            "source": current.get("iv_source"),
+        }
+
     # ------------------------------------------------------------------
     # System / lifecycle
     # ------------------------------------------------------------------
@@ -494,6 +567,7 @@ class DashboardConnector:
             self.corporate_action_provider.clear_cache()
             self.event_provider.clear_cache()
             self.surface_metadata.clear()
+            self.surface_grids.clear()
             return {
                 "status": "success",
                 "message": "Price, option-chain, rate, dividend, corporate-action, event, and surface caches cleared",

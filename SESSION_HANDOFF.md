@@ -6,9 +6,9 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current main head before this session commit: `5245cad`
+Current main head before this session commit: `88abf38`
 
-Branch state when this handoff was written: `main...origin/main`
+Branch state before this session commit: `main...origin/main [ahead 2]`
 
 ## Upgrade State
 
@@ -16,19 +16,23 @@ Phase 0-3 are complete.
 
 Phase 3: `27/27` complete.
 
-Phase 4: `3/27` complete.
+Phase 4: `8/27` complete.
 
 Completed this session:
-
-1. Real-time surface tape
-2. Surface change heatmap
-3. Rich/cheap scanner
-
-Phase 4 next unchecked items:
 
 1. Relative value dashboard
 2. Cross-sectional vol map
 3. Earnings vol event engine
+4. Strategy builder
+5. Vol surface-aware strategy pricing
+
+Phase 4 next unchecked items:
+
+1. Scenario engine for strategies
+2. Portfolio upload/import
+3. Portfolio optimization
+4. Alerts system
+5. Watchlist presets
 
 ## Latest Verification Pattern
 
@@ -42,7 +46,7 @@ $env:PYTHONPATH='.'; python scripts\healthcheck.py
 python diagnostic.py
 ```
 
-For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200.
+For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200. Latest smoke passed on port `8530`.
 
 ## New Session Prompt
 
@@ -53,7 +57,7 @@ Repo:
 C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
 
 Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Implement the next 3 unchecked Phase 4 items in order if they fit cleanly.
+Implement the next 5 unchecked Phase 4 items in order if they fit cleanly.
 Preserve provenance, use deterministic offline tests, run full verification, update SESSION_HANDOFF.md, commit changes, and report the updated Phase 4 count.
 ```
 

@@ -362,23 +362,23 @@ These are the "insane project" upgrades.
   - Rank options by residual to fitted surface, bid/ask liquidity, and z-score.
   - Acceptance: scanner outputs candidates with explainable reasons.
 
-- [ ] Relative value dashboard.
+- [x] Relative value dashboard.
   - Compare two symbols or sectors by ATM IV, skew, term structure, and realized spread.
   - Acceptance: pair comparison view supports normalized overlays.
 
-- [ ] Cross-sectional vol map.
+- [x] Cross-sectional vol map.
   - Show selected universe by IV rank, IV percentile, skew, term slope, realized/implied spread.
   - Acceptance: user can sort and filter opportunities across many symbols.
 
-- [ ] Earnings vol event engine.
+- [x] Earnings vol event engine.
   - Estimate implied earnings move, compare to historical moves, show post-event crush.
   - Acceptance: earnings symbols have a dedicated event card.
 
-- [ ] Strategy builder.
+- [x] Strategy builder.
   - Strategies: straddle, strangle, vertical, calendar, diagonal, butterfly, condor, risk reversal.
   - Acceptance: user can create a strategy and see payoff, Greeks, breakevens, max profit/loss.
 
-- [ ] Vol surface-aware strategy pricing.
+- [x] Vol surface-aware strategy pricing.
   - Price each leg using fitted IV for that strike/expiry instead of one flat IV.
   - Acceptance: strategy builder uses current surface interpolation.
 
