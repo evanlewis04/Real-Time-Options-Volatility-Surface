@@ -90,20 +90,20 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 2: Stricter Fit Eligibility And Controls
 
-- [ ] Separate display eligibility from fit eligibility.
+- [x] Separate display eligibility from fit eligibility.
   - The option chain grid can display imperfect rows, but the surface fit should use stricter eligibility.
   - Acceptance: rejected-for-fit rows remain visible in the chain with reason labels.
 
-- [ ] Add configurable fit filters.
+- [x] Add configurable fit filters.
   - Controls: max spread, max quote age, min volume, min open interest, moneyness band, max raw IV, no-arb exclusion policy, last-only policy.
   - Suggested files: `src/config/settings.py`, `src/dashboard/app_shell.py`.
   - Acceptance: fit filters are distinct from chain display filters and included in provenance.
 
-- [ ] Exclude no-arbitrage violators from standard fit by default.
+- [x] Exclude no-arbitrage violators from standard fit by default.
   - Current behavior already excludes some surface rows; make the policy explicit and test-covered.
   - Acceptance: metadata reports `no_arbitrage_excluded_count`, `fit_eligible_count`, and `fit_excluded_count`.
 
-- [ ] Add a strict preset for poor data days.
+- [x] Add a strict preset for poor data days.
   - Presets: `Standard`, `Strict`, `Diagnostic Raw`.
   - `Strict` should reduce stale, wide, last-only, and no-arb rows aggressively.
   - `Diagnostic Raw` should show what happens with minimal filtering but label it clearly.

@@ -272,6 +272,9 @@ def run_dashboard() -> None:
         def configure_pricing_model(self, pricing_model: str):
             return pricing_model
 
+        def configure_fit_filters(self, **kwargs):
+            return dict(kwargs)
+
         def get_system_health(self):
             return {
                 "overall": {
@@ -309,27 +312,27 @@ def run_dashboard() -> None:
 
 
     @st.cache_data(ttl=120, show_spinner=False)
-    def get_current_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_current_data_cached(symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_current_data(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_vol_surface_data_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_vol_surface_data_cached(symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_vol_surface_data(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_surface_metadata_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_surface_metadata_cached(symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_surface_metadata(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_options_chain_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_options_chain_cached(symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_options_chain_snapshot(symbol)
 
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_market_snapshot_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_market_snapshot_cached(symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_market_data_snapshot(symbol)
 
 
@@ -348,19 +351,19 @@ def run_dashboard() -> None:
         return connector.get_market_status()
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_relative_value_cached(left_symbol: str, right_symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_relative_value_cached(left_symbol: str, right_symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_relative_value_dashboard(left_symbol, right_symbol)
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_cross_sectional_vol_map_cached(symbols_key: Tuple[str, ...], data_key: Tuple[int, int, float, int, str, str]):
+    def get_cross_sectional_vol_map_cached(symbols_key: Tuple[str, ...], data_key: Tuple[Any, ...]):
         return connector.get_cross_sectional_vol_map(list(symbols_key))
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_earnings_event_cached(symbol: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_earnings_event_cached(symbol: str, data_key: Tuple[Any, ...]):
         return connector.get_earnings_event_engine(symbol)
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_strategy_analytics_cached(symbol: str, strategy_type: str, data_key: Tuple[int, int, float, int, str, str]):
+    def get_strategy_analytics_cached(symbol: str, strategy_type: str, data_key: Tuple[Any, ...]):
         return connector.get_strategy_analytics(symbol, strategy_type)
 
     @st.cache_data(ttl=300, show_spinner=False)
@@ -371,7 +374,7 @@ def run_dashboard() -> None:
         time_axis_key: Tuple[float, ...],
         vol_axis_key: Tuple[float, ...],
         skew_axis_key: Tuple[float, ...],
-        data_key: Tuple[int, int, float, int, str, str],
+        data_key: Tuple[Any, ...],
     ):
         return connector.get_strategy_scenarios(
             symbol,
@@ -383,7 +386,7 @@ def run_dashboard() -> None:
         )
 
     @st.cache_data(ttl=300, show_spinner=False)
-    def get_portfolio_metrics_cached(position_csv: bytes | None, data_key: Tuple[int, int, float, int, str, str]):
+    def get_portfolio_metrics_cached(position_csv: bytes | None, data_key: Tuple[Any, ...]):
         return connector.get_portfolio_metrics(position_csv)
 
     @st.cache_data(ttl=300, show_spinner=False)
@@ -391,7 +394,7 @@ def run_dashboard() -> None:
         position_csv: bytes | None,
         objective: str,
         theta_target: float,
-        data_key: Tuple[int, int, float, int, str, str],
+        data_key: Tuple[Any, ...],
     ):
         return connector.get_portfolio_optimization(position_csv, objective, theta_target=theta_target)
 
@@ -399,7 +402,7 @@ def run_dashboard() -> None:
     def get_surface_alerts_cached(
         symbol: str,
         config_key: Tuple[float, float, float, float, float],
-        data_key: Tuple[int, int, float, int, str, str],
+        data_key: Tuple[Any, ...],
     ):
         config = {
             "iv_rank_threshold": config_key[0],
@@ -464,7 +467,7 @@ def run_dashboard() -> None:
             15,
             help=CONTROL_HELP["refresh_interval"],
         )
-        st.markdown("### Data Filters")
+        st.markdown("### Chain Display Filters")
         max_spread_pct = st.slider(
             "Max spread percent",
             0.05,
@@ -506,6 +509,113 @@ def run_dashboard() -> None:
             index=1,
             help=CONTROL_HELP["pricing_model"],
         )
+        fit_presets = {
+            "Standard": {
+                "max_bid_ask_spread_pct": 0.75,
+                "max_quote_age_days": 5,
+                "min_volume": 0,
+                "min_open_interest": 0,
+                "moneyness": (0.50, 2.00),
+                "max_raw_iv": 2.00,
+                "no_arbitrage_policy": "exclude",
+                "last_only_policy": "allow_penalized",
+            },
+            "Strict": {
+                "max_bid_ask_spread_pct": 0.35,
+                "max_quote_age_days": 2,
+                "min_volume": 10,
+                "min_open_interest": 50,
+                "moneyness": (0.70, 1.35),
+                "max_raw_iv": 1.50,
+                "no_arbitrage_policy": "exclude",
+                "last_only_policy": "exclude",
+            },
+            "Diagnostic Raw": {
+                "max_bid_ask_spread_pct": 1.50,
+                "max_quote_age_days": 0,
+                "min_volume": 0,
+                "min_open_interest": 0,
+                "moneyness": (0.35, 2.50),
+                "max_raw_iv": 5.00,
+                "no_arbitrage_policy": "allow",
+                "last_only_policy": "allow",
+            },
+        }
+        st.markdown("### Fit Controls")
+        fit_preset = st.selectbox(
+            "Fit preset",
+            options=list(fit_presets),
+            index=0,
+            help=CONTROL_HELP["fit_preset"],
+        )
+        fit_defaults = fit_presets[fit_preset]
+        fit_preset_key = fit_preset.lower().replace(" ", "_")
+        fit_max_spread_pct = st.slider(
+            "Fit max spread percent",
+            0.05,
+            1.50,
+            float(fit_defaults["max_bid_ask_spread_pct"]),
+            0.05,
+            key=f"fit_max_spread_pct_{fit_preset_key}",
+            help=CONTROL_HELP["fit_max_spread_pct"],
+        )
+        fit_max_quote_age_days = st.number_input(
+            "Fit max quote age days",
+            min_value=0,
+            value=int(fit_defaults["max_quote_age_days"]),
+            step=1,
+            key=f"fit_max_quote_age_days_{fit_preset_key}",
+            help=CONTROL_HELP["fit_max_quote_age_days"],
+        )
+        fit_min_volume = st.number_input(
+            "Fit min volume",
+            min_value=0,
+            value=int(fit_defaults["min_volume"]),
+            step=5,
+            key=f"fit_min_volume_{fit_preset_key}",
+            help=CONTROL_HELP["fit_min_volume"],
+        )
+        fit_min_open_interest = st.number_input(
+            "Fit min open interest",
+            min_value=0,
+            value=int(fit_defaults["min_open_interest"]),
+            step=10,
+            key=f"fit_min_open_interest_{fit_preset_key}",
+            help=CONTROL_HELP["fit_min_open_interest"],
+        )
+        fit_moneyness_band = st.slider(
+            "Fit moneyness",
+            0.35,
+            2.50,
+            fit_defaults["moneyness"],
+            0.05,
+            key=f"fit_moneyness_{fit_preset_key}",
+            help=CONTROL_HELP["fit_moneyness"],
+        )
+        fit_max_raw_iv = st.slider(
+            "Fit max raw IV",
+            0.50,
+            5.00,
+            float(fit_defaults["max_raw_iv"]),
+            0.05,
+            format="%.2f",
+            key=f"fit_max_raw_iv_{fit_preset_key}",
+            help=CONTROL_HELP["fit_max_raw_iv"],
+        )
+        fit_no_arbitrage_policy = st.selectbox(
+            "Fit no-arb policy",
+            options=["exclude", "penalize", "allow"],
+            index=["exclude", "penalize", "allow"].index(str(fit_defaults["no_arbitrage_policy"])),
+            key=f"fit_no_arbitrage_policy_{fit_preset_key}",
+            help=CONTROL_HELP["fit_no_arbitrage_policy"],
+        )
+        fit_last_only_policy = st.selectbox(
+            "Fit last-only policy",
+            options=["allow_penalized", "exclude", "allow"],
+            index=["allow_penalized", "exclude", "allow"].index(str(fit_defaults["last_only_policy"])),
+            key=f"fit_last_only_policy_{fit_preset_key}",
+            help=CONTROL_HELP["fit_last_only_policy"],
+        )
         if st.button("Refresh data", width="stretch"):
             result = connector.trigger_data_refresh()
             st.cache_data.clear()
@@ -531,6 +641,16 @@ def run_dashboard() -> None:
         int(max_quote_age_days),
         str(option_price_source),
         str(pricing_model),
+        str(fit_preset),
+        float(fit_max_spread_pct),
+        int(fit_max_quote_age_days),
+        int(fit_min_volume),
+        int(fit_min_open_interest),
+        float(fit_moneyness_band[0]),
+        float(fit_moneyness_band[1]),
+        float(fit_max_raw_iv),
+        str(fit_no_arbitrage_policy),
+        str(fit_last_only_policy),
     )
     connector.configure_liquidity_filters(
         min_open_interest=data_key[0],
@@ -540,6 +660,18 @@ def run_dashboard() -> None:
     )
     connector.configure_option_price_source(data_key[4])
     connector.configure_pricing_model(data_key[5])
+    connector.configure_fit_filters(
+        preset=data_key[6],
+        max_bid_ask_spread_pct=data_key[7],
+        max_quote_age_days=data_key[8],
+        min_volume=data_key[9],
+        min_open_interest=data_key[10],
+        moneyness_min=data_key[11],
+        moneyness_max=data_key[12],
+        max_raw_iv=data_key[13],
+        no_arbitrage_policy=data_key[14],
+        last_only_policy=data_key[15],
+    )
     dashboard_state = DashboardStateService()
     dashboard_state.set_context(
         selected_symbol=surface_symbol,
@@ -647,6 +779,18 @@ def run_dashboard() -> None:
         volume >= {fmt_int(surface_meta.get("min_volume"))},
         spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
         quote age <= {fmt_int(surface_meta.get("max_quote_age_days"))}d;
+        fit preset {surface_meta.get("fit_filter_preset") or "Standard"};
+        fit rows {fmt_int(surface_meta.get("fit_eligible_count"))} included,
+        {fmt_int(surface_meta.get("fit_excluded_count"))} excluded;
+        fit spread <= {fmt_pct(surface_meta.get("fit_max_bid_ask_spread_pct"), 0)},
+        age <= {fmt_int(surface_meta.get("fit_max_quote_age_days"))}d,
+        volume >= {fmt_int(surface_meta.get("fit_min_volume"))},
+        OI >= {fmt_int(surface_meta.get("fit_min_open_interest"))},
+        moneyness {surface_meta.get("fit_moneyness_min", "n/a")}-
+        {surface_meta.get("fit_moneyness_max", "n/a")},
+        raw IV <= {fmt_pct(surface_meta.get("fit_max_raw_iv"), 0)};
+        fit no-arb {surface_meta.get("fit_no_arbitrage_policy") or "exclude"};
+        fit last-only {surface_meta.get("fit_last_only_policy") or "allow_penalized"};
         IV price source {surface_meta.get("option_price_source") or "mark"};
         pricing model {surface_meta.get("pricing_model_label") or "BSM with dividends"};
         model Greeks {fmt_int(surface_meta.get("contract_greeks_count"))};
@@ -1345,6 +1489,13 @@ def run_dashboard() -> None:
                 "isLockedMarket",
                 "quoteAgeSeconds",
                 "bidAskSpreadPct",
+                "displayEligible",
+                "displayRejectionReasons",
+                "quoteReliabilityScore",
+                "fitWeight",
+                "fitEligible",
+                "fitPenaltyReasons",
+                "fitHardRejectionReasons",
             ]
             display_cols = [col for col in display_cols if col in filtered.columns]
             st.download_button(
@@ -1529,6 +1680,36 @@ def run_dashboard() -> None:
                         "Spread %",
                         format="%.2%",
                         help=COLUMN_HELP["bidAskSpreadPct"],
+                    ),
+                    "displayEligible": st.column_config.CheckboxColumn(
+                        "Display Eligible",
+                        help=COLUMN_HELP["displayEligible"],
+                    ),
+                    "displayRejectionReasons": st.column_config.TextColumn(
+                        "Display Reasons",
+                        help=COLUMN_HELP["displayRejectionReasons"],
+                    ),
+                    "quoteReliabilityScore": st.column_config.NumberColumn(
+                        "Reliability",
+                        format="%.2f",
+                        help=COLUMN_HELP["quoteReliabilityScore"],
+                    ),
+                    "fitWeight": st.column_config.NumberColumn(
+                        "Fit Weight",
+                        format="%.2f",
+                        help=COLUMN_HELP["fitWeight"],
+                    ),
+                    "fitEligible": st.column_config.CheckboxColumn(
+                        "Fit Eligible",
+                        help=COLUMN_HELP["fitEligible"],
+                    ),
+                    "fitPenaltyReasons": st.column_config.TextColumn(
+                        "Fit Penalties",
+                        help=COLUMN_HELP["fitPenaltyReasons"],
+                    ),
+                    "fitHardRejectionReasons": st.column_config.TextColumn(
+                        "Fit Reject Reasons",
+                        help=COLUMN_HELP["fitHardRejectionReasons"],
                     ),
                 },
             )
@@ -3087,6 +3268,15 @@ def run_dashboard() -> None:
                         "model_settings": {
                             "option_price_source": option_price_source,
                             "pricing_model": pricing_model,
+                            "fit_preset": fit_preset,
+                            "fit_max_bid_ask_spread_pct": fit_max_spread_pct,
+                            "fit_max_quote_age_days": fit_max_quote_age_days,
+                            "fit_min_volume": fit_min_volume,
+                            "fit_min_open_interest": fit_min_open_interest,
+                            "fit_moneyness": list(fit_moneyness_band),
+                            "fit_max_raw_iv": fit_max_raw_iv,
+                            "fit_no_arbitrage_policy": fit_no_arbitrage_policy,
+                            "fit_last_only_policy": fit_last_only_policy,
                         },
                         "chart_layout": {"show_3d_surface": show_3d_surface, "show_chain": show_chain},
                         "provenance": export_payload["provenance"],

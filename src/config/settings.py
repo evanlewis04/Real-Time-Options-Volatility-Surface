@@ -34,6 +34,35 @@ class ProviderSettings:
 
 
 @dataclass(frozen=True)
+class FitFilterSettings:
+    """Surface-fitting row eligibility settings."""
+
+    preset: str = "Standard"
+    max_bid_ask_spread_pct: float = 0.75
+    max_quote_age_days: int = 5
+    min_volume: int = 0
+    min_open_interest: int = 0
+    moneyness_min: float = 0.50
+    moneyness_max: float = 2.00
+    max_raw_iv: float = 2.00
+    no_arbitrage_policy: str = "exclude"
+    last_only_policy: str = "allow_penalized"
+
+    def __post_init__(self) -> None:
+        _require_non_negative("max_bid_ask_spread_pct", self.max_bid_ask_spread_pct)
+        _require_non_negative("max_quote_age_days", self.max_quote_age_days)
+        _require_non_negative("min_volume", self.min_volume)
+        _require_non_negative("min_open_interest", self.min_open_interest)
+        _require_non_negative("moneyness_min", self.moneyness_min)
+        _require_positive("moneyness_max", self.moneyness_max)
+        _require_positive("max_raw_iv", self.max_raw_iv)
+        if self.moneyness_min > self.moneyness_max:
+            raise ValueError("moneyness_min must be less than or equal to moneyness_max")
+        _require_choice("no_arbitrage_policy", self.no_arbitrage_policy, {"exclude", "penalize", "allow"})
+        _require_choice("last_only_policy", self.last_only_policy, {"exclude", "allow_penalized", "allow"})
+
+
+@dataclass(frozen=True)
 class DemoSettings:
     """Deterministic demo-mode settings."""
 
@@ -74,6 +103,7 @@ class AppSettings:
     """Top-level application settings."""
 
     providers: ProviderSettings = field(default_factory=ProviderSettings)
+    fit_filters: FitFilterSettings = field(default_factory=FitFilterSettings)
     demo: DemoSettings = field(default_factory=DemoSettings)
     dashboard: DashboardSettings = field(default_factory=DashboardSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
@@ -111,6 +141,43 @@ def load_app_settings(environ: dict[str, str] | None = None) -> AppSettings:
             ProviderSettings.max_bid_ask_spread_pct,
         ),
     )
+    fit_filters = FitFilterSettings(
+        preset=_env(env, "VOL_SURFACE_FIT_PRESET", str, FitFilterSettings.preset),
+        max_bid_ask_spread_pct=_env(
+            env,
+            "VOL_SURFACE_FIT_MAX_BID_ASK_SPREAD_PCT",
+            float,
+            FitFilterSettings.max_bid_ask_spread_pct,
+        ),
+        max_quote_age_days=_env(
+            env,
+            "VOL_SURFACE_FIT_MAX_QUOTE_AGE_DAYS",
+            int,
+            FitFilterSettings.max_quote_age_days,
+        ),
+        min_volume=_env(env, "VOL_SURFACE_FIT_MIN_VOLUME", int, FitFilterSettings.min_volume),
+        min_open_interest=_env(
+            env,
+            "VOL_SURFACE_FIT_MIN_OPEN_INTEREST",
+            int,
+            FitFilterSettings.min_open_interest,
+        ),
+        moneyness_min=_env(env, "VOL_SURFACE_FIT_MONEYNESS_MIN", float, FitFilterSettings.moneyness_min),
+        moneyness_max=_env(env, "VOL_SURFACE_FIT_MONEYNESS_MAX", float, FitFilterSettings.moneyness_max),
+        max_raw_iv=_env(env, "VOL_SURFACE_FIT_MAX_RAW_IV", float, FitFilterSettings.max_raw_iv),
+        no_arbitrage_policy=_env(
+            env,
+            "VOL_SURFACE_FIT_NO_ARBITRAGE_POLICY",
+            str,
+            FitFilterSettings.no_arbitrage_policy,
+        ),
+        last_only_policy=_env(
+            env,
+            "VOL_SURFACE_FIT_LAST_ONLY_POLICY",
+            str,
+            FitFilterSettings.last_only_policy,
+        ),
+    )
     demo = DemoSettings(
         random_seed=_env(env, "VOL_SURFACE_DEMO_RANDOM_SEED", int, DemoSettings.random_seed),
         max_expirations=_env(env, "VOL_SURFACE_DEMO_MAX_EXPIRATIONS", int, DemoSettings.max_expirations),
@@ -129,7 +196,13 @@ def load_app_settings(environ: dict[str, str] | None = None) -> AppSettings:
         structured=_env_bool(env, "VOL_SURFACE_STRUCTURED_LOGS", LoggingSettings.structured),
         log_file=Path(_env(env, "VOL_SURFACE_LOG_FILE", str, str(LoggingSettings.log_file))),
     )
-    return AppSettings(providers=providers, demo=demo, dashboard=dashboard, logging=logging)
+    return AppSettings(
+        providers=providers,
+        fit_filters=fit_filters,
+        demo=demo,
+        dashboard=dashboard,
+        logging=logging,
+    )
 
 
 def _env(env: dict[str, str], key: str, caster: Callable[[str], T], default: T) -> T:
@@ -162,3 +235,9 @@ def _require_positive(name: str, value: int | float) -> None:
 def _require_non_negative(name: str, value: int | float) -> None:
     if value < 0:
         raise ValueError(f"{name} must be non-negative")
+
+
+def _require_choice(name: str, value: str, choices: set[str]) -> None:
+    if value not in choices:
+        allowed = ", ".join(sorted(choices))
+        raise ValueError(f"{name} must be one of {allowed}, got {value!r}")

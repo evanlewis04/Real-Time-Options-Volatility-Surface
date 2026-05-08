@@ -144,7 +144,9 @@ def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     assert snapshot.data_quality_score == 100.0
     assert dict(snapshot.expiry_quality)["2026-06-19"]["valid_quotes"] == 1
     assert snapshot.options[0].quote_reliability_score == 1.0
+    assert snapshot.options[0].display_eligible is True
     assert snapshot.options[0].fit_eligible is True
+    assert snapshot.fit_filter_preset == "Standard"
     assert snapshot.quote_reliability_summary["fit_eligible_count"] == 1
 
 
@@ -169,6 +171,7 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert frame.iloc[0]["selectedPriceSource"] == "mark"
     assert frame.iloc[0]["computedIV"] > 0.0
     assert frame.iloc[0]["quoteReliabilityScore"] == 1.0
+    assert bool(frame.iloc[0]["displayEligible"]) is True
     assert frame.iloc[0]["fitWeight"] == 1.0
     assert bool(frame.iloc[0]["fitEligible"]) is True
     assert meta["source"] == "fixture"
@@ -199,8 +202,11 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     assert meta["expiry_quality"]["2026-06-19"]["valid_quotes"] == 1
     assert meta["expiry_quality"]["2026-06-19"]["score"] == 100.0
     assert meta["quote_reliability_summary"]["median_score"] == 1.0
+    assert meta["display_eligible_count"] == 1
     assert meta["quote_reliability_summary"]["fit_eligible_count"] == 1
     assert meta["quote_reliability_summary"]["fit_excluded_count"] == 0
+    assert meta["fit_filter_preset"] == "Standard"
+    assert meta["fit_filters"]["no_arbitrage_policy"] == "exclude"
     assert meta["expiry_reliability"]["2026-06-19"]["fit_eligible_count"] == 1
     assert meta["expiry_quality"]["2026-06-19"]["quote_reliability"]["median_score"] == 1.0
 
@@ -226,6 +232,34 @@ def test_connector_configures_liquidity_filters_and_clears_cache(tmp_path):
     assert settings["max_quote_age_days"] == 2
     assert connector.chain_cache == {}
     assert connector.surface_metadata == {}
+
+
+def test_connector_configures_fit_filters_and_clears_surface_cache(tmp_path):
+    connector = DashboardConnector()
+    connector.snapshot_dir = tmp_path
+    connector.chain_cache["AAPL"] = (pd.DataFrame([{"x": 1}]), {}, datetime(2026, 5, 3))
+    connector.surface_metadata["AAPL"] = {"valid_rows": 1}
+    connector.surface_grids["AAPL"] = ([], [], [])
+
+    settings = connector.configure_fit_filters(
+        preset="Strict",
+        max_bid_ask_spread_pct=0.35,
+        max_quote_age_days=2,
+        min_volume=10,
+        min_open_interest=50,
+        moneyness_min=0.70,
+        moneyness_max=1.35,
+        max_raw_iv=1.50,
+        no_arbitrage_policy="exclude",
+        last_only_policy="exclude",
+    )
+
+    assert settings["preset"] == "Strict"
+    assert settings["min_volume"] == 10
+    assert settings["last_only_policy"] == "exclude"
+    assert connector.chain_cache == {}
+    assert connector.surface_metadata == {}
+    assert connector.surface_grids == {}
 
 
 def test_connector_option_price_source_drives_computed_iv():

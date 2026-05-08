@@ -36,6 +36,9 @@ def test_typed_settings_validate_defaults_and_environment_overrides():
         {
             "VOL_SURFACE_MAX_EXPIRATIONS": "3",
             "VOL_SURFACE_CHAIN_CACHE_SECONDS": "42",
+            "VOL_SURFACE_FIT_PRESET": "Strict",
+            "VOL_SURFACE_FIT_MIN_VOLUME": "10",
+            "VOL_SURFACE_FIT_NO_ARBITRAGE_POLICY": "exclude",
             "VOL_SURFACE_DEMO_RANDOM_SEED": "99",
             "VOL_SURFACE_SNAPSHOT_DIR": "tmp/snapshots",
             "VOL_SURFACE_STRUCTURED_LOGS": "false",
@@ -44,12 +47,17 @@ def test_typed_settings_validate_defaults_and_environment_overrides():
 
     assert settings.providers.max_expirations == 3
     assert settings.providers.chain_cache_seconds == 42
+    assert settings.fit_filters.preset == "Strict"
+    assert settings.fit_filters.min_volume == 10
+    assert settings.fit_filters.no_arbitrage_policy == "exclude"
     assert settings.demo.random_seed == 99
     assert settings.dashboard.snapshot_dir.parts[-2:] == ("tmp", "snapshots")
     assert settings.logging.structured is False
 
     with pytest.raises(ValueError):
         load_app_settings({"VOL_SURFACE_MAX_EXPIRATIONS": "0"})
+    with pytest.raises(ValueError):
+        load_app_settings({"VOL_SURFACE_FIT_NO_ARBITRAGE_POLICY": "market_truth"})
 
 
 def test_structured_log_formatter_preserves_provider_fields():

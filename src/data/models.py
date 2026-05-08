@@ -94,6 +94,8 @@ class OptionQuote:
     moneyness: Optional[float] = None
     bid_ask_spread: Optional[float] = None
     bid_ask_spread_pct: Optional[float] = None
+    display_eligible: Optional[bool] = None
+    display_rejection_reasons: Optional[str] = None
     quote_reliability_score: Optional[float] = None
     fit_weight: Optional[float] = None
     fit_penalty_reasons: Optional[str] = None
@@ -186,6 +188,8 @@ class OptionQuote:
             moneyness=_float_or_none(row.get("moneyness")),
             bid_ask_spread=_float_or_none(row.get("bidAskSpread")),
             bid_ask_spread_pct=_float_or_none(row.get("bidAskSpreadPct")),
+            display_eligible=_bool_or_none(row.get("displayEligible")),
+            display_rejection_reasons=_str_or_none(row.get("displayRejectionReasons")),
             quote_reliability_score=_float_or_none(row.get("quoteReliabilityScore")),
             fit_weight=_float_or_none(row.get("fitWeight")),
             fit_penalty_reasons=_str_or_none(row.get("fitPenaltyReasons")),
@@ -273,6 +277,8 @@ class OptionQuote:
             "quoteQuality": self.quote_quality,
             "bidAskSpread": self.bid_ask_spread,
             "bidAskSpreadPct": self.bid_ask_spread_pct,
+            "displayEligible": self.display_eligible,
+            "displayRejectionReasons": self.display_rejection_reasons,
             "quoteReliabilityScore": self.quote_reliability_score,
             "fitWeight": self.fit_weight,
             "fitPenaltyReasons": self.fit_penalty_reasons,
@@ -363,6 +369,13 @@ class MarketDataSnapshot:
     quality_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     expiry_quality: tuple[tuple[str, dict[str, Any]], ...] = field(default_factory=tuple)
     quote_reliability_summary: dict[str, Any] = field(default_factory=dict)
+    fit_filters: dict[str, Any] = field(default_factory=dict)
+    fit_filter_preset: Optional[str] = None
+    fit_eligible_count: int = 0
+    fit_excluded_count: int = 0
+    display_eligible_count: int = 0
+    display_excluded_count: int = 0
+    display_rejection_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     fit_penalty_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     fit_hard_rejection_reason_buckets: tuple[tuple[str, int], ...] = field(default_factory=tuple)
     expiry_reliability: tuple[tuple[str, dict[str, Any]], ...] = field(default_factory=tuple)
@@ -488,6 +501,15 @@ class MarketDataSnapshot:
             quality_reason_buckets=_int_metadata_tuple(metadata.get("quality_reason_buckets")),
             expiry_quality=_nested_any_metadata_tuple(metadata.get("expiry_quality")),
             quote_reliability_summary=dict(metadata.get("quote_reliability_summary") or {}),
+            fit_filters=dict(metadata.get("fit_filters") or {}),
+            fit_filter_preset=metadata.get("fit_filter_preset"),
+            fit_eligible_count=int(metadata.get("fit_eligible_count") or 0),
+            fit_excluded_count=int(metadata.get("fit_excluded_count") or 0),
+            display_eligible_count=int(metadata.get("display_eligible_count") or 0),
+            display_excluded_count=int(metadata.get("display_excluded_count") or 0),
+            display_rejection_reason_buckets=_int_metadata_tuple(
+                metadata.get("display_rejection_reason_buckets")
+            ),
             fit_penalty_reason_buckets=_int_metadata_tuple(metadata.get("fit_penalty_reason_buckets")),
             fit_hard_rejection_reason_buckets=_int_metadata_tuple(
                 metadata.get("fit_hard_rejection_reason_buckets")
@@ -612,6 +634,13 @@ class MarketDataSnapshot:
             "quality_reason_buckets": dict(self.quality_reason_buckets),
             "expiry_quality": dict(self.expiry_quality),
             "quote_reliability_summary": dict(self.quote_reliability_summary),
+            "fit_filters": dict(self.fit_filters),
+            "fit_filter_preset": self.fit_filter_preset,
+            "fit_eligible_count": self.fit_eligible_count,
+            "fit_excluded_count": self.fit_excluded_count,
+            "display_eligible_count": self.display_eligible_count,
+            "display_excluded_count": self.display_excluded_count,
+            "display_rejection_reason_buckets": dict(self.display_rejection_reason_buckets),
             "fit_penalty_reason_buckets": dict(self.fit_penalty_reason_buckets),
             "fit_hard_rejection_reason_buckets": dict(self.fit_hard_rejection_reason_buckets),
             "expiry_reliability": dict(self.expiry_reliability),

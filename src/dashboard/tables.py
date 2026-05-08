@@ -39,7 +39,7 @@ def filter_option_chain(
     moneyness_range: Tuple[float, float] | None = None,
     iv_range: Tuple[float, float] | None = None,
 ) -> pd.DataFrame:
-    """Apply quote-quality and user-facing chain filters."""
+    """Apply user-facing chain display filters without changing fit eligibility."""
     if frame.empty:
         return frame.copy()
 

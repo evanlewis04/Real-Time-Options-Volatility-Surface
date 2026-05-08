@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from src.analysis.surface_builder import build_surface
-from src.config.settings import AppSettings, load_app_settings
+from src.config.settings import AppSettings, FitFilterSettings, load_app_settings
 from src.data.demo_provider import DemoOptionsProvider
 from src.data.historical import HistoricalPriceLoader
 from src.data.market_calendar import MarketCalendar
@@ -134,6 +134,7 @@ class DashboardConnector:
         self.iv_calculator = ImpliedVolatilityCalculator()
         self.option_price_source = "mark"
         self.pricing_model = "bsm_dividends"
+        self.fit_filters = self.settings.fit_filters
         self.snapshot_dir = Path(self.settings.dashboard.snapshot_dir)
         self.real_time_active = False
         self.update_interval = self.settings.dashboard.update_interval_seconds
@@ -189,6 +190,42 @@ class DashboardConnector:
             self.surface_metadata.clear()
             self.surface_grids.clear()
         return MODEL_LABELS[self.pricing_model]
+
+    def configure_fit_filters(
+        self,
+        *,
+        preset: Optional[str] = None,
+        max_bid_ask_spread_pct: Optional[float] = None,
+        max_quote_age_days: Optional[int] = None,
+        min_volume: Optional[int] = None,
+        min_open_interest: Optional[int] = None,
+        moneyness_min: Optional[float] = None,
+        moneyness_max: Optional[float] = None,
+        max_raw_iv: Optional[float] = None,
+        no_arbitrage_policy: Optional[str] = None,
+        last_only_policy: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update surface-fit filters independently from chain display filters."""
+        updates = {
+            "preset": preset,
+            "max_bid_ask_spread_pct": max_bid_ask_spread_pct,
+            "max_quote_age_days": max_quote_age_days,
+            "min_volume": min_volume,
+            "min_open_interest": min_open_interest,
+            "moneyness_min": moneyness_min,
+            "moneyness_max": moneyness_max,
+            "max_raw_iv": max_raw_iv,
+            "no_arbitrage_policy": no_arbitrage_policy,
+            "last_only_policy": last_only_policy,
+        }
+        clean_updates = {key: value for key, value in updates.items() if value is not None}
+        next_filters = replace(self.fit_filters, **clean_updates)
+        if next_filters != self.fit_filters:
+            self.fit_filters = next_filters
+            self.chain_cache.clear()
+            self.surface_metadata.clear()
+            self.surface_grids.clear()
+        return asdict(self.fit_filters)
 
     # ------------------------------------------------------------------
     # Symbol-level data
@@ -1001,7 +1038,8 @@ class DashboardConnector:
         meta.update(contract_greeks_metadata(df, self.pricing_model))
         meta.update(parity_meta)
         meta.update(arbitrage_meta)
-        df, reliability_meta = apply_quote_reliability_scores(df, meta)
+        meta.update(self._fit_filter_metadata())
+        df, reliability_meta = apply_quote_reliability_scores(df, meta, self.fit_filters)
         meta.update(reliability_meta)
         meta.update(self._skew_metadata(df, spot_price))
         meta.update(self._expected_move_metadata(df, spot_price))
@@ -1440,12 +1478,23 @@ class DashboardConnector:
         out = chain.copy()
         computed = pd.to_numeric(out["computedIV"], errors="coerce")
         out = out[computed.notna()].copy()
-        excluded = 0
-        if "noArbitrageViolation" in out:
+        no_arbitrage_excluded = 0
+        fit_excluded = 0
+        if "fitEligible" in out:
+            fit_mask = out["fitEligible"].fillna(False).astype(bool)
+            fit_excluded = int((~fit_mask).sum())
+            if "noArbitrageViolation" in out:
+                violation_mask = out["noArbitrageViolation"].fillna(False).astype(bool)
+                no_arbitrage_excluded = int((~fit_mask & violation_mask).sum())
+            out = out[fit_mask].copy()
+        elif "noArbitrageViolation" in out:
             violation_mask = out["noArbitrageViolation"].fillna(False).astype(bool)
-            excluded = int(violation_mask.sum())
+            no_arbitrage_excluded = int(violation_mask.sum())
+            fit_excluded = no_arbitrage_excluded
             out = out[~violation_mask].copy()
-        out.attrs["no_arbitrage_excluded_count"] = excluded
+        out.attrs["fit_eligible_count"] = int(len(out))
+        out.attrs["fit_excluded_count"] = fit_excluded
+        out.attrs["no_arbitrage_excluded_count"] = no_arbitrage_excluded
         out["impliedVolatility"] = pd.to_numeric(out["computedIV"], errors="coerce")
         return out
 
@@ -1628,6 +1677,13 @@ class DashboardConnector:
             "valid_quotes": valid_rows,
             "rejected_quotes": rejected_rows,
             "surface_quotes": int(len(surface_chain)),
+            "fit_eligible_count": int(surface_chain.attrs.get("fit_eligible_count", len(surface_chain))),
+            "fit_excluded_count": int(
+                surface_chain.attrs.get(
+                    "fit_excluded_count",
+                    metadata.get("fit_excluded_count") or 0,
+                )
+            ),
             "no_arbitrage_excluded_quotes": int(surface_chain.attrs.get("no_arbitrage_excluded_count", 0)),
             "reason_buckets": {reason: int(count) for reason, count in reason_buckets.items() if count},
             "expiries": surface_expiry_counts,
@@ -1635,8 +1691,26 @@ class DashboardConnector:
         return {
             "surface_quality_score": score,
             "surface_quality": surface_quality,
+            "fit_eligible_count": int(surface_quality["fit_eligible_count"]),
+            "fit_excluded_count": int(surface_quality["fit_excluded_count"]),
             "no_arbitrage_excluded_count": int(surface_chain.attrs.get("no_arbitrage_excluded_count", 0)),
             "expiry_quality": dict(sorted(expiry_quality.items())),
+        }
+
+    def _fit_filter_metadata(self) -> Dict[str, Any]:
+        filters = asdict(self.fit_filters)
+        return {
+            "fit_filters": filters,
+            "fit_filter_preset": filters["preset"],
+            "fit_max_bid_ask_spread_pct": filters["max_bid_ask_spread_pct"],
+            "fit_max_quote_age_days": filters["max_quote_age_days"],
+            "fit_min_volume": filters["min_volume"],
+            "fit_min_open_interest": filters["min_open_interest"],
+            "fit_moneyness_min": filters["moneyness_min"],
+            "fit_moneyness_max": filters["moneyness_max"],
+            "fit_max_raw_iv": filters["max_raw_iv"],
+            "fit_no_arbitrage_policy": filters["no_arbitrage_policy"],
+            "fit_last_only_policy": filters["last_only_policy"],
         }
 
     def _safe_fallback(self, symbol: str) -> Dict[str, Any]:

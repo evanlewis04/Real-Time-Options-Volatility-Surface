@@ -89,13 +89,16 @@ def test_no_arbitrage_checks_flag_calendar_total_variance_decrease():
 def test_connector_surface_chain_excludes_no_arbitrage_violations():
     chain = pd.DataFrame(
         [
-            {"computedIV": 0.20, "noArbitrageViolation": False},
-            {"computedIV": 0.21, "noArbitrageViolation": True},
-            {"computedIV": None, "noArbitrageViolation": False},
+            {"computedIV": 0.20, "noArbitrageViolation": False, "fitEligible": True},
+            {"computedIV": 0.21, "noArbitrageViolation": True, "fitEligible": False},
+            {"computedIV": 0.22, "noArbitrageViolation": False, "fitEligible": False},
+            {"computedIV": None, "noArbitrageViolation": False, "fitEligible": True},
         ]
     )
 
     surface_chain = DashboardConnector._surface_iv_chain(chain)
 
     assert len(surface_chain) == 1
+    assert surface_chain.attrs["fit_eligible_count"] == 1
+    assert surface_chain.attrs["fit_excluded_count"] == 2
     assert surface_chain.attrs["no_arbitrage_excluded_count"] == 1

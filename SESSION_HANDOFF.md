@@ -6,7 +6,7 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current head before this session's commit: `5120c00 Add robust surface fixture baseline`
+Current head before this session's commit: `cd053fb1ed3022d46c43bc92dc37163379e3e296`
 
 Branch state: `main...origin/main`
 
@@ -14,31 +14,30 @@ Branch state: `main...origin/main`
 
 The original dashboard upgrade plan is complete. The robust volatility surface fitting plan is underway.
 
-Robust plan count: `8/45` complete.
+Robust plan count: `12/45` complete.
 
 Completed this session:
 
-1. Added deterministic row-level quote reliability scoring in `src/quant/quote_quality.py`.
-2. Added soft penalty and hard rejection reason labels, including no-arb, last-only, stale, spread, liquidity, moneyness, IV, selected-price, and expiry signals.
-3. Exposed `quoteReliabilityScore`, `fitWeight`, `fitPenaltyReasons`, `fitHardRejectionReasons`, and `fitEligible` through normalized chain snapshots and persisted snapshot models.
-4. Added chain-level and expiry-level reliability summaries for dashboard metadata.
-5. Checked off all Phase 1 items in `upgrade.md`.
+1. Completed Phase 2: separated display eligibility from fit eligibility with `displayEligible` and display reason annotations.
+2. Added deterministic configurable fit filters and provenance fields, distinct from chain display filters.
+3. Made standard surface fitting honor `fitEligible`, with explicit no-arb exclusion, fit-included, and fit-excluded counts.
+4. Added dashboard fit presets: `Standard`, `Strict`, and `Diagnostic Raw`, with AppTest coverage for preset switching.
 
 Next unchecked section:
 
-1. Phase 2: Stricter Fit Eligibility And Controls
-   - Start with `Separate display eligibility from fit eligibility`.
+1. Phase 3: Weighted Robust SVI And SSVI Fitting
+   - Start with `Add weighted SVI calibration`.
 
 Recent context:
 
-- Reliability scoring is deterministic and annotative only; it does not alter prices, IVs, or treat denoising as market truth.
-- `fitEligible` is now a conservative row annotation based on reliability score plus hard row issues; Phase 2 should separate this more explicitly from display eligibility and configurable fit filters.
-- Existing standard surface fitting still excludes no-arbitrage violators through `_surface_iv_chain`; the new row fields make that explainable before weighted robust fitting begins.
-- Robust plan count was updated from `4/45` to `8/45`.
+- Fit filters are deterministic row annotations; they do not alter prices, raw IV, computed IV, or treat denoising/ML output as market truth.
+- The chain grid can still display rows rejected for fitting, including no-arb, stale, wide, low-liquidity, last-only, and moneyness/IV filter reason labels.
+- `Diagnostic Raw` relaxes fit filters for inspection but still labels quote reliability and no-arb penalties clearly.
+- Generated plot artifacts were restored after diagnostic verification so they are not part of this commit.
 
 ## Latest Verification
 
-Run from the repo root:
+Run from the repo root on 2026-05-08:
 
 ```powershell
 python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
@@ -50,7 +49,7 @@ python scripts\verify.py --skip-healthcheck
 python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts\dashboard_screenshots --viewports desktop
 ```
 
-Latest full verification passed on 2026-05-08 after Phase 1 quote reliability work. Full pytest: `183 passed, 31 warnings`. Healthcheck, diagnostic, and `scripts\verify.py --skip-healthcheck` passed. Dashboard visual regression exited cleanly with screenshot capture skipped because Playwright is not installed.
+Latest full verification passed. Full pytest: `187 passed, 31 warnings`. Healthcheck, diagnostic, and `scripts\verify.py --skip-healthcheck` passed. Dashboard visual regression exited cleanly with screenshot capture skipped because Playwright is not installed.
 
 ## New Session Prompt
 
@@ -61,7 +60,7 @@ Repo:
 C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
 
 Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Continue the robust surface plan at Phase 2. Implement the unchecked Phase 2 items in order if they fit cleanly, starting with "Separate display eligibility from fit eligibility."
+Continue the robust surface plan at Phase 3. Implement the unchecked Phase 3 items in order if they fit cleanly, starting with "Add weighted SVI calibration."
 Preserve provenance, keep deterministic offline tests, avoid treating ML/denoising as market truth, run full verification when appropriate, update SESSION_HANDOFF.md, commit changes, and report the updated robust-fitting plan count.
 ```
 

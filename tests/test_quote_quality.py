@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.config.settings import FitFilterSettings
 from src.quant.quote_quality import apply_quote_reliability_scores, score_quote
 from tests.fixtures.noisy_option_chain import checked_clean_chain
 
@@ -60,6 +61,30 @@ def test_quote_reliability_scores_clean_atm_above_noisy_variants():
     assert "extreme_moneyness_penalty" in rows["extreme"].penalty_reasons
     assert "no_arbitrage_violation" in rows["no_arb"].hard_rejection_reasons
     assert rows["no_arb"].fit_eligible is False
+    assert rows["no_arb"].display_eligible is True
+
+
+def test_fit_filters_exclude_rows_without_hiding_display_eligibility():
+    wide = _atm_row()
+    wide["bidAskSpreadPct"] = 0.60
+    wide["volume"] = 2
+    wide["openInterest"] = 10
+
+    result = score_quote(
+        wide,
+        fit_filters=FitFilterSettings(
+            preset="Strict",
+            max_bid_ask_spread_pct=0.35,
+            min_volume=10,
+            min_open_interest=50,
+        ),
+    )
+
+    assert result.display_eligible is True
+    assert result.fit_eligible is False
+    assert "spread_above_fit_limit" in result.hard_rejection_reasons
+    assert "volume_below_fit_minimum" in result.hard_rejection_reasons
+    assert "open_interest_below_fit_minimum" in result.hard_rejection_reasons
 
 
 def test_quote_reliability_annotations_include_reason_buckets_and_expiry_summary():
@@ -79,12 +104,27 @@ def test_quote_reliability_annotations_include_reason_buckets_and_expiry_summary
         },
     )
 
-    assert {"quoteReliabilityScore", "fitWeight", "fitPenaltyReasons", "fitEligible"}.issubset(
+    assert {"displayEligible", "quoteReliabilityScore", "fitWeight", "fitPenaltyReasons", "fitEligible"}.issubset(
         annotated.columns
     )
+    assert int(annotated["displayEligible"].sum()) == 4
     assert int(annotated["fitEligible"].sum()) == 3
+    assert meta["display_eligible_count"] == 4
     assert meta["fit_hard_rejection_reason_buckets"] == {"no_arbitrage_violation": 1}
     assert meta["fit_penalty_reason_buckets"]["last_only_penalty"] == 1
     assert meta["fit_penalty_reason_buckets"]["wide_spread_penalty"] == 1
     assert sum(item["fit_eligible_count"] for item in meta["expiry_reliability"].values()) == 3
     assert all("quote_reliability" in item for item in meta["expiry_quality"].values())
+
+
+def test_diagnostic_raw_fit_policy_labels_no_arb_without_excluding():
+    row = _atm_row()
+    row["noArbitrageViolation"] = True
+
+    result = score_quote(
+        row,
+        fit_filters=FitFilterSettings(preset="Diagnostic Raw", no_arbitrage_policy="allow"),
+    )
+
+    assert "no_arbitrage_penalty" in result.penalty_reasons
+    assert "no_arbitrage_violation" not in result.hard_rejection_reasons

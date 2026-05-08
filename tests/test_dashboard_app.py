@@ -67,6 +67,20 @@ def test_dashboard_provider_failure_mode_renders_diagnostics(monkeypatch):
     assert any("Surface: Fallback" in item.value for item in at.markdown)
 
 
+def test_dashboard_fit_preset_selector_renders_without_exception(monkeypatch):
+    at = _run_app(monkeypatch)
+    preset = next(widget for widget in at.selectbox if widget.label == "Fit preset")
+
+    preset.set_value("Strict")
+    at.run(timeout=90)
+    assert not at.exception
+
+    preset = next(widget for widget in at.selectbox if widget.label == "Fit preset")
+    preset.set_value("Diagnostic Raw")
+    at.run(timeout=90)
+    assert not at.exception
+
+
 def test_visual_regression_viewports_cover_desktop_tablet_mobile():
     assert VIEWPORTS["desktop"] == (1440, 1000)
     assert VIEWPORTS["tablet"][0] == 1024

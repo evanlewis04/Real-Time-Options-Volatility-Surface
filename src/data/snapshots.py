@@ -119,6 +119,16 @@ def load_snapshot(metadata_path: Path | str) -> MarketDataSnapshot:
             (str(expiry), dict(payload)) for expiry, payload in (metadata.get("expiry_quality") or {}).items()
         ),
         quote_reliability_summary=dict(metadata.get("quote_reliability_summary") or {}),
+        fit_filters=dict(metadata.get("fit_filters") or {}),
+        fit_filter_preset=metadata.get("fit_filter_preset"),
+        fit_eligible_count=int(metadata.get("fit_eligible_count") or 0),
+        fit_excluded_count=int(metadata.get("fit_excluded_count") or 0),
+        display_eligible_count=int(metadata.get("display_eligible_count") or 0),
+        display_excluded_count=int(metadata.get("display_excluded_count") or 0),
+        display_rejection_reason_buckets=tuple(
+            (str(reason), int(count))
+            for reason, count in (metadata.get("display_rejection_reason_buckets") or {}).items()
+        ),
         fit_penalty_reason_buckets=tuple(
             (str(reason), int(count))
             for reason, count in (metadata.get("fit_penalty_reason_buckets") or {}).items()
@@ -249,6 +259,13 @@ def _snapshot_metadata(snapshot: MarketDataSnapshot) -> dict[str, Any]:
         "quality_reason_buckets": dict(snapshot.quality_reason_buckets),
         "expiry_quality": dict(snapshot.expiry_quality),
         "quote_reliability_summary": dict(snapshot.quote_reliability_summary),
+        "fit_filters": dict(snapshot.fit_filters),
+        "fit_filter_preset": snapshot.fit_filter_preset,
+        "fit_eligible_count": snapshot.fit_eligible_count,
+        "fit_excluded_count": snapshot.fit_excluded_count,
+        "display_eligible_count": snapshot.display_eligible_count,
+        "display_excluded_count": snapshot.display_excluded_count,
+        "display_rejection_reason_buckets": dict(snapshot.display_rejection_reason_buckets),
         "fit_penalty_reason_buckets": dict(snapshot.fit_penalty_reason_buckets),
         "fit_hard_rejection_reason_buckets": dict(snapshot.fit_hard_rejection_reason_buckets),
         "expiry_reliability": dict(snapshot.expiry_reliability),
