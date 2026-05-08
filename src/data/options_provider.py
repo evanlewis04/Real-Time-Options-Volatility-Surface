@@ -345,21 +345,27 @@ class YFinanceOptionsProvider:
         expiry_raw_counts = _expiry_counts(df)
         expiry_rejection_reasons: Dict[str, Dict[str, int]] = {}
 
-        base_mask = (
-            (df["strike"] > 0)
-            & (df["daysToExpiration"] > 0)
-            & (df["time_to_expiry"] > 0)
-            & (df["mark"] > 0)
-            & (df["impliedVolatility"] > 0.01)
-            & (df["impliedVolatility"] < 5.0)
-            & (df["moneyness"] > 0.35)
-            & (df["moneyness"] < 2.5)
-        )
-        _record_expiry_rejections(df, base_mask, "base_quality", expiry_rejection_reasons)
+        base_checks = [
+            ("invalid_strike", df["strike"] > 0),
+            ("expired_contract", (df["daysToExpiration"] > 0) & (df["time_to_expiry"] > 0)),
+            ("invalid_mark", df["mark"] > 0),
+            (
+                "invalid_implied_volatility",
+                (df["impliedVolatility"] > 0.01) & (df["impliedVolatility"] < 5.0),
+            ),
+            ("extreme_moneyness", (df["moneyness"] > 0.35) & (df["moneyness"] < 2.5)),
+        ]
+        base_mask = pd.Series(True, index=df.index)
+        rejection_reasons: Dict[str, int] = {}
+        for reason, check_mask in base_checks:
+            aligned = check_mask.reindex(df.index).fillna(False).astype(bool)
+            current_mask = base_mask & aligned
+            rejected_now = base_mask & ~aligned
+            rejection_reasons[reason] = int(rejected_now.sum())
+            if rejected_now.any():
+                _record_expiry_rejections(df[base_mask], aligned[base_mask], reason, expiry_rejection_reasons)
+            base_mask = current_mask
         clean = df[base_mask].copy()
-        rejection_reasons: Dict[str, int] = {
-            "base_quality": int((~base_mask).sum()),
-        }
 
         clean, crossed_locked_rejected = _apply_row_filter(
             clean,

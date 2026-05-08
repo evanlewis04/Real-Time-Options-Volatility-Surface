@@ -14,6 +14,13 @@ ENV/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
 # Data files
 data/raw/*
 data/processed/*
@@ -31,5 +38,10 @@ Thumbs.db
 # Runtime artefacts
 *.log
 *.pid
+streamlit_*_smoke_*.log
+streamlit_*_smoke_*.err.log
+.streamlit/
 artifacts/dashboard_screenshots/
 data/snapshots/
+reports/
+plots/*.png

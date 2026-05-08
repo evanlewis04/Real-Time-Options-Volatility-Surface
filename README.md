@@ -34,6 +34,13 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
+For reproducible installs, use the pinned direct-dependency lock after creating
+the virtual environment:
+
+```bash
+pip install -r requirements.lock
+```
+
 On macOS/Linux, activate with:
 
 ```bash
@@ -52,8 +59,18 @@ are reserved for future provider integrations.
 | `python main.py --smoke-test` | Same as above, explicit CI-friendly smoke test. |
 | `python main.py --interactive` | Opens the legacy interactive CLI prompt. |
 | `python main.py test` | Runs the older full CLI system test, including data fetches. |
+| `python scripts/verify.py` | Runs lint, compile, pytest, and the dashboard healthcheck. |
+| `python scripts/verify.py --fix` | Applies Ruff formatting/fixes, then runs verification. |
 | `python -m scripts.healthcheck` | Runs project import, pricing, connector, surface, and Streamlit checks. |
 | `python diagnostic.py` | Sanity-checks pricing, IV, Greeks, and surface construction. |
+
+## Dashboard State
+
+The first screen exposes provenance before analysis. Live/delayed data uses the
+market provider path; synthetic and fallback states are labeled in the header
+and Diagnostics tab so generated data is never presented as live.
+
+![Dashboard default AppTest state](docs/assets/dashboard-default-state.svg)
 
 ## Project Layout
 
@@ -63,6 +80,8 @@ are reserved for future provider integrations.
 |-- main.py                 # CLI smoke test, monitoring, and legacy prompt
 |-- dashboard_connector.py  # Data/provenance orchestration for the dashboard
 |-- config.py               # Shared configuration
+|-- requirements.lock       # Pinned direct dependency set
+|-- docs/                   # Architecture notes and dashboard screenshots
 |-- src/
 |   |-- data/               # yfinance price/options providers and synthetic fallback
 |   |-- pricing/            # Black-Scholes and implied-vol solver
@@ -82,10 +101,18 @@ are reserved for future provider integrations.
 ```bash
 pytest tests/
 python -m scripts.healthcheck
+python scripts/verify.py
 ```
 
 Tests cover Black-Scholes pricing, put-call parity, Greeks signs/bounds,
-price-to-IV round trips, and option-chain normalization.
+price-to-IV round trips, option-chain cleaning, provider contracts, and
+deterministic Streamlit AppTest states.
+
+## Architecture
+
+The data path is documented in [docs/architecture.md](docs/architecture.md):
+providers -> normalized canonical models -> quant engine -> connector ->
+dashboard, with offline tests attached to the normalized and rendered states.
 
 ## Data Honesty
 

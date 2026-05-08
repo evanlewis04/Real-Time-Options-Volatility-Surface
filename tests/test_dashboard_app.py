@@ -1,6 +1,19 @@
 from streamlit.testing.v1 import AppTest
+import streamlit as st
 
 from scripts.dashboard_visual_regression import VIEWPORTS
+
+
+def _run_app(monkeypatch, mode=None):
+    if mode is None:
+        monkeypatch.delenv("VOL_SURFACE_APPTEST_MODE", raising=False)
+    else:
+        monkeypatch.setenv("VOL_SURFACE_APPTEST_MODE", mode)
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    at = AppTest.from_file("app.py")
+    at.run(timeout=90)
+    return at
 
 
 def test_dashboard_default_state_renders_key_sections():
@@ -13,6 +26,33 @@ def test_dashboard_default_state_renders_key_sections():
     assert any(metric.label == "Exp Move" for metric in at.metric)
     assert len(at.tabs) == 8
     assert len(at.dataframe) >= 2
+
+
+def test_dashboard_no_symbol_state_renders_without_exception(monkeypatch):
+    at = _run_app(monkeypatch)
+    universe = next(widget for widget in at.multiselect if widget.label == "Universe")
+
+    universe.set_value([])
+    at.run(timeout=90)
+
+    assert not at.exception
+    assert any("Select at least one symbol" in warning.value for warning in at.warning)
+
+
+def test_dashboard_synthetic_mode_renders_with_visible_provenance(monkeypatch):
+    at = _run_app(monkeypatch, "synthetic")
+
+    assert not at.exception
+    assert any("Surface: Synthetic" in item.value for item in at.markdown)
+    assert any("Price: Synthetic" in item.value for item in at.markdown)
+
+
+def test_dashboard_provider_failure_mode_renders_diagnostics(monkeypatch):
+    at = _run_app(monkeypatch, "provider_failure")
+
+    assert not at.exception
+    assert any("Forced provider failure for deterministic AppTest coverage" in item.value for item in at.json)
+    assert any("Surface: Fallback" in item.value for item in at.markdown)
 
 
 def test_visual_regression_viewports_cover_desktop_tablet_mobile():

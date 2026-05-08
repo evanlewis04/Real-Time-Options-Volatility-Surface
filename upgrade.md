@@ -483,29 +483,29 @@ These are the "insane project" upgrades.
   - Cases: empty data, missing columns, sparse expiries, bad IVs, extreme moneyness, NaN fills.
   - Acceptance: each fallback path is covered.
 
-- [ ] Add chain-cleaning tests.
+- [x] Add chain-cleaning tests.
   - Acceptance: invalid quotes are rejected for clear documented reasons.
 
-- [ ] Add dashboard AppTest coverage.
+- [x] Add dashboard AppTest coverage.
   - Acceptance: app renders default state, no-symbol state, synthetic mode, and provider failure mode.
 
-- [ ] Add lint and format workflow.
+- [x] Add lint and format workflow.
   - Current repo has Ruff config but requirements include Black/Flake8.
   - Acceptance: one command runs format/lint/tests consistently.
 
-- [ ] Update CI.
+- [x] Update CI.
   - Acceptance: CI runs pytest, compileall, lint, and dashboard smoke test.
 
-- [ ] Add dependency pin strategy.
+- [x] Add dependency pin strategy.
   - Acceptance: project supports reproducible installs with either `requirements.lock` or `uv.lock`.
 
-- [ ] Exclude generated logs/cache from git.
+- [x] Exclude generated logs/cache from git.
   - Acceptance: `.gitignore` covers smoke logs, Streamlit cache, generated snapshots if desired, and pycache.
 
-- [ ] Add README screenshots after UI redesign.
+- [x] Add README screenshots after UI redesign.
   - Acceptance: README shows real app state and explains live vs demo.
 
-- [ ] Add architecture diagram.
+- [x] Add architecture diagram.
   - Acceptance: docs show providers -> normalized data -> quant engine -> dashboard.
 
 - [ ] Add glossary.

@@ -57,6 +57,26 @@ def run_dashboard() -> None:
 
         def __init__(self):
             self.timestamp = datetime.now()
+            self.app_test_mode = os.environ.get("VOL_SURFACE_APPTEST_MODE", "fallback").strip().lower()
+
+        def _mode(self) -> str:
+            if self.app_test_mode == "synthetic":
+                return "Synthetic"
+            return "Fallback"
+
+        def _source(self) -> str:
+            if self.app_test_mode == "synthetic":
+                return "deterministic demo provider"
+            if self.app_test_mode == "provider_failure":
+                return "forced provider failure"
+            return "static fallback"
+
+        def _fallback_reason(self) -> str:
+            if self.app_test_mode == "provider_failure":
+                return "Forced provider failure for deterministic AppTest coverage"
+            if self.app_test_mode == "synthetic":
+                return "Real option chain unavailable in deterministic AppTest mode"
+            return "DashboardConnector could not be imported"
 
         def get_current_data(self, symbol: str) -> Dict[str, Any]:
             prices = {"AAPL": 196.50, "MSFT": 416.50, "NVDA": 138.50, "TSLA": 325.00, "SPY": 578.00}
@@ -66,9 +86,9 @@ def run_dashboard() -> None:
             return {
                 "symbol": symbol.upper(),
                 "price": spot,
-                "price_source": "static fallback",
-                "data_mode": "Fallback",
-                "iv_source": "static fallback",
+                "price_source": self._source(),
+                "data_mode": self._mode(),
+                "iv_source": self._source(),
                 "volume": None,
                 "open_interest": None,
                 "iv_30d": iv,
@@ -103,9 +123,9 @@ def run_dashboard() -> None:
         def get_surface_metadata(self, symbol: str):
             return {
                 "symbol": symbol.upper(),
-                "mode": "Fallback",
-                "surface_mode": "Fallback",
-                "surface_source": "static local fallback",
+                "mode": self._mode(),
+                "surface_mode": self._mode(),
+                "surface_source": self._source(),
                 "timestamp": self.timestamp,
                 "raw_rows": 0,
                 "valid_rows": 0,
@@ -127,7 +147,7 @@ def run_dashboard() -> None:
                 "no_arbitrage_violation_rows": 0,
                 "no_arbitrage_excluded_count": 0,
                 "no_arbitrage_reason_buckets": {},
-                "fallback_reason": "DashboardConnector could not be imported",
+                "fallback_reason": self._fallback_reason(),
                 "surface_points": 96,
                 "pricing_model": "bsm_dividends",
                 "pricing_model_label": "BSM with dividends",
@@ -148,9 +168,9 @@ def run_dashboard() -> None:
                 spot=float(data["price"]),
                 spot_timestamp=self.timestamp,
                 chain_timestamp=self.timestamp,
-                source="static local fallback",
-                fallback_reason="DashboardConnector could not be imported",
-                mode="Fallback",
+                source=self._source(),
+                fallback_reason=self._fallback_reason(),
+                mode=self._mode(),
             )
 
         def get_portfolio_metrics(self, position_csv=None):
@@ -262,6 +282,7 @@ def run_dashboard() -> None:
                 },
                 "performance": {"real_time_active": False, "update_interval": 30},
                 "data_contract": {"price_provider": "static fallback", "calendar_provider": "XNYS fallback"},
+                "app_test_mode": self.app_test_mode,
             }
 
         def trigger_data_refresh(self):

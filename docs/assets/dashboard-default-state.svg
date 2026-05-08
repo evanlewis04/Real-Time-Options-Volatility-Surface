@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Options Volatility Surface Workstation default AppTest state</title>
+  <desc id="desc">Deterministic dashboard state showing fallback provenance, KPI strip, tabs, surface, heatmap, market table, and diagnostics panels.</desc>
+  <rect width="1280" height="760" fill="#f6f7f8"/>
+  <rect x="0" y="0" width="255" height="760" fill="#ffffff"/>
+  <rect x="24" y="28" width="205" height="26" rx="4" fill="#eef2f4"/>
+  <text x="32" y="46" font-family="Inter, Arial, sans-serif" font-size="13" fill="#29343d">Workspace</text>
+  <rect x="24" y="76" width="205" height="32" rx="4" fill="#f7f9fa" stroke="#d7dee4"/>
+  <text x="36" y="97" font-family="Inter, Arial, sans-serif" font-size="12" fill="#45525c">Mega-cap tech</text>
+  <rect x="24" y="125" width="205" height="78" rx="4" fill="#f7f9fa" stroke="#d7dee4"/>
+  <text x="36" y="148" font-family="Inter, Arial, sans-serif" font-size="12" fill="#45525c">AAPL  MSFT  GOOGL</text>
+  <text x="36" y="172" font-family="Inter, Arial, sans-serif" font-size="12" fill="#45525c">META  AMZN  NVDA</text>
+  <text x="36" y="196" font-family="Inter, Arial, sans-serif" font-size="12" fill="#45525c">TSLA</text>
+  <rect x="24" y="236" width="205" height="26" rx="4" fill="#eef2f4"/>
+  <text x="32" y="254" font-family="Inter, Arial, sans-serif" font-size="13" fill="#29343d">Data Filters</text>
+  <rect x="24" y="284" width="205" height="12" rx="6" fill="#dbe5ea"/>
+  <rect x="24" y="328" width="205" height="12" rx="6" fill="#dbe5ea"/>
+  <rect x="24" y="372" width="205" height="12" rx="6" fill="#dbe5ea"/>
+
+  <rect x="285" y="28" width="950" height="86" rx="6" fill="#ffffff" stroke="#d7dee4"/>
+  <text x="310" y="56" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#1f2933">Options Volatility Surface Workstation</text>
+  <text x="310" y="82" font-family="Inter, Arial, sans-serif" font-size="13" fill="#52616b">AAPL | Spot $196.50 | Source static fallback | Market closed | Updated 17:16:58</text>
+  <rect x="310" y="94" width="114" height="24" rx="12" fill="#fff1ef" stroke="#f3b7b0"/>
+  <text x="326" y="111" font-family="Inter, Arial, sans-serif" font-size="12" fill="#a33b2f">Surface: Fallback</text>
+  <rect x="434" y="94" width="101" height="24" rx="12" fill="#fff1ef" stroke="#f3b7b0"/>
+  <text x="450" y="111" font-family="Inter, Arial, sans-serif" font-size="12" fill="#a33b2f">Price: Fallback</text>
+  <rect x="545" y="94" width="104" height="24" rx="12" fill="#edfdf7" stroke="#b7e2d3"/>
+  <text x="561" y="111" font-family="Inter, Arial, sans-serif" font-size="12" fill="#176b4d">Model: BSM</text>
+
+  <g font-family="Inter, Arial, sans-serif">
+    <rect x="285" y="132" width="950" height="74" rx="6" fill="#ffffff" stroke="#d7dee4"/>
+    <text x="310" y="160" font-size="12" fill="#52616b">Spot</text><text x="310" y="188" font-size="20" font-weight="700" fill="#1f2933">$196.50</text>
+    <text x="430" y="160" font-size="12" fill="#52616b">ATM IV</text><text x="430" y="188" font-size="20" font-weight="700" fill="#1f2933">25.0%</text>
+    <text x="550" y="160" font-size="12" fill="#52616b">Risk Rev</text><text x="550" y="188" font-size="20" font-weight="700" fill="#1f2933">0.0%</text>
+    <text x="690" y="160" font-size="12" fill="#52616b">Term Spread</text><text x="690" y="188" font-size="20" font-weight="700" fill="#1f2933">1.6%</text>
+    <text x="850" y="160" font-size="12" fill="#52616b">Surface Points</text><text x="850" y="188" font-size="20" font-weight="700" fill="#1f2933">96</text>
+    <text x="1040" y="160" font-size="12" fill="#52616b">Stale Age</text><text x="1040" y="188" font-size="20" font-weight="700" fill="#1f2933">0s</text>
+  </g>
+
+  <rect x="285" y="224" width="950" height="36" rx="6" fill="#ffffff" stroke="#d7dee4"/>
+  <g font-family="Inter, Arial, sans-serif" font-size="13" fill="#29343d">
+    <text x="310" y="247">Surface</text><text x="390" y="247">Chain</text><text x="454" y="247">Skew &amp; Term</text><text x="572" y="247">Local Vol</text><text x="665" y="247">Relative Value</text><text x="800" y="247">Strategy Lab</text><text x="925" y="247">Risk</text><text x="982" y="247">Diagnostics</text>
+  </g>
+
+  <rect x="285" y="280" width="560" height="315" rx="6" fill="#ffffff" stroke="#d7dee4"/>
+  <text x="310" y="310" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#1f2933">AAPL Implied Volatility Surface</text>
+  <path d="M335 530 C420 470, 505 500, 590 410 S730 360, 805 300" fill="none" stroke="#176b87" stroke-width="4"/>
+  <path d="M335 560 C430 520, 500 535, 600 468 S735 418, 805 360" fill="none" stroke="#80a4b3" stroke-width="3"/>
+  <g stroke="#d7dee4" stroke-width="1"><line x1="335" y1="560" x2="805" y2="560"/><line x1="335" y1="340" x2="335" y2="560"/><line x1="335" y1="505" x2="805" y2="505"/><line x1="335" y1="450" x2="805" y2="450"/><line x1="335" y1="395" x2="805" y2="395"/></g>
+
+  <rect x="872" y="280" width="363" height="315" rx="6" fill="#ffffff" stroke="#d7dee4"/>
+  <text x="897" y="310" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#1f2933">Surface Heatmap</text>
+  <g>
+    <rect x="897" y="335" width="46" height="46" fill="#edf8fb"/><rect x="943" y="335" width="46" height="46" fill="#d1eef3"/><rect x="989" y="335" width="46" height="46" fill="#a7d8df"/><rect x="1035" y="335" width="46" height="46" fill="#76bcc8"/><rect x="1081" y="335" width="46" height="46" fill="#4a9faf"/>
+    <rect x="897" y="381" width="46" height="46" fill="#d9f0f3"/><rect x="943" y="381" width="46" height="46" fill="#b9e1e8"/><rect x="989" y="381" width="46" height="46" fill="#8ccad4"/><rect x="1035" y="381" width="46" height="46" fill="#62adbb"/><rect x="1081" y="381" width="46" height="46" fill="#31879a"/>
+    <rect x="897" y="427" width="46" height="46" fill="#c6e8ed"/><rect x="943" y="427" width="46" height="46" fill="#98d0d9"/><rect x="989" y="427" width="46" height="46" fill="#6ab4c0"/><rect x="1035" y="427" width="46" height="46" fill="#3d91a2"/><rect x="1081" y="427" width="46" height="46" fill="#176b87"/>
+    <rect x="897" y="473" width="46" height="46" fill="#eaf4e0"/><rect x="943" y="473" width="46" height="46" fill="#d4e8bf"/><rect x="989" y="473" width="46" height="46" fill="#a8cf8a"/><rect x="1035" y="473" width="46" height="46" fill="#78ad60"/><rect x="1081" y="473" width="46" height="46" fill="#4c8a3d"/>
+  </g>
+
+  <rect x="285" y="618" width="950" height="106" rx="6" fill="#ffffff" stroke="#d7dee4"/>
+  <text x="310" y="648" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="700" fill="#1f2933">Market Snapshot</text>
+  <g font-family="Inter, Arial, sans-serif" font-size="12">
+    <text x="310" y="680" fill="#52616b">Symbol</text><text x="430" y="680" fill="#52616b">Spot</text><text x="550" y="680" fill="#52616b">Mode</text><text x="690" y="680" fill="#52616b">IV Source</text><text x="850" y="680" fill="#52616b">Contracts</text>
+    <text x="310" y="708" fill="#1f2933">AAPL</text><text x="430" y="708" fill="#1f2933">$196.50</text><text x="550" y="708" fill="#a33b2f">Fallback</text><text x="690" y="708" fill="#1f2933">static fallback</text><text x="850" y="708" fill="#1f2933">n/a</text>
+  </g>
+</svg>

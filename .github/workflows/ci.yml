@@ -27,13 +27,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
 
       - name: Compile Python sources
-        run: python -m compileall app.py dashboard_connector.py main.py src tests
+        run: python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py main.py
 
       - name: Test
-        run: pytest tests -q
+        run: python -m pytest -q
+
+      - name: Dashboard smoke
+        run: python -m scripts.healthcheck
