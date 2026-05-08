@@ -1,625 +1,285 @@
-# Upgrade Plan: Real-Time Options Volatility Surface
+# Upgrade Plan: Robust Volatility Surface Fitting
 
-This file is written for a future Codex implementation pass. It turns the current project review into an actionable backlog for making the dashboard look more professional, behave more honestly, and become much stronger as a quant project.
+This plan replaces the completed dashboard upgrade backlog. It focuses on the next problem observed in live use: noisy option-chain quotes can distort the fitted volatility surface, especially in short-dated expiries with stale, wide, last-only, or no-arbitrage-violating quotes.
 
-## Review Snapshot
+The goal is not to make bad market data look clean. The goal is to build an honest robust surface workflow that:
 
-Tested on 2026-05-02 in the project root.
+- Keeps raw market quotes visible.
+- Scores and explains quote reliability.
+- Builds a more stable fitted surface from weighted, filtered inputs.
+- Uses historical priors and ML only as labeled denoising aids.
+- Preserves provenance so the dashboard never confuses observed quotes with estimated values.
 
-Commands run:
+## Current Observed Issue
 
-```bash
-venv\Scripts\python.exe -m pytest tests -q
-venv\Scripts\python.exe -m compileall app.py dashboard_connector.py main.py src tests
-venv\Scripts\python.exe diagnostic.py
-venv\Scripts\python.exe -m streamlit run app.py --server.headless=true --server.port=8501 --browser.gatherUsageStats=false
+Recent AAPL dashboard output showed:
+
+- Data quality score around `58/100`.
+- Hundreds of no-arbitrage violations.
+- Many rejected rows from expired contracts, extreme moneyness, old quotes, stale last-only quotes, wide bid/ask spreads, and invalid IV.
+- Raw IV points as high as roughly `200%` to `300%` against a fitted surface around `20%` to `65%`.
+- SVI fit that was usable but noisy.
+- SSVI and Heston diagnostics with high RMSE.
+
+This is a data-quality and robust-fitting problem. The dashboard should continue to expose the raw quote cloud, but the primary fitted surface should become less sensitive to unreliable rows.
+
+## Implementation Rules
+
+- Preserve data provenance everywhere: source, timestamp, cache age, selected market price source, filters, fit mode, weighting mode, fallback reason, and model assumptions.
+- Keep deterministic offline tests. Use fixed fixtures for quote-quality scoring, no-arbitrage cases, historical priors, and ML predictions.
+- Do not use ML predictions as market truth. Label them as denoised estimates or prior-assisted estimates.
+- Do not hide bad data. Show raw quotes, rejected rows, excluded rows, weights, and fit residuals.
+- Prefer transparent robust methods before adding opaque models.
+- Keep the default surface conservative. The user should be able to compare raw, standard fit, robust fit, and ML-denoised fit.
+- Add feature flags or explicit dashboard controls before changing default behavior.
+- Every meaningful quant/data change needs unit tests and at least one dashboard/AppTest coverage point.
+- Full verification before closing an implementation session:
+
+```powershell
+python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
+python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py main.py
+python -m pytest -q
+$env:PYTHONPATH='.'; python scripts\healthcheck.py
+python diagnostic.py
+python scripts\verify.py --skip-healthcheck
+python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts\dashboard_screenshots --viewports desktop
 ```
 
-Results:
-
-- Unit tests passed: 30 passed, 4 expected warning cases.
-- Python compile passed for app, main, dashboard connector, src, and tests.
-- Streamlit server started and returned HTTP 200 at `http://localhost:8501`.
-- Streamlit AppTest ran `app.py` with zero app exceptions.
-- `diagnostic.py` exposed a Windows console encoding crash in one print path.
-- Streamlit emitted repeated deprecation warnings for `use_container_width`; migrate to `width="stretch"` before removal after 2025-12-31.
-- Browser visual testing through the in-app browser was blocked by local Node `22.18.0`; the browser harness requires `>=22.22.0`.
-
-Current strengths:
-
-- Clean initial BSM pricing implementation with Greeks.
-- IV solver has Newton, bisection, and Brent paths.
-- Synthetic options chain generator is Black-Scholes consistent.
-- Surface construction has multiple fallbacks.
-- Streamlit dashboard already has market table, Greeks, 3D surface, heatmap, smile, correlations, and performance sections.
-- Existing pytest suite covers core pricing and IV round trips.
-
-Critical current limitations:
-
-- The UI markets itself as live/professional while several key dashboard sections are synthetic or random.
-- Real options chains are not currently the core dashboard data source; synthetic chains dominate surface generation.
-- Portfolio metrics, correlations, P&L, volume, bid-ask spread, contracts, and some fallback Greeks are random or placeholder-backed.
-- The app is a single large `app.py`, which makes professional UI iteration and testing harder.
-- The quant layer does not yet model dividends, early exercise, borrow, rates curves, no-arbitrage constraints, smoothing calibration, or surface diagnostics deeply enough for serious quant use.
-- There is no data provenance panel, stale-data indicator, confidence score, or explicit demo/live mode boundary.
-
-## Implementation Rules For Codex
-
-- Preserve all existing tests and add new tests beside every meaningful quant/data change.
-- Do not present synthetic or random values as live market data.
-- Build in small vertical slices: data contract, calculation, UI rendering, tests.
-- Prefer deterministic fixtures over randomness in tests and screenshots.
-- Keep the dashboard dense, restrained, and work-focused. This is a quant tool, not a marketing page.
-- Add clear labels for units: annualized vol, daily theta, DTE, moneyness, log-moneyness, dollars, basis points.
-- Favor explicit data lineage: source, timestamp, delay, cache age, fallback reason, and confidence.
-- Avoid broad refactors unless they unlock multiple items in this plan.
-- After each implementation phase, run `pytest tests -q`, a Streamlit smoke test, and at least one app-level test.
-
-## Phase 0: Honesty, Stability, And Baseline Polish
-
-These should happen first because they prevent misleading output.
-
-- [x] Add a persistent data mode badge: `Live`, `Delayed`, `Synthetic`, or `Fallback`.
-  - Files: `app.py`, `dashboard_connector.py`.
-  - Acceptance: every displayed section can reveal whether it is live, cached, synthetic, or fallback.
-
-- [x] Replace random portfolio metrics with clearly labeled demo metrics or remove them from live mode.
-  - Files: `dashboard_connector.py`, `app.py`.
-  - Acceptance: no random portfolio VaR, Sharpe, drawdown, or P&L appears as if it were calculated from real positions.
-
-- [x] Replace random correlation matrix with either real historical-return correlations or a disabled state.
-  - Files: `dashboard_connector.py`, `src/portfolio/portfolio_analytics.py`, tests.
-  - Acceptance: correlations are derived from price/return time series with a visible lookback window.
-
-- [x] Replace random volume, bid-ask, and contracts in `get_current_data` with real source fields or mark them synthetic.
-  - Files: `dashboard_connector.py`, `src/data/*`.
-  - Acceptance: each market-table field has source metadata.
-
-- [x] Fix Windows encoding failures in `diagnostic.py`.
-  - Files: `diagnostic.py`.
-  - Acceptance: `venv\Scripts\python.exe diagnostic.py` exits 0 on Windows cp1252 consoles.
-
-- [x] Remove mojibake from `README.md` and app labels.
-  - Files: `README.md`, `app.py`.
-  - Acceptance: tree glyphs, bullets, arrows, and footer text render correctly or use plain ASCII.
+## Phase 0: Baseline Investigation And Reproducible Fixtures
+
+- [x] Capture a deterministic noisy-chain fixture.
+  - Add a fixture that resembles the observed AAPL issue: stale rows, wide spreads, last-only rows, no-arbitrage violations, extreme moneyness, and several raw IV spikes.
+  - Suggested files: `tests/fixtures/noisy_option_chain.py`, `tests/test_robust_surface_fixtures.py`.
+  - Acceptance: fixture produces stable row counts and reason buckets without network access.
+
+- [x] Add a clean-chain control fixture.
+  - Add a comparable fixture with smooth IV smiles, reasonable spreads, and no material no-arbitrage violations.
+  - Acceptance: clean fixture quality score is high and robust fit should closely match standard fit.
+
+- [x] Add a reproducible before/after diagnostic script.
+  - Script should run standard fit against noisy and clean fixtures and print quality, fit RMSE, residual quantiles, and excluded-row counts.
+  - Suggested file: `scripts/compare_surface_fit_modes.py`.
+  - Acceptance: command runs offline and emits deterministic JSON or table output.
+
+- [x] Document current fit behavior.
+  - Add a short note explaining why raw quote clouds can look very different from fitted surfaces.
+  - Suggested file: `docs/surface_quality.md`.
+  - Acceptance: README or dashboard glossary links to the note without adding bulky in-app text.
+
+## Phase 1: Quote Reliability Scoring
+
+- [ ] Create a row-level `QuoteReliabilityScore`.
+  - Score each option row from `0.0` to `1.0`.
+  - Inputs should include bid/ask spread, quote age, last-only status, volume, open interest, no-arbitrage flags, moneyness distance, provider IV validity, selected market price source, and expiry.
+  - Suggested file: `src/quant/quote_quality.py`.
+  - Acceptance: deterministic tests prove reliable ATM rows score higher than stale/wide/extreme/no-arb rows.
+
+- [ ] Add row-level reason labels.
+  - Keep both hard rejection reasons and soft penalty reasons.
+  - Example soft penalties: `wide_spread_penalty`, `stale_quote_penalty`, `low_liquidity_penalty`, `extreme_moneyness_penalty`, `last_only_penalty`.
+  - Acceptance: dashboard metadata can explain why a quote received a low weight.
+
+- [ ] Expose reliability fields in normalized chain snapshots.
+  - Add columns such as `quoteReliabilityScore`, `fitWeight`, `fitPenaltyReasons`, and `fitEligible`.
+  - Suggested files: `dashboard_connector.py`, `src/data/models.py`.
+  - Acceptance: `get_options_chain_snapshot` includes the new fields and preserves existing columns.
+
+- [ ] Add expiry-level quality summaries.
+  - Summarize median score, low-score count, fit-eligible count, excluded count, and dominant penalty reasons by expiry.
+  - Acceptance: metadata includes stable expiry summaries for the DataQualityPanel.
+
+## Phase 2: Stricter Fit Eligibility And Controls
+
+- [ ] Separate display eligibility from fit eligibility.
+  - The option chain grid can display imperfect rows, but the surface fit should use stricter eligibility.
+  - Acceptance: rejected-for-fit rows remain visible in the chain with reason labels.
+
+- [ ] Add configurable fit filters.
+  - Controls: max spread, max quote age, min volume, min open interest, moneyness band, max raw IV, no-arb exclusion policy, last-only policy.
+  - Suggested files: `src/config/settings.py`, `src/dashboard/app_shell.py`.
+  - Acceptance: fit filters are distinct from chain display filters and included in provenance.
+
+- [ ] Exclude no-arbitrage violators from standard fit by default.
+  - Current behavior already excludes some surface rows; make the policy explicit and test-covered.
+  - Acceptance: metadata reports `no_arbitrage_excluded_count`, `fit_eligible_count`, and `fit_excluded_count`.
+
+- [ ] Add a strict preset for poor data days.
+  - Presets: `Standard`, `Strict`, `Diagnostic Raw`.
+  - `Strict` should reduce stale, wide, last-only, and no-arb rows aggressively.
+  - `Diagnostic Raw` should show what happens with minimal filtering but label it clearly.
+  - Acceptance: AppTest can select the preset without exceptions.
+
+## Phase 3: Weighted Robust SVI And SSVI Fitting
+
+- [ ] Add weighted SVI calibration.
+  - Modify per-expiry SVI fitting to accept row weights.
+  - Use quote reliability and liquidity as default weights.
+  - Suggested file: `src/quant/svi.py`.
+  - Acceptance: high-weight clean rows influence fit more than low-weight outliers in deterministic tests.
+
+- [ ] Add robust loss support.
+  - Support at least `linear`, `huber`, and `soft_l1` loss modes through SciPy least squares.
+  - Acceptance: noisy fixture robust RMSE and residual quantiles improve without materially changing clean fixture output.
+
+- [ ] Add weighted global SSVI calibration.
+  - Extend SSVI fit to use row weights and robust loss.
+  - Acceptance: global fit diagnostics include weight mode, loss mode, weighted RMSE, unweighted RMSE, and constraints.
+
+- [ ] Add residual clipping diagnostics.
+  - Do not silently remove outliers. Report clipped/downweighted rows, residual thresholds, and impact on fit.
+  - Acceptance: dashboard can show clipped/downweighted counts and top residual rows.
+
+- [ ] Preserve standard fit as a comparison mode.
+  - Fit modes: `Standard SVI`, `Robust SVI`, `Robust SSVI`, and later `ML Denoised`.
+  - Acceptance: user can compare standard and robust diagnostics from the same quote set.
+
+## Phase 4: Historical Prior And Surface Stabilization
+
+- [ ] Build a historical surface prior loader.
+  - Use recent persisted snapshots to construct a prior grid by moneyness/log-moneyness and DTE.
+  - Suggested files: `src/quant/surface_prior.py`, `src/data/snapshots.py`.
+  - Acceptance: loader returns deterministic priors from fixture snapshots and refuses stale/insufficient history.
+
+- [ ] Add prior blending for poor-quality current data.
+  - Blend current robust fit with recent prior when quote quality is low.
+  - Blend weight should depend on current data quality, snapshot recency, and overlap.
+  - Acceptance: metadata reports prior source, prior age, blend weight, overlap count, and whether prior was applied.
+
+- [ ] Add jump detection before blending.
+  - If current clean quotes strongly indicate a true surface move, do not over-anchor to history.
+  - Acceptance: tests cover both noisy false spikes and genuine broad IV shifts.
 
-- [x] Migrate Streamlit deprecated `use_container_width=True` calls to `width="stretch"`.
-  - Files: `app.py`.
-  - Acceptance: AppTest produces no `use_container_width` deprecation warnings.
+- [ ] Add prior comparison charts.
+  - Show current robust fit, prior surface, and current-minus-prior heatmap.
+  - Acceptance: dashboard labels prior-assisted values as estimates.
 
-- [x] Stop printing from quant modules during app runs.
-  - Files: `src/analysis/vol_surface.py`.
-  - Acceptance: surface construction uses logging, not `print`, and AppTest output stays clean.
+## Phase 5: ML Denoising Prototype
 
-- [x] Make `main.py` noninteractive by default or document it honestly.
-  - Files: `main.py`, `README.md`.
-  - Acceptance: `python main.py --smoke-test` runs and exits without waiting for stdin.
+- [ ] Define a surface ML feature set.
+  - Features: log-moneyness, moneyness, DTE, expiry bucket, option type, bid/ask spread, quote age, volume, open interest, selected price source, forward moneyness, rates, dividends, event flags, historical IV prior, and raw IV.
+  - Suggested file: `src/ml/surface_features.py`.
+  - Acceptance: feature builder is deterministic and handles missing fields.
 
-- [x] Add a single project health command.
-  - Suggested command: `python -m scripts.healthcheck`.
-  - Acceptance: healthcheck runs tests for imports, data provider status, Streamlit import, and sample surface construction.
+- [ ] Implement a baseline nonparametric denoiser.
+  - Start with `ExtraTreesRegressor` or `HistGradientBoostingRegressor` if available, trained only on local historical snapshots and/or deterministic fixtures.
+  - Suggested file: `src/ml/surface_denoiser.py`.
+  - Acceptance: model can fit fixture data offline and produce bounded IV predictions.
 
-## Phase 1: Professional Dashboard Redesign
+- [ ] Add Gaussian Process or kernel smoother research mode.
+  - Use log-moneyness and DTE coordinates with uncertainty estimates if dependencies are available.
+  - Keep this optional and clearly labeled as research.
+  - Acceptance: if dependency is unavailable, module returns a graceful unavailable payload.
 
-Goal: make the first screen feel like a real quant workstation.
+- [ ] Add uncertainty output.
+  - Denoised surfaces should expose prediction uncertainty or confidence bands.
+  - Acceptance: dashboard can distinguish high-confidence smooth regions from extrapolated regions.
 
-- [x] Split the app into layout modules instead of one monolithic `app.py`.
-  - Suggested files:
-    - `src/dashboard/app_shell.py`
-    - `src/dashboard/components/metrics.py`
-    - `src/dashboard/components/surface_panel.py`
-    - `src/dashboard/components/market_table.py`
-    - `src/dashboard/components/controls.py`
-    - `src/dashboard/theme.py`
-  - Acceptance: `app.py` becomes a small entry point that composes modules.
+- [ ] Add model persistence for local experiments.
+  - Store model metadata, feature schema, training snapshot range, validation metrics, and provenance.
+  - Acceptance: saved model can be loaded deterministically and refuses incompatible schemas.
 
-- [x] Add a true top command bar.
-  - Include ticker search, underlying selector, DTE range, moneyness range, data source, refresh, and mode.
-  - Acceptance: core workflow controls are visible without digging through the sidebar.
+- [ ] Keep ML off by default at first.
+  - Add explicit `ML Denoised` mode but default to robust deterministic fit until validation is strong.
+  - Acceptance: default dashboard behavior remains explainable and deterministic.
 
-- [x] Convert the sidebar into a compact configuration rail.
-  - Include model settings, data settings, filters, and display toggles.
-  - Acceptance: no oversized sidebar text; controls are grouped and scannable.
-
-- [x] Replace the large centered title with a compact terminal-style header.
-  - Include product name, current symbol, spot, timestamp, market status, data mode.
-  - Acceptance: more dashboard real estate is used for analysis instead of branding.
-
-- [x] Introduce tabs for major workflows.
-  - Suggested tabs: `Surface`, `Chain`, `Skew`, `Term Structure`, `Risk`, `Backtest`, `Diagnostics`.
-  - Acceptance: each tab has one clear analytical purpose.
-
-- [x] Add a dense KPI strip above the main surface.
-  - Metrics: spot, change, ATM IV, 25 delta risk reversal, 25 delta butterfly, front/back term spread, IV rank, IV percentile, surface points, stale age.
-  - Acceptance: KPIs are deterministic and sourced from current data.
-
-- [x] Add professional theme tokens.
-  - Use neutral background, subtle borders, limited accent colors, and consistent spacing.
-  - Avoid a one-note blue/purple dashboard.
-  - Acceptance: CSS variables or Streamlit theme config drive colors and spacing.
-
-- [x] Replace generic Plotly defaults with a consistent chart template.
-  - Files: `src/dashboard/theme.py`, all chart code.
-  - Acceptance: all charts share fonts, margins, gridlines, color scales, hover labels, and legend style.
-
-- [x] Use financial color semantics.
-  - Green/red only where directional gain/loss or rich/cheap makes sense.
-  - Use diverging colors for spreads and neutral sequential colors for vol levels.
-  - Acceptance: no arbitrary rainbow charts for decision-critical views.
-
-- [x] Add skeleton/loading states for slow data fetches.
-  - Acceptance: UI never appears frozen during yfinance calls.
-
-- [x] Add empty/error states with clear recovery actions.
-  - Acceptance: no raw exception dumps in normal user flow.
-
-- [x] Add compact help tooltips instead of long in-app explanatory text.
-  - Acceptance: Greeks explanations move into concise tooltips or docs panel.
-
-- [x] Add responsive layout checks.
-  - Acceptance: app remains usable at 1440px, 1024px, and mobile-width browser sizes.
-
-- [x] Add visual regression screenshots for the main dashboard.
-  - Suggested: use Streamlit AppTest for structural checks and Playwright when available.
-  - Acceptance: automated test verifies key sections render without exceptions.
-
-- [x] Make all tables sortable, filterable, and exportable.
-  - Suggested: use `st.dataframe` column config or AgGrid where valuable.
-  - Acceptance: chain and market tables can be filtered by expiry, moneyness, type, liquidity, and IV.
-
-- [x] Add column formatting.
-  - Price: dollars, IV: percent, theta: dollars/day, rates: percent, spreads: bps or percent.
-  - Acceptance: no ambiguous raw decimals in the UI.
-
-- [x] Add a "last refresh" and "cache age" indicator beside every dataset.
-  - Acceptance: a user can tell stale live data from fresh live data.
-
-- [x] Replace the footer with a compact diagnostics/status row.
-  - Acceptance: no marketing-style footer inside the analytical app.
-
-## Phase 2: Real Data Pipeline
-
-Goal: graduate from synthetic dashboard demo to real market-data analysis with transparent fallbacks.
-
-- [x] Add a canonical `MarketDataSnapshot` data model.
-  - Fields: symbol, spot, spot_timestamp, chain_timestamp, expirations, options, source, source_delay, cache_age, fallback_reason.
-  - Acceptance: dashboard consumes this model instead of loose dictionaries.
-
-- [x] Add a canonical `OptionQuote` model.
-  - Fields: contract, type, strike, expiry, dte, bid, ask, mid, last, volume, open_interest, raw_iv, computed_iv, delta, gamma, theta, vega, rho, quote_timestamp.
-  - Acceptance: calculations and UI use typed/validated quote fields.
-
-- [x] Fetch real option chains from yfinance where available.
-  - Files: `src/data/price_provider.py`, new `src/data/options_provider.py`.
-  - Acceptance: selected symbol surfaces can be built from real option-chain bid/ask/mid data.
-
-- [x] Add provider abstraction for multiple market data sources.
-  - Suggested providers: yfinance, Polygon, Tradier, Databento, Cboe delayed files, local CSV fixture.
-  - Acceptance: connector can swap providers without dashboard changes.
-
-- [x] Add data-source capability matrix.
-  - Acceptance: UI shows which fields are available from each provider.
-
-- [x] Cache option chains by symbol and expiry.
-  - Acceptance: repeated dashboard reruns do not hammer yfinance.
-
-- [x] Persist snapshots locally.
-  - Suggested: parquet files under `data/snapshots/`.
-  - Acceptance: app can replay a previous snapshot offline.
-
-- [x] Add a historical price loader.
-  - Acceptance: returns, realized vol, IV rank, and correlations use real history.
-
-- [x] Add rate-limit handling and backoff.
-  - Acceptance: provider failures produce graceful stale-data fallback with reason.
-
-- [x] Add market calendar support.
-  - Suggested: `pandas_market_calendars`.
-  - Acceptance: app knows market open, close, holidays, and delayed/weekend states.
-
-- [x] Add risk-free rate source.
-  - Suggested: Treasury curve/FRED or a configurable curve file.
-  - Acceptance: IV calculations use expiry-specific rates, not one hard-coded 5 percent value.
-
-- [x] Add dividend yield and discrete dividend support.
-  - Acceptance: equity option IVs can incorporate dividends by symbol/expiry.
-
-- [x] Add corporate action awareness.
-  - Acceptance: splits/dividends can be surfaced in data warnings.
-
-- [x] Add stale quote filtering.
-  - Acceptance: old or zero bid/ask quotes are excluded or marked.
-
-- [x] Add liquidity filters.
-  - Filters: min open interest, min volume, max bid-ask spread percent, max quote age.
-  - Acceptance: surface construction can be restricted to tradable quotes.
-
-- [x] Add midpoint, mark, and last-price selection.
-  - Acceptance: user can choose which market price drives computed IV.
-
-- [x] Add crossed/locked market detection.
-  - Acceptance: invalid bid/ask rows are flagged and excluded.
-
-- [x] Add parity sanity checks across calls and puts.
-  - Acceptance: obvious put-call parity violations are flagged by expiry/strike.
-
-- [x] Add data quality score per expiry and per surface.
-  - Acceptance: UI displays number of valid quotes, rejected quotes, and reason buckets.
-
-## Phase 3: Quant Accuracy Upgrades
-
-Goal: make the analytics credible to someone with options/vol experience.
-
-- [x] Add Black-Scholes-Merton tests against more references.
-  - Include dividends, rates, near expiry, deep ITM/OTM, and put/call parity.
-  - Acceptance: pricing tests cover edge cases currently only lightly tested.
-
-- [x] Add forward price and discount factor framework.
-  - Acceptance: surface construction can work in forward moneyness, not only spot moneyness.
-
-- [x] Re-express surface axes as log-moneyness and expiry.
-  - Acceptance: chart can toggle strike, moneyness, log-moneyness, and delta axes.
-
-- [x] Add delta-based skew metrics.
-  - Metrics: 10d put IV, 25d put IV, ATM IV, 25d call IV, 10d call IV, risk reversal, butterfly.
-  - Acceptance: dashboard calculates these per expiry.
-
-- [x] Add term-structure analytics.
-  - Metrics: front/back spread, slope, curvature, contango/backwardation flag.
-  - Acceptance: term structure tab shows ATM IV by expiry with slope metrics.
-
-- [x] Add no-arbitrage checks.
-  - Checks: call monotonicity in strike, convexity in strike, calendar monotonicity where applicable, bounds by option type.
-  - Acceptance: violations are surfaced and optionally excluded.
-
-- [x] Add arbitrage-aware smoothing.
-  - Suggested first step: robust smoothing with penalties, then later SVI/SSVI.
-  - Acceptance: fitted surface is smoother without hiding raw data points.
-
-- [x] Add SVI smile calibration by expiry.
-  - Acceptance: raw smile, fitted SVI curve, parameters, and fit error are visible.
-
-- [x] Add SSVI or arbitrage-constrained global surface calibration.
-  - Acceptance: cross-expiry surface has documented constraints and fit diagnostics.
-
-- [x] Add fit diagnostics.
-  - Metrics: RMSE, MAE, max error, bid/ask fit rate, rejected points.
-  - Acceptance: every fitted surface has fit-quality metadata.
-
-- [x] Add raw-vs-fitted residual charts.
-  - Acceptance: user can see where model over/under-fits.
-
-- [x] Add local volatility approximation.
-  - Suggested: Dupire local vol with strong warnings and smoothing requirements.
-  - Acceptance: local vol tab is disabled unless data quality and smoothing pass.
-
-- [x] Add realized volatility estimators.
-  - Estimators: close-to-close, Parkinson, Garman-Klass, Rogers-Satchell, Yang-Zhang.
-  - Acceptance: UI compares realized vol to implied vol by window.
-
-- [x] Add IV rank and IV percentile.
-  - Acceptance: computed from stored/historical snapshots, not random distribution samples.
-
-- [x] Add expected move calculations.
-  - Acceptance: expected move by expiry can use ATM straddle or ATM IV approximation.
-
-- [x] Add event awareness.
-  - Events: earnings, FOMC, CPI, dividends.
-  - Acceptance: term structure can annotate event expiries.
-
-- [x] Add vol-of-vol and surface-change analytics.
-  - Acceptance: dashboard can show IV changes versus previous snapshot.
-
-- [x] Add surface shock analysis.
-  - Scenarios: parallel vol shift, skew steepening/flattening, term twist, spot move.
-  - Acceptance: user can see Greek/P&L impact of vol shocks.
-
-- [x] Add option price decomposition.
-  - Components: intrinsic value, time value, carry, implied vol contribution.
-  - Acceptance: chain table can explain option price anatomy.
-
-- [x] Add American option model support.
-  - Suggested: binomial tree or Barone-Adesi Whaley approximation.
-  - Acceptance: user can compare European BSM vs American approximation for dividend names.
-
-- [x] Add model selection.
-  - Models: BSM, BSM with dividends, binomial, Heston placeholder/calibration later.
-  - Acceptance: model choice is explicit and visible in chart metadata.
-
-- [x] Add Heston calibration research module.
-  - Acceptance: calibration works on stored snapshots with clear fit errors and warnings.
-
-- [x] Add SABR for index/rates-style smiles if relevant.
-  - Acceptance: optional module, not forced into equity UI.
-
-- [x] Add Greeks by contract from computed IV.
-  - Acceptance: chain rows show contract-level Greeks using the same model/rate/dividend assumptions.
-
-- [x] Add second-order Greeks.
-  - Greeks: vanna, volga/vomma, charm, speed, color.
-  - Acceptance: advanced Greeks tab can be toggled on.
-
-- [x] Add Greek unit consistency tests.
-  - Acceptance: vega, theta, rho units are documented and validated.
-
-- [x] Investigate Vega diagnostic warning.
-  - Current diagnostic says PLTR ATM 75 percent vol vega "seems too low"; determine if the warning threshold or units are wrong.
-  - Acceptance: diagnostic reflects the project's documented vega convention.
-
-## Phase 4: Advanced Features That Make The Project Stand Out
-
-These are the "insane project" upgrades.
-
-- [x] Real-time surface tape.
-  - Record each surface snapshot and animate surface evolution through the day.
-  - Acceptance: user can replay surface changes by timestamp.
-
-- [x] Surface change heatmap.
-  - Show current IV minus previous close, previous hour, or previous refresh.
-  - Acceptance: surface deltas are available in vol points and percent change.
-
-- [x] Rich/cheap scanner.
-  - Rank options by residual to fitted surface, bid/ask liquidity, and z-score.
-  - Acceptance: scanner outputs candidates with explainable reasons.
-
-- [x] Relative value dashboard.
-  - Compare two symbols or sectors by ATM IV, skew, term structure, and realized spread.
-  - Acceptance: pair comparison view supports normalized overlays.
-
-- [x] Cross-sectional vol map.
-  - Show selected universe by IV rank, IV percentile, skew, term slope, realized/implied spread.
-  - Acceptance: user can sort and filter opportunities across many symbols.
-
-- [x] Earnings vol event engine.
-  - Estimate implied earnings move, compare to historical moves, show post-event crush.
-  - Acceptance: earnings symbols have a dedicated event card.
-
-- [x] Strategy builder.
-  - Strategies: straddle, strangle, vertical, calendar, diagonal, butterfly, condor, risk reversal.
-  - Acceptance: user can create a strategy and see payoff, Greeks, breakevens, max profit/loss.
-
-- [x] Vol surface-aware strategy pricing.
-  - Price each leg using fitted IV for that strike/expiry instead of one flat IV.
-  - Acceptance: strategy builder uses current surface interpolation.
-
-- [x] Scenario engine for strategies.
-  - Axes: spot, time, vol shift, skew shift.
-  - Acceptance: P&L heatmaps update from scenario inputs.
-
-- [x] Portfolio upload/import.
-  - Support CSV position import with symbol, expiry, strike, type, quantity, cost.
-  - Acceptance: risk tab calculates aggregate Greeks and scenario P&L.
-
-- [x] Portfolio optimization.
-  - Optimize hedges for delta-neutral, vega-neutral, theta target, or max loss constraint.
-  - Acceptance: suggestions include contract, size, estimated cost, and trade-offs.
-
-- [x] Alerts system.
-  - Alerts: IV rank threshold, skew steepening, surface fit error, data stale, rich/cheap residual.
-  - Acceptance: alerts can be configured and logged locally.
-
-- [x] Watchlist presets.
-  - Presets: mega-cap tech, indices, high beta, financials, earnings this week.
-  - Acceptance: user can switch universes quickly.
-
-- [x] Saved workspaces.
-  - Save selected symbols, filters, model settings, and chart layout.
-  - Acceptance: user can reload a workspace from local config.
-
-- [x] Snapshot comparison.
-  - Compare two saved snapshots side by side.
-  - Acceptance: surface, skew, term, and scanner deltas are shown.
-
-- [x] Backtesting framework.
-  - Test strategies triggered by IV rank, skew, term structure, or residual signals.
-  - Acceptance: backtest tab reports return, drawdown, hit rate, Sharpe, turnover, transaction costs.
-
-- [x] Transaction cost model.
-  - Include bid/ask spread, slippage, commissions, and assignment/exercise assumptions.
-  - Acceptance: backtests and strategy P&L use explicit costs.
-
-- [x] Paper-trading simulator.
-  - Acceptance: positions can be entered, marked, and tracked without broker integration.
-
-- [x] Broker integration abstraction.
-  - Future support for read-only positions first; trading actions should remain disabled until explicitly designed.
-  - Acceptance: no accidental live trading functionality.
-
-- [x] Notebook export.
-  - Export current analysis to a reproducible Jupyter notebook or HTML report.
-  - Acceptance: report includes data timestamp and model assumptions.
-
-- [x] Research report generator.
-  - Generate symbol-specific surface summary with charts and diagnostics.
-  - Acceptance: one-click local report file from current dashboard state.
-
-- [x] ML anomaly detector.
-  - Detect unusual surface moves or residuals using historical features.
-  - Acceptance: model is trained/evaluated on local snapshots with explainable features.
-
-- [x] Vol regime classifier.
-  - Cluster market regimes based on realized vol, implied vol, skew, term slope, correlations.
-  - Acceptance: regime label appears with confidence and historical analogs.
-
-- [x] Forecasting module.
-  - Forecast realized vol or IV changes using baseline models first.
-  - Acceptance: compares naive baseline, GARCH, and optional ML model.
-
-- [x] News/event overlay.
-  - Use only trusted sources and show source links.
-  - Acceptance: events explain surface jumps without cluttering the chart.
-
-- [x] WebSocket/async refresh engine.
-  - Acceptance: data updates do not block Streamlit rerenders or freeze the UI.
-
-- [x] Multi-page app architecture.
-  - Acceptance: pages load independently and share a central state/data service.
-
-## Phase 5: Data Science And Engineering Quality
-
-- [x] Introduce typed configuration.
-  - Suggested: Pydantic settings or dataclasses.
-  - Acceptance: config has validation, defaults, and environment overrides.
-
-- [x] Add structured logging.
-  - Acceptance: logs include source, symbol, provider, latency, cache hit, fallback reason.
-
-- [x] Add performance timing.
-  - Acceptance: dashboard can show slowest data/calculation steps.
-
-- [x] Add deterministic random seed only for demo mode.
-  - Acceptance: demo mode is stable across reruns unless explicitly randomized.
-
-- [x] Move demo data into a named demo provider.
-  - Acceptance: no random demo logic lives in dashboard rendering code.
-
-- [x] Add fixtures for option chains.
-  - Acceptance: tests can run without network.
-
-- [x] Add provider contract tests.
-  - Acceptance: every provider returns the canonical models and metadata.
-
-- [x] Add surface builder tests.
-  - Cases: empty data, missing columns, sparse expiries, bad IVs, extreme moneyness, NaN fills.
-  - Acceptance: each fallback path is covered.
-
-- [x] Add chain-cleaning tests.
-  - Acceptance: invalid quotes are rejected for clear documented reasons.
-
-- [x] Add dashboard AppTest coverage.
-  - Acceptance: app renders default state, no-symbol state, synthetic mode, and provider failure mode.
-
-- [x] Add lint and format workflow.
-  - Current repo has Ruff config but requirements include Black/Flake8.
-  - Acceptance: one command runs format/lint/tests consistently.
-
-- [x] Update CI.
-  - Acceptance: CI runs pytest, compileall, lint, and dashboard smoke test.
-
-- [x] Add dependency pin strategy.
-  - Acceptance: project supports reproducible installs with either `requirements.lock` or `uv.lock`.
-
-- [x] Exclude generated logs/cache from git.
-  - Acceptance: `.gitignore` covers smoke logs, Streamlit cache, generated snapshots if desired, and pycache.
-
-- [x] Add README screenshots after UI redesign.
-  - Acceptance: README shows real app state and explains live vs demo.
-
-- [x] Add architecture diagram.
-  - Acceptance: docs show providers -> normalized data -> quant engine -> dashboard.
-
-- [x] Add glossary.
-  - Terms: IV, DTE, moneyness, log-moneyness, delta, skew, risk reversal, butterfly, IV rank, SVI.
-  - Acceptance: concise docs for non-expert reviewers without cluttering app UI.
-
-## Phase 6: Specific UI Components To Build
-
-- [x] `SurfaceWorkspace`
-  - Main surface view with 3D surface, 2D heatmap, raw points overlay, fit residuals, and axis toggles.
-
-- [x] `ChainExplorer`
-  - Option-chain grid with filters, IV/G Greeks, liquidity flags, and row-level details.
-
-- [x] `SkewLab`
-  - Smile by expiry, delta skew metrics, risk reversal/butterfly table, raw vs fitted curve.
-
-- [x] `TermStructurePanel`
-  - ATM IV curve, realized vol overlays, event markers, front/back spread.
-
-- [x] `DataQualityPanel`
-  - Source, timestamp, cache age, rejected rows, no-arbitrage violations, fit errors.
-
-- [x] `ScannerPanel`
-  - Universe-level ranking by IV rank, skew, term slope, residual rich/cheap score.
-
-- [x] `StrategyBuilder`
-  - Leg editor, payoff chart, Greeks table, scenario controls, surface-based pricing.
-
-- [x] `PortfolioRiskPanel`
-  - Position import, aggregate Greeks, scenario P&L, concentration and hedge suggestions.
-
-- [x] `DiagnosticsPanel`
-  - Provider health, latency, exceptions, data-source capability, latest logs.
-
-- [x] `ReportExportPanel`
-  - Export current symbol analysis to HTML or notebook.
-
-## Suggested File/Module Roadmap
-
-```text
-src/
-  dashboard/
-    __init__.py
-    app_shell.py
-    state.py
-    theme.py
-    charts.py
-    components/
-      controls.py
-      kpi_strip.py
-      market_table.py
-      surface_workspace.py
-      chain_explorer.py
-      skew_lab.py
-      term_structure.py
-      data_quality.py
-      scanner.py
-      strategy_builder.py
-      diagnostics.py
-  data/
-    models.py
-    providers/
-      base.py
-      yfinance_provider.py
-      demo_provider.py
-      csv_provider.py
-    cache.py
-    snapshots.py
-  quant/
-    rates.py
-    dividends.py
-    options.py
-    greeks.py
-    surface.py
-    svi.py
-    arbitrage.py
-    realized_vol.py
-    strategies.py
-    scenarios.py
-  services/
-    market_data_service.py
-    surface_service.py
-    scanner_service.py
-tests/
-  data/
-  quant/
-  dashboard/
-```
-
-## Immediate High-Impact Sprint
-
-If only one sprint is available, do these in order:
-
-1. Make live/synthetic/fallback status honest across the UI.
-2. Create canonical data models for market snapshots and option quotes.
-3. Build a real yfinance option-chain provider with cache and source metadata.
-4. Replace random portfolio/correlation/P&L sections with real calculations or disabled demo labels.
-5. Refactor `app.py` into dashboard modules.
-6. Redesign the first screen around command bar, KPI strip, surface workspace, and data-quality panel.
-7. Add liquidity filters, no-arbitrage checks, and surface fit diagnostics.
-8. Add term structure, skew metrics, IV rank, realized vol comparison, and snapshot persistence.
-9. Add AppTest coverage and CI smoke tests.
-10. Add scanner and strategy builder as the first standout features.
-
-## Acceptance Definition For "Professional"
-
-The upgrade is not done until:
-
-- A user can tell exactly what is live, delayed, cached, synthetic, or unavailable.
-- Every chart has units, timestamps, source metadata, and clean hover labels.
-- The app renders without Streamlit deprecation warnings.
-- The main dashboard fits a serious quant workflow: select symbol, inspect data quality, inspect surface, inspect skew/term, inspect chain, evaluate risk.
-- Placeholder/random metrics are gone from live mode.
-- Surface fitting has data quality diagnostics and no-arbitrage checks.
-- Tests cover pricing, IV, data cleaning, surface construction, provider normalization, and dashboard render states.
-- README accurately describes what the app can and cannot do.
+## Phase 6: Arbitrage-Aware Surface Repair
+
+- [ ] Add post-fit static arbitrage checks.
+  - Check calendar monotonicity, butterfly convexity in total variance, positive vols, and smoothness bounds.
+  - Suggested file: `src/quant/surface_arbitrage.py`.
+  - Acceptance: test fixtures identify calendar and convexity violations.
+
+- [ ] Add repair suggestions before automated repair.
+  - Report where the surface violates constraints and which input rows likely caused it.
+  - Acceptance: DataQualityPanel shows violation locations and likely causes.
+
+- [ ] Implement conservative repair mode.
+  - Apply minimal smoothing or projection only when enabled, and label repaired regions.
+  - Acceptance: repaired surface reduces violations while preserving provenance and raw data visibility.
+
+- [ ] Compare raw, robust, prior-assisted, and repaired surfaces.
+  - Add diagnostics for RMSE, weighted RMSE, arbitrage violations, smoothness, and residual tail risk.
+  - Acceptance: fit comparison table is deterministic in tests.
+
+## Phase 7: Dashboard Workflow Updates
+
+- [ ] Add `Fit Mode` controls to SurfaceWorkspace.
+  - Modes: `Standard`, `Robust`, `Prior Assisted`, `ML Denoised`, `Diagnostic Raw`.
+  - Acceptance: selected mode updates charts, captions, and provenance.
+
+- [ ] Add a quote reliability overlay.
+  - Raw quote points should be colored or sized by reliability score.
+  - Acceptance: low-reliability outliers are visually distinct from clean quotes.
+
+- [ ] Add a fit comparison panel.
+  - Table: fit mode, eligible rows, excluded rows, weighted RMSE, unweighted RMSE, no-arb violations, prior weight, ML uncertainty, timestamp.
+  - Acceptance: all values are sourced from metadata, not recomputed ad hoc in the UI.
+
+- [ ] Improve DataQualityPanel for actionability.
+  - Show top penalty reasons, worst expiries, worst residual contracts, no-arb violation counts, and suggested stricter preset.
+  - Acceptance: the user can understand why the score changed from yesterday.
+
+- [ ] Add an alert when quality materially drops.
+  - Compare current quality score and reason buckets with prior snapshots.
+  - Acceptance: dashboard can say whether a surface shape change is likely data-quality driven.
+
+- [ ] Add exports for fit diagnostics.
+  - CSV/JSON export for row weights, residuals, fit diagnostics, and provenance.
+  - Acceptance: exported payload can reproduce the selected fit mode offline.
+
+## Phase 8: Validation And Backtesting
+
+- [ ] Add fit-mode validation metrics.
+  - Metrics: out-of-sample residuals by expiry, residual quantiles, stability versus prior day, no-arb violation rate, and smoothness penalties.
+  - Acceptance: metrics run offline on fixture snapshots.
+
+- [ ] Backtest robust fit against stored snapshots.
+  - Compare standard fit versus robust/prior-assisted fits over historical local snapshots.
+  - Acceptance: report shows when robust fit improves stability and when it hides real moves.
+
+- [ ] Validate rich/cheap scanner under noisy data.
+  - Scanner should use selected fit mode and quote reliability.
+  - Acceptance: noisy outliers do not dominate scanner candidates unless explicitly shown as low-confidence.
+
+- [ ] Add regression tests for yesterday-versus-today comparisons.
+  - Use two deterministic snapshots: one clean, one noisy.
+  - Acceptance: dashboard flags shape change as likely data-quality driven when reason buckets deteriorate.
+
+## Phase 9: Documentation And Operating Guidance
+
+- [ ] Write a surface quality interpretation guide.
+  - Explain quality score, fit eligibility, weights, no-arb violations, robust fit, prior-assisted fit, and ML-denoised fit.
+  - Suggested file: `docs/surface_quality.md`.
+  - Acceptance: concise enough for a user to act on during live analysis.
+
+- [ ] Add recommended filter presets.
+  - Document when to use Standard, Strict, Diagnostic Raw, Prior Assisted, and ML Denoised.
+  - Acceptance: README links to the guide.
+
+- [ ] Add provenance examples.
+  - Include examples of good data, noisy data, prior-assisted data, and ML-denoised data.
+  - Acceptance: examples use deterministic fixture output.
+
+- [ ] Update handoff workflow.
+  - Future sessions should read this file, implement the next unchecked item, run targeted tests plus full verification for completed phases, update `SESSION_HANDOFF.md`, and commit.
+
+## Suggested Implementation Order
+
+1. Phase 0 fixture work.
+2. Phase 1 quote reliability scoring.
+3. Phase 2 fit eligibility and strict preset.
+4. Phase 3 weighted robust SVI.
+5. Phase 7 dashboard controls for Standard versus Robust.
+6. Phase 4 historical prior blending.
+7. Phase 5 ML denoising prototype.
+8. Phase 6 arbitrage-aware repair.
+9. Phase 8 validation/backtesting.
+10. Phase 9 documentation.
+
+## Definition Of Done
+
+- The dashboard can explain why today's surface differs from yesterday's.
+- The user can switch between raw/standard/robust/prior-assisted/ML-denoised views.
+- Low-quality quotes are visible but do not silently dominate the primary fitted surface.
+- The selected surface mode has complete provenance and deterministic diagnostics.
+- Full verification passes with no new unexplained warnings.
