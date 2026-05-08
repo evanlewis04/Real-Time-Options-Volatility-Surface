@@ -402,30 +402,30 @@ These are the "insane project" upgrades.
   - Presets: mega-cap tech, indices, high beta, financials, earnings this week.
   - Acceptance: user can switch universes quickly.
 
-- [ ] Saved workspaces.
+- [x] Saved workspaces.
   - Save selected symbols, filters, model settings, and chart layout.
   - Acceptance: user can reload a workspace from local config.
 
-- [ ] Snapshot comparison.
+- [x] Snapshot comparison.
   - Compare two saved snapshots side by side.
   - Acceptance: surface, skew, term, and scanner deltas are shown.
 
-- [ ] Backtesting framework.
+- [x] Backtesting framework.
   - Test strategies triggered by IV rank, skew, term structure, or residual signals.
   - Acceptance: backtest tab reports return, drawdown, hit rate, Sharpe, turnover, transaction costs.
 
-- [ ] Transaction cost model.
+- [x] Transaction cost model.
   - Include bid/ask spread, slippage, commissions, and assignment/exercise assumptions.
   - Acceptance: backtests and strategy P&L use explicit costs.
 
-- [ ] Paper-trading simulator.
+- [x] Paper-trading simulator.
   - Acceptance: positions can be entered, marked, and tracked without broker integration.
 
-- [ ] Broker integration abstraction.
+- [x] Broker integration abstraction.
   - Future support for read-only positions first; trading actions should remain disabled until explicitly designed.
   - Acceptance: no accidental live trading functionality.
 
-- [ ] Notebook export.
+- [x] Notebook export.
   - Export current analysis to a reproducible Jupyter notebook or HTML report.
   - Acceptance: report includes data timestamp and model assumptions.
 

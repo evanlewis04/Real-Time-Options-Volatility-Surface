@@ -29,14 +29,23 @@ from src.data.synthetic_options import SyntheticOptionsGenerator
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.american import american_pricing_metadata, apply_american_pricing
 from src.quant.advanced_features import (
+    broker_integration_abstraction,
     build_option_strategy,
+    compare_saved_snapshots,
     cross_sectional_vol_map,
     earnings_vol_event_engine,
+    estimate_transaction_costs,
     evaluate_surface_alerts,
+    export_analysis_notebook,
+    list_surface_workspaces,
+    load_surface_workspace,
     optimize_portfolio_hedges,
+    paper_trading_simulator,
     parse_portfolio_positions,
     portfolio_risk_summary,
     relative_value_dashboard,
+    run_signal_backtest,
+    save_surface_workspace,
     strategy_scenario_engine,
     watchlist_presets,
 )
@@ -571,6 +580,48 @@ class DashboardConnector:
             except Exception:
                 logger.debug("Watchlist event lookup failed for %s", symbol)
         return watchlist_presets(events)
+
+    def save_workspace(
+        self,
+        workspace: Dict[str, Any],
+        directory: str | Path = "data/workspaces",
+        *,
+        name: str | None = None,
+    ) -> Dict[str, Any]:
+        """Persist a reloadable local dashboard workspace."""
+        return save_surface_workspace(workspace, directory, name=name)
+
+    def load_workspace(self, path: str | Path) -> Dict[str, Any]:
+        """Load a previously saved local dashboard workspace."""
+        return load_surface_workspace(path)
+
+    def list_workspaces(self, directory: str | Path = "data/workspaces") -> List[Dict[str, Any]]:
+        """List saved local workspace configs."""
+        return list_surface_workspaces(directory)
+
+    def compare_saved_snapshots(self, left: Any, right: Any) -> Dict[str, Any]:
+        """Compare two persisted or in-memory market snapshots."""
+        return compare_saved_snapshots(left, right)
+
+    def estimate_transaction_costs(self, trades: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Estimate explicit spread, slippage, commission, assignment, and exercise costs."""
+        return estimate_transaction_costs(trades, **kwargs)
+
+    def run_signal_backtest(self, observations: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Run a deterministic offline signal backtest."""
+        return run_signal_backtest(observations, **kwargs)
+
+    def run_paper_trading_simulator(self, orders: Any, marks: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Track local paper-trading orders and marks without broker connectivity."""
+        return paper_trading_simulator(orders, marks, **kwargs)
+
+    def get_broker_interface(self, positions: Any | None = None, **kwargs: Any) -> Dict[str, Any]:
+        """Return the read-only broker abstraction with live trading disabled."""
+        return broker_integration_abstraction(positions, **kwargs)
+
+    def export_analysis_notebook(self, analysis: Dict[str, Any], path: str | Path, **kwargs: Any) -> Dict[str, Any]:
+        """Export the supplied analysis payload to a reproducible local notebook."""
+        return export_analysis_notebook(analysis, path, **kwargs)
 
     def _advanced_symbol_profile(self, symbol: str) -> Dict[str, Any]:
         key = symbol.upper()

@@ -1,4 +1,4 @@
-"""Phase 4 relative-value, event, and strategy analytics."""
+"""Phase 4 relative-value, workflow, event, and strategy analytics."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from src.quant.expected_move import expected_moves_by_expiry
 
 
 CONTRACT_MULTIPLIER = 100
+WORKSPACE_SCHEMA_VERSION = 1
+NOTEBOOK_NBFORMAT = 4
 
 
 def relative_value_dashboard(
@@ -673,6 +675,455 @@ def watchlist_presets(events: list[dict[str, Any]] | None = None, *, as_of: date
     return presets
 
 
+def save_surface_workspace(
+    workspace: dict[str, Any],
+    directory: Path | str = "data/workspaces",
+    *,
+    name: str | None = None,
+    timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    """Persist selected symbols, filters, model settings, and chart layout as JSON."""
+    if not isinstance(workspace, dict):
+        return _unavailable("Workspace must be a dictionary")
+    saved_at = timestamp or datetime.utcnow()
+    workspace_name = name or str(workspace.get("name") or "workspace")
+    payload = {
+        "schema_version": WORKSPACE_SCHEMA_VERSION,
+        "name": workspace_name,
+        "saved_at": saved_at.isoformat(),
+        "selected_symbols": [str(symbol).upper() for symbol in workspace.get("selected_symbols", [])],
+        "filters": _json_safe(workspace.get("filters") or {}),
+        "model_settings": _json_safe(workspace.get("model_settings") or {}),
+        "chart_layout": _json_safe(workspace.get("chart_layout") or {}),
+        "provenance": _json_safe(
+            workspace.get("provenance")
+            or {
+                "source": "local_workspace_config",
+                "created_by": "dashboard",
+            }
+        ),
+    }
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{_slugify(workspace_name)}_{saved_at.strftime('%Y%m%d_%H%M%S')}.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return {
+        "available": True,
+        "source": "local_workspace_config",
+        "path": str(path),
+        "workspace": payload,
+    }
+
+
+def load_surface_workspace(path: Path | str) -> dict[str, Any]:
+    """Load a workspace JSON file created by ``save_surface_workspace``."""
+    workspace_path = Path(path)
+    if not workspace_path.exists():
+        return _unavailable(f"Workspace not found: {workspace_path}")
+    payload = json.loads(workspace_path.read_text(encoding="utf-8"))
+    return {
+        "available": True,
+        "source": "local_workspace_config",
+        "path": str(workspace_path),
+        "workspace": payload,
+    }
+
+
+def list_surface_workspaces(directory: Path | str = "data/workspaces") -> list[dict[str, Any]]:
+    """List saved workspace configs newest first without loading unrelated files."""
+    root = Path(directory)
+    if not root.exists():
+        return []
+    rows = []
+    for path in sorted(root.glob("*.json"), reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        rows.append(
+            {
+                "path": str(path),
+                "name": payload.get("name") or path.stem,
+                "saved_at": payload.get("saved_at"),
+                "selected_symbols": payload.get("selected_symbols") or [],
+                "provenance": payload.get("provenance") or {},
+            }
+        )
+    return rows
+
+
+def compare_saved_snapshots(left: Any, right: Any) -> dict[str, Any]:
+    """Compare two saved snapshots across IV surface, skew, term, and scanner residuals."""
+    left_payload = _snapshot_payload(left)
+    right_payload = _snapshot_payload(right)
+    left_frame = left_payload["frame"]
+    right_frame = right_payload["frame"]
+    if left_frame.empty or right_frame.empty:
+        return _unavailable("Both snapshots need option rows")
+
+    left_prepared = _comparison_frame(left_frame)
+    right_prepared = _comparison_frame(right_frame)
+    matched = left_prepared.merge(
+        right_prepared,
+        on=["expiration", "strike", "type"],
+        suffixes=("_left", "_right"),
+    )
+    if matched.empty:
+        return _unavailable("No matching expiration, strike, and type rows")
+
+    matched["iv_delta"] = matched["iv_right"] - matched["iv_left"]
+    matched["price_delta"] = matched["price_right"] - matched["price_left"]
+    return {
+        "available": True,
+        "source": "saved_snapshot_comparison",
+        "left": left_payload["provenance"],
+        "right": right_payload["provenance"],
+        "surface_deltas": {
+            "matched_points": int(len(matched)),
+            "mean_iv_delta": _finite_or_none(matched["iv_delta"].mean()),
+            "median_abs_iv_delta": _finite_or_none(matched["iv_delta"].abs().median()),
+            "max_abs_iv_delta": _finite_or_none(matched["iv_delta"].abs().max()),
+            "mean_price_delta": _finite_or_none(matched["price_delta"].mean()),
+        },
+        "skew_deltas": _metric_deltas(_snapshot_skew(left_prepared), _snapshot_skew(right_prepared), "risk_reversal"),
+        "term_deltas": _metric_deltas(_snapshot_term(left_prepared), _snapshot_term(right_prepared), "median_iv"),
+        "scanner_deltas": _metric_deltas(_snapshot_scanner(left_prepared), _snapshot_scanner(right_prepared), "residual"),
+        "matched_rows": matched.replace({np.nan: None}).to_dict("records"),
+    }
+
+
+def estimate_transaction_costs(
+    trades: list[dict[str, Any]] | pd.DataFrame,
+    *,
+    commission_per_contract: float = 0.65,
+    slippage_bps: float = 1.0,
+    assignment_fee: float = 0.0,
+    exercise_fee: float = 0.0,
+    contract_multiplier: float = CONTRACT_MULTIPLIER,
+) -> dict[str, Any]:
+    """Estimate explicit spread, slippage, commission, assignment, and exercise costs."""
+    details = []
+    for trade in _coerce_records(trades):
+        quantity = abs(_finite_or_none(trade.get("quantity") or trade.get("contracts")) or 0.0)
+        price = _first_finite(trade, "price", "mark", "mid", "selectedMarketPrice") or 0.0
+        bid = _finite_or_none(trade.get("bid"))
+        ask = _finite_or_none(trade.get("ask"))
+        spread = max((ask - bid) if bid is not None and ask is not None else 0.0, 0.0)
+        multiplier = _finite_or_none(trade.get("contract_multiplier")) or float(contract_multiplier)
+        action = str(trade.get("action") or trade.get("side") or "trade").lower()
+        spread_cost = quantity * spread * 0.5 * multiplier
+        slippage_cost = quantity * price * (float(slippage_bps) / 10000.0) * multiplier
+        commission = quantity * float(commission_per_contract)
+        assignment = quantity * float(assignment_fee) if action == "assignment" else 0.0
+        exercise = quantity * float(exercise_fee) if action == "exercise" else 0.0
+        total = spread_cost + slippage_cost + commission + assignment + exercise
+        details.append(
+            {
+                "symbol": trade.get("symbol") or trade.get("contract") or "",
+                "action": action,
+                "quantity": float(quantity),
+                "price": float(price),
+                "spread_cost": float(spread_cost),
+                "slippage_cost": float(slippage_cost),
+                "commission": float(commission),
+                "assignment_fee": float(assignment),
+                "exercise_fee": float(exercise),
+                "total_cost": float(total),
+            }
+        )
+    return {
+        "available": True,
+        "source": "explicit_transaction_cost_model",
+        "trade_count": len(details),
+        "total_cost": float(sum(row["total_cost"] for row in details)),
+        "spread_cost": float(sum(row["spread_cost"] for row in details)),
+        "slippage_cost": float(sum(row["slippage_cost"] for row in details)),
+        "commissions": float(sum(row["commission"] for row in details)),
+        "assignment_exercise_fees": float(sum(row["assignment_fee"] + row["exercise_fee"] for row in details)),
+        "details": details,
+        "assumptions": {
+            "commission_per_contract": float(commission_per_contract),
+            "slippage_bps": float(slippage_bps),
+            "assignment_fee": float(assignment_fee),
+            "exercise_fee": float(exercise_fee),
+            "contract_multiplier": float(contract_multiplier),
+        },
+    }
+
+
+def run_signal_backtest(
+    observations: list[dict[str, Any]] | pd.DataFrame,
+    *,
+    initial_cash: float = 100000.0,
+    notional: float = 10000.0,
+    cost_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Backtest deterministic IV-rank, skew, term-structure, and residual signals."""
+    frame = pd.DataFrame(_coerce_records(observations))
+    if frame.empty:
+        return _unavailable("No observations supplied")
+    if "date" not in frame.columns:
+        return _unavailable("Backtest observations require a date column")
+    price_col = "close" if "close" in frame.columns else "price"
+    if price_col not in frame.columns:
+        return _unavailable("Backtest observations require close or price")
+
+    work = frame.copy()
+    work["date"] = pd.to_datetime(work["date"], errors="coerce")
+    work["price"] = pd.to_numeric(work[price_col], errors="coerce")
+    work = work.dropna(subset=["date", "price"]).sort_values("date").reset_index(drop=True)
+    if len(work) < 2:
+        return _unavailable("Backtest requires at least two dated prices")
+
+    costs = cost_config or {}
+    equity = float(initial_cash)
+    previous_price = float(work.loc[0, "price"])
+    previous_position = 0.0
+    peak = equity
+    rows = []
+    returns = []
+    winning_days = 0
+    turnover = 0.0
+    total_cost = 0.0
+    for index, row in work.iterrows():
+        price = float(row["price"])
+        target_position, reason = _signal_position(row)
+        gross_pnl = 0.0 if index == 0 else previous_position * float(notional) * ((price / previous_price) - 1.0)
+        trade_notional = abs(target_position - previous_position) * float(notional)
+        trade_cost = 0.0
+        if trade_notional > 0.0:
+            turnover += trade_notional
+            cost_result = estimate_transaction_costs(
+                [
+                    {
+                        "symbol": row.get("symbol", ""),
+                        "action": "buy" if target_position > previous_position else "sell",
+                        "quantity": trade_notional / max(price, 1e-9),
+                        "price": price,
+                        "bid": row.get("bid"),
+                        "ask": row.get("ask"),
+                    }
+                ],
+                contract_multiplier=1.0,
+                **costs,
+            )
+            trade_cost = cost_result["total_cost"]
+        net_pnl = gross_pnl - trade_cost
+        equity += net_pnl
+        daily_return = net_pnl / float(initial_cash)
+        returns.append(daily_return)
+        if net_pnl > 0.0:
+            winning_days += 1
+        peak = max(peak, equity)
+        total_cost += trade_cost
+        rows.append(
+            {
+                "date": row["date"].date().isoformat(),
+                "price": price,
+                "signal": reason,
+                "target_position": float(target_position),
+                "gross_pnl": float(gross_pnl),
+                "transaction_costs": float(trade_cost),
+                "net_pnl": float(net_pnl),
+                "equity": float(equity),
+                "drawdown": float((equity / peak) - 1.0 if peak else 0.0),
+            }
+        )
+        previous_price = price
+        previous_position = target_position
+
+    returns_array = np.asarray(returns[1:] or returns, dtype=float)
+    std = float(np.std(returns_array, ddof=0))
+    sharpe = None if std <= 1e-12 else float(np.mean(returns_array) / std * np.sqrt(252.0))
+    return {
+        "available": True,
+        "source": "deterministic_signal_backtest",
+        "initial_cash": float(initial_cash),
+        "final_equity": float(equity),
+        "return": float((equity / float(initial_cash)) - 1.0),
+        "max_drawdown": float(min(row["drawdown"] for row in rows)),
+        "hit_rate": float(winning_days / len(rows)),
+        "sharpe": sharpe,
+        "turnover": float(turnover),
+        "transaction_costs": float(total_cost),
+        "rows": rows,
+        "cost_model": estimate_transaction_costs([], contract_multiplier=1.0, **costs)["assumptions"],
+    }
+
+
+def paper_trading_simulator(
+    orders: list[dict[str, Any]] | pd.DataFrame,
+    marks: dict[str, Any] | pd.DataFrame,
+    *,
+    starting_cash: float = 100000.0,
+    existing_state: dict[str, Any] | None = None,
+    cost_config: dict[str, Any] | None = None,
+    timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    """Enter, mark, and track simulated positions without broker connectivity."""
+    state = existing_state or {}
+    cash = float(state.get("cash", starting_cash))
+    positions = {str(key).upper(): dict(value) for key, value in (state.get("positions") or {}).items()}
+    realized_pnl = float(state.get("realized_pnl", 0.0))
+    order_log = list(state.get("order_log") or [])
+    mark_map = _mark_map(marks)
+    for order in _coerce_records(orders):
+        symbol = str(order.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        side = str(order.get("side") or order.get("action") or "buy").lower()
+        signed_quantity = abs(_finite_or_none(order.get("quantity")) or 0.0) * (-1.0 if side == "sell" else 1.0)
+        price = _first_finite(order, "price", "mark") or mark_map.get(symbol) or 0.0
+        cost_result = estimate_transaction_costs(
+            [{**order, "quantity": abs(signed_quantity), "price": price, "symbol": symbol}],
+            **(cost_config or {}),
+        )
+        trade_cost = cost_result["total_cost"]
+        position = positions.setdefault(symbol, {"quantity": 0.0, "avg_cost": 0.0})
+        old_quantity = float(position.get("quantity") or 0.0)
+        old_cost = float(position.get("avg_cost") or 0.0)
+        new_quantity = old_quantity + signed_quantity
+        if signed_quantity < 0.0 and old_quantity > 0.0:
+            closed = min(abs(signed_quantity), old_quantity)
+            realized_pnl += closed * (price - old_cost) * CONTRACT_MULTIPLIER - trade_cost
+        if new_quantity == 0.0:
+            positions.pop(symbol, None)
+        else:
+            if old_quantity == 0.0 or np.sign(old_quantity) == np.sign(signed_quantity):
+                avg_cost = ((old_quantity * old_cost) + (signed_quantity * price)) / new_quantity
+            else:
+                avg_cost = old_cost if abs(new_quantity) < abs(old_quantity) else price
+            position["quantity"] = float(new_quantity)
+            position["avg_cost"] = float(avg_cost)
+        cash -= signed_quantity * price * CONTRACT_MULTIPLIER + trade_cost
+        order_log.append(
+            {
+                "timestamp": (timestamp or datetime.utcnow()).isoformat(),
+                "symbol": symbol,
+                "side": side,
+                "quantity": float(abs(signed_quantity)),
+                "price": float(price),
+                "transaction_costs": float(trade_cost),
+                "mode": "paper",
+            }
+        )
+
+    marked_positions = []
+    market_value = 0.0
+    for symbol, position in sorted(positions.items()):
+        mark = float(mark_map.get(symbol, position.get("avg_cost") or 0.0))
+        quantity = float(position.get("quantity") or 0.0)
+        value = quantity * mark * CONTRACT_MULTIPLIER
+        market_value += value
+        marked_positions.append(
+            {
+                "symbol": symbol,
+                "quantity": quantity,
+                "avg_cost": float(position.get("avg_cost") or 0.0),
+                "mark": mark,
+                "market_value": float(value),
+                "unrealized_pnl": float(quantity * (mark - float(position.get("avg_cost") or 0.0)) * CONTRACT_MULTIPLIER),
+            }
+        )
+    return {
+        "available": True,
+        "source": "local_paper_trading_simulator",
+        "mode": "paper",
+        "broker_required": False,
+        "cash": float(cash),
+        "market_value": float(market_value),
+        "equity": float(cash + market_value),
+        "realized_pnl": float(realized_pnl),
+        "positions": marked_positions,
+        "order_log": order_log,
+        "trading_enabled": True,
+    }
+
+
+def broker_integration_abstraction(
+    positions: list[dict[str, Any]] | pd.DataFrame | None = None,
+    *,
+    account: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Expose a read-only broker shape while keeping all live trading disabled."""
+    return {
+        "available": True,
+        "source": "read_only_broker_abstraction",
+        "account": _json_safe(account or {}),
+        "positions": _json_safe(_coerce_records(positions if positions is not None else [])),
+        "capabilities": {
+            "read_positions": True,
+            "read_balances": True,
+            "place_orders": False,
+            "cancel_orders": False,
+            "exercise_options": False,
+            "live_trading": False,
+        },
+        "trade_submission": {
+            "enabled": False,
+            "reason": "Live order actions are intentionally disabled until broker trading is explicitly designed.",
+        },
+    }
+
+
+def export_analysis_notebook(
+    analysis: dict[str, Any],
+    path: Path | str,
+    *,
+    title: str = "Volatility Surface Analysis",
+    timestamp: datetime | None = None,
+) -> dict[str, Any]:
+    """Export the current analysis payload to a reproducible local Jupyter notebook."""
+    exported_at = timestamp or datetime.utcnow()
+    safe_analysis = _json_safe(analysis)
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    f"# {title}\n",
+                    "\n",
+                    f"- Exported at: {exported_at.isoformat()}\n",
+                    f"- Data timestamp: {safe_analysis.get('data_timestamp', 'unknown')}\n",
+                    f"- Model assumptions: {safe_analysis.get('model_assumptions', 'not supplied')}\n",
+                ],
+            },
+            {
+                "cell_type": "code",
+                "execution_count": None,
+                "metadata": {},
+                "outputs": [],
+                "source": [
+                    "import json\n",
+                    "analysis = json.loads('''",
+                    json.dumps(safe_analysis, indent=2, sort_keys=True),
+                    "''')\n",
+                    "analysis\n",
+                ],
+            },
+        ],
+        "metadata": {
+            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+            "language_info": {"name": "python", "pygments_lexer": "ipython3"},
+            "provenance": {"source": "local_notebook_export", "exported_at": exported_at.isoformat()},
+        },
+        "nbformat": NOTEBOOK_NBFORMAT,
+        "nbformat_minor": 5,
+    }
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(notebook, indent=2, sort_keys=True), encoding="utf-8")
+    return {
+        "available": True,
+        "source": "local_notebook_export",
+        "path": str(output_path),
+        "cell_count": len(notebook["cells"]),
+        "data_timestamp": safe_analysis.get("data_timestamp"),
+        "model_assumptions": safe_analysis.get("model_assumptions"),
+    }
+
+
 def _vol_profile(row: dict[str, Any]) -> dict[str, Any]:
     symbol = str(row.get("symbol") or row.get("Symbol") or "").upper()
     if not symbol:
@@ -1149,6 +1600,203 @@ def _zscore(values: pd.Series) -> pd.Series:
     if not np.isfinite(std) or std <= 1e-12:
         return pd.Series(0.0, index=values.index)
     return (values - values.mean()) / std
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, pd.DataFrame):
+        return [_json_safe(row) for row in value.replace({np.nan: None}).to_dict("records")]
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
+
+
+def _slugify(value: str) -> str:
+    slug = "".join(char.lower() if char.isalnum() else "_" for char in str(value).strip())
+    return "_".join(part for part in slug.split("_") if part) or "workspace"
+
+
+def _coerce_records(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if isinstance(value, pd.DataFrame):
+        return value.replace({np.nan: None}).to_dict("records")
+    if isinstance(value, dict):
+        return [value]
+    return [dict(item) for item in value]
+
+
+def _snapshot_payload(value: Any) -> dict[str, Any]:
+    if isinstance(value, (str, Path)):
+        from src.data.snapshots import load_snapshot
+
+        snapshot = load_snapshot(value)
+        timestamp = getattr(snapshot, "spot_timestamp", None)
+        return {
+            "frame": snapshot.options_frame(),
+            "provenance": {
+                "path": str(value),
+                "symbol": snapshot.symbol,
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "source": snapshot.source,
+                "mode": snapshot.mode,
+            },
+        }
+    if hasattr(value, "options_frame"):
+        timestamp = getattr(value, "spot_timestamp", None)
+        return {
+            "frame": value.options_frame(),
+            "provenance": {
+                "symbol": getattr(value, "symbol", None),
+                "timestamp": timestamp.isoformat() if timestamp else None,
+                "source": getattr(value, "source", None),
+                "mode": getattr(value, "mode", None),
+            },
+        }
+    if isinstance(value, pd.DataFrame):
+        return {"frame": value.copy(), "provenance": {"source": "dataframe"}}
+    if isinstance(value, dict):
+        frame_value = []
+        for key in ("options", "chain", "frame"):
+            if key in value and value[key] is not None:
+                frame_value = value[key]
+                break
+        frame = frame_value.copy() if isinstance(frame_value, pd.DataFrame) else pd.DataFrame(frame_value)
+        provenance = value.get("provenance") or {key: value.get(key) for key in ("symbol", "timestamp", "source", "mode")}
+        return {"frame": frame, "provenance": _json_safe(provenance)}
+    return {"frame": pd.DataFrame(), "provenance": {}}
+
+
+def _comparison_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    work = frame.copy()
+    work["expiration"] = pd.to_datetime(work.get("expiration"), errors="coerce").dt.date.astype(str)
+    work["strike"] = pd.to_numeric(work.get("strike"), errors="coerce")
+    work["type"] = work.get("type", "").astype(str).str.lower()
+    work["iv"] = _numeric_first(work, ("computedIV", "impliedVolatility", "pricing_iv", "iv"))
+    work["price"] = _numeric_first(work, ("selectedMarketPrice", "mark", "mid", "last", "price"))
+    work["dte"] = _numeric_first(work, ("daysToExpiration", "dte"))
+    work["residual"] = _numeric_first(work, ("residual", "richCheapResidual", "modelResidual", "fittedResidual"))
+    return work.dropna(subset=["expiration", "strike", "type", "iv"])[
+        ["expiration", "strike", "type", "iv", "price", "dte", "residual"]
+    ]
+
+
+def _numeric_first(frame: pd.DataFrame, names: tuple[str, ...]) -> pd.Series:
+    out = pd.Series(np.nan, index=frame.index, dtype=float)
+    for name in names:
+        if name in frame:
+            out = out.fillna(pd.to_numeric(frame[name], errors="coerce"))
+    return out
+
+
+def _snapshot_skew(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows = []
+    for expiry, group in frame.groupby("expiration"):
+        calls = group[group["type"] == "call"]
+        puts = group[group["type"] == "put"]
+        common = sorted(set(calls["strike"]).intersection(set(puts["strike"])))
+        if not common:
+            continue
+        strike = min(common, key=lambda value: abs(value - group["strike"].median()))
+        call_iv = calls.loc[calls["strike"] == strike, "iv"].mean()
+        put_iv = puts.loc[puts["strike"] == strike, "iv"].mean()
+        rows.append({"expiration": expiry, "risk_reversal": _finite_or_none(call_iv - put_iv)})
+    return rows
+
+
+def _snapshot_term(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows = []
+    for expiry, group in frame.groupby("expiration"):
+        rows.append(
+            {
+                "expiration": expiry,
+                "dte": _finite_or_none(group["dte"].median()),
+                "median_iv": _finite_or_none(group["iv"].median()),
+            }
+        )
+    return sorted(rows, key=lambda item: (item.get("dte") is None, item.get("dte") or 0.0, item["expiration"]))
+
+
+def _snapshot_scanner(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    rows = []
+    residuals = frame.dropna(subset=["residual"])
+    for expiry, group in residuals.groupby("expiration"):
+        idx = group["residual"].abs().idxmax()
+        row = group.loc[idx]
+        rows.append(
+            {
+                "expiration": expiry,
+                "strike": float(row["strike"]),
+                "type": row["type"],
+                "residual": float(row["residual"]),
+            }
+        )
+    return rows
+
+
+def _metric_deltas(left: list[dict[str, Any]], right: list[dict[str, Any]], metric: str) -> list[dict[str, Any]]:
+    left_by_key = {item["expiration"]: item for item in left}
+    right_by_key = {item["expiration"]: item for item in right}
+    rows = []
+    for key in sorted(set(left_by_key).intersection(right_by_key)):
+        left_value = _finite_or_none(left_by_key[key].get(metric))
+        right_value = _finite_or_none(right_by_key[key].get(metric))
+        if left_value is None or right_value is None:
+            continue
+        rows.append(
+            {
+                "expiration": key,
+                f"left_{metric}": left_value,
+                f"right_{metric}": right_value,
+                f"{metric}_delta": right_value - left_value,
+            }
+        )
+    return rows
+
+
+def _signal_position(row: pd.Series) -> tuple[float, str]:
+    iv_rank = _finite_or_none(row.get("iv_rank"))
+    skew = _first_finite(row, "skew_25d", "front_risk_reversal_25d")
+    term = _first_finite(row, "term_slope", "term_structure")
+    residual = _first_finite(row, "residual", "rich_cheap_residual")
+    if residual is not None and residual >= 0.08:
+        return -1.0, "rich residual"
+    if residual is not None and residual <= -0.08:
+        return 1.0, "cheap residual"
+    if iv_rank is not None and iv_rank >= 0.75:
+        return -1.0, "high IV rank"
+    if iv_rank is not None and iv_rank <= 0.25:
+        return 1.0, "low IV rank"
+    if skew is not None and skew <= -0.06:
+        return 0.5, "steep downside skew"
+    if term is not None and term >= 0.05:
+        return -0.5, "steep contango"
+    return 0.0, "flat"
+
+
+def _mark_map(marks: Any) -> dict[str, float]:
+    if isinstance(marks, pd.DataFrame):
+        records = marks.to_dict("records")
+    elif isinstance(marks, dict):
+        records = [{"symbol": key, "mark": value} for key, value in marks.items()]
+    else:
+        records = list(marks or [])
+    out = {}
+    for row in records:
+        symbol = str(row.get("symbol") or "").upper()
+        mark = _first_finite(row, "mark", "price", "close")
+        if symbol and mark is not None:
+            out[symbol] = mark
+    return out
 
 
 def _unavailable(reason: str) -> dict[str, Any]:

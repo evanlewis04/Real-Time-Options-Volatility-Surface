@@ -4,14 +4,23 @@ import pandas as pd
 import pytest
 
 from src.quant.advanced_features import (
+    broker_integration_abstraction,
     build_option_strategy,
+    compare_saved_snapshots,
     cross_sectional_vol_map,
     earnings_vol_event_engine,
+    estimate_transaction_costs,
     evaluate_surface_alerts,
+    export_analysis_notebook,
+    list_surface_workspaces,
     optimize_portfolio_hedges,
+    paper_trading_simulator,
     parse_portfolio_positions,
     portfolio_risk_summary,
     relative_value_dashboard,
+    run_signal_backtest,
+    load_surface_workspace,
+    save_surface_workspace,
     strategy_scenario_engine,
     surface_iv_for_contract,
     watchlist_presets,
@@ -207,3 +216,125 @@ def test_alerts_log_locally_and_watchlist_presets_include_events(tmp_path):
     assert log_path.read_text(encoding="utf-8").count("\n") == 5
     assert presets["Mega-cap tech"][:2] == ["AAPL", "MSFT"]
     assert presets["Earnings this week"] == ["AAPL"]
+
+
+def test_saved_workspaces_round_trip_selected_state_and_provenance(tmp_path):
+    saved = save_surface_workspace(
+        {
+            "name": "Morning Surface",
+            "selected_symbols": ["aapl", "msft"],
+            "filters": {"min_open_interest": 100, "moneyness": [0.8, 1.2]},
+            "model_settings": {"pricing_model": "bsm_dividends", "smoothing": "svi"},
+            "chart_layout": {"surface_axis": "log_moneyness", "show_3d": True},
+            "provenance": {"source": "unit-test", "data_mode": "Synthetic"},
+        },
+        tmp_path,
+        timestamp=pd.Timestamp("2026-05-08T09:30:00").to_pydatetime(),
+    )
+
+    loaded = load_surface_workspace(saved["path"])
+    listed = list_surface_workspaces(tmp_path)
+
+    assert saved["available"] is True
+    assert loaded["workspace"]["selected_symbols"] == ["AAPL", "MSFT"]
+    assert loaded["workspace"]["filters"]["min_open_interest"] == 100
+    assert loaded["workspace"]["model_settings"]["pricing_model"] == "bsm_dividends"
+    assert loaded["workspace"]["chart_layout"]["surface_axis"] == "log_moneyness"
+    assert loaded["workspace"]["provenance"]["source"] == "unit-test"
+    assert listed[0]["name"] == "Morning Surface"
+
+
+def test_snapshot_comparison_reports_surface_skew_term_and_scanner_deltas():
+    left = _strategy_chain().assign(
+        selectedMarketPrice=lambda frame: frame["selectedMarketPrice"] + frame["strike"] * 0.01,
+        residual=[-0.02, 0.01, -0.03, 0.02, -0.04, 0.03, -0.05, 0.04] * 2,
+    )
+    right = left.copy()
+    right["computedIV"] = right["computedIV"] + 0.015
+    right["selectedMarketPrice"] = right["selectedMarketPrice"] + 0.25
+    right["residual"] = right["residual"] + 0.02
+
+    comparison = compare_saved_snapshots(
+        {"symbol": "AAPL", "timestamp": "2026-05-08T09:30:00", "options": left},
+        {"symbol": "AAPL", "timestamp": "2026-05-08T10:30:00", "options": right},
+    )
+
+    assert comparison["available"] is True
+    assert comparison["surface_deltas"]["matched_points"] == len(left)
+    assert comparison["surface_deltas"]["mean_iv_delta"] == pytest.approx(0.015)
+    assert comparison["surface_deltas"]["mean_price_delta"] == pytest.approx(0.25)
+    assert comparison["skew_deltas"]
+    assert comparison["term_deltas"][0]["median_iv_delta"] == pytest.approx(0.015)
+    assert comparison["scanner_deltas"]
+
+
+def test_transaction_cost_model_and_backtest_use_explicit_costs():
+    costs = estimate_transaction_costs(
+        [
+            {"symbol": "AAPL", "action": "buy", "quantity": 2, "price": 4.0, "bid": 3.9, "ask": 4.1},
+            {"symbol": "AAPL", "action": "assignment", "quantity": 1, "price": 0.0},
+        ],
+        commission_per_contract=0.5,
+        slippage_bps=5.0,
+        assignment_fee=4.0,
+    )
+    backtest = run_signal_backtest(
+        [
+            {"date": "2026-05-01", "symbol": "AAPL", "close": 100.0, "iv_rank": 0.20, "bid": 99.9, "ask": 100.1},
+            {"date": "2026-05-02", "symbol": "AAPL", "close": 102.0, "iv_rank": 0.85, "bid": 101.9, "ask": 102.1},
+            {"date": "2026-05-03", "symbol": "AAPL", "close": 99.0, "residual": 0.10, "bid": 98.9, "ask": 99.1},
+            {"date": "2026-05-04", "symbol": "AAPL", "close": 98.0, "skew_25d": -0.08, "bid": 97.9, "ask": 98.1},
+        ],
+        initial_cash=100000.0,
+        notional=10000.0,
+        cost_config={"commission_per_contract": 0.0, "slippage_bps": 0.0},
+    )
+
+    assert costs["total_cost"] == pytest.approx(25.9)
+    assert costs["assignment_exercise_fees"] == pytest.approx(4.0)
+    assert backtest["available"] is True
+    assert {"return", "max_drawdown", "hit_rate", "sharpe", "turnover", "transaction_costs"}.issubset(backtest)
+    assert backtest["turnover"] > 0.0
+    assert backtest["transaction_costs"] > 0.0
+    assert any(row["signal"] == "high IV rank" for row in backtest["rows"])
+
+
+def test_paper_trading_marks_positions_without_broker_and_broker_is_read_only():
+    paper = paper_trading_simulator(
+        [{"symbol": "AAPL", "side": "buy", "quantity": 2, "price": 4.0, "bid": 3.9, "ask": 4.1}],
+        {"AAPL": 4.8},
+        starting_cash=10000.0,
+        cost_config={"commission_per_contract": 0.0, "slippage_bps": 0.0},
+        timestamp=pd.Timestamp("2026-05-08T09:35:00").to_pydatetime(),
+    )
+    broker = broker_integration_abstraction(paper["positions"], account={"id": "paper-readonly"})
+
+    assert paper["available"] is True
+    assert paper["broker_required"] is False
+    assert paper["positions"][0]["unrealized_pnl"] == pytest.approx(160.0)
+    assert paper["order_log"][0]["mode"] == "paper"
+    assert broker["capabilities"]["read_positions"] is True
+    assert broker["capabilities"]["place_orders"] is False
+    assert broker["trade_submission"]["enabled"] is False
+
+
+def test_notebook_export_writes_reproducible_payload_with_timestamp(tmp_path):
+    output = tmp_path / "surface_report.ipynb"
+    result = export_analysis_notebook(
+        {
+            "symbol": "AAPL",
+            "data_timestamp": "2026-05-08T09:30:00",
+            "model_assumptions": "BSM with dividends, SVI smoothing",
+            "surface_deltas": {"mean_iv_delta": 0.01},
+        },
+        output,
+        title="AAPL Surface Export",
+        timestamp=pd.Timestamp("2026-05-08T09:45:00").to_pydatetime(),
+    )
+
+    notebook = output.read_text(encoding="utf-8")
+    assert result["available"] is True
+    assert result["cell_count"] == 2
+    assert '"nbformat": 4' in notebook
+    assert "2026-05-08T09:30:00" in notebook
+    assert "BSM with dividends, SVI smoothing" in notebook

@@ -6,7 +6,7 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current main head before this session commit: `bc21727`
+Current main head before this session commit: `b8fba24`
 
 Branch state before this session commit: `main...origin/main [ahead 3]`
 
@@ -16,23 +16,27 @@ Phase 0-3 are complete.
 
 Phase 3: `27/27` complete.
 
-Phase 4: `13/27` complete.
+Phase 4: `20/27` complete.
 
 Completed this session:
-
-1. Scenario engine for strategies
-2. Portfolio upload/import
-3. Portfolio optimization
-4. Alerts system
-5. Watchlist presets
-
-Phase 4 next unchecked items:
 
 1. Saved workspaces
 2. Snapshot comparison
 3. Backtesting framework
 4. Transaction cost model
 5. Paper-trading simulator
+6. Broker integration abstraction
+7. Notebook export
+
+Phase 4 next unchecked items:
+
+1. Research report generator
+2. ML anomaly detector
+3. Vol regime classifier
+4. Forecasting module
+5. News/event overlay
+6. WebSocket/async refresh engine
+7. Multi-page app architecture
 
 ## Latest Verification Pattern
 
@@ -46,7 +50,7 @@ $env:PYTHONPATH='.'; python scripts\healthcheck.py
 python diagnostic.py
 ```
 
-For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200. Latest smoke passed on port `8531`.
+For Streamlit smoke, start the app with `PYTHONPATH=.` on a free local port and check that `http://127.0.0.1:<port>` returns HTTP 200. Latest smoke passed on port `8532`.
 
 ## New Session Prompt
 
@@ -57,7 +61,7 @@ Repo:
 C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
 
 Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Implement the next 5 unchecked Phase 4 items in order if they fit cleanly.
+Implement the next 7 unchecked Phase 4 items in order if they fit cleanly.
 Preserve provenance, use deterministic offline tests, run full verification, update SESSION_HANDOFF.md, commit changes, and report the updated Phase 4 count.
 ```
 
