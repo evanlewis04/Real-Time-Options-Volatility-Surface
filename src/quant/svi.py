@@ -33,11 +33,15 @@ def calibrate_svi_by_expiry(
     *,
     iv_column: str = "computedIV",
     weight_column: str | None = "fitWeight",
+    loss: str = "soft_l1",
+    loss_f_scale: float = 0.01,
     min_points: int = 5,
 ) -> pd.DataFrame:
     """Fit raw SVI parameters independently for each expiry."""
     if chain.empty or spot <= 0 or "expiration" not in chain.columns:
         return pd.DataFrame()
+    loss_mode = _validate_loss(loss)
+    f_scale = _validate_loss_f_scale(loss_f_scale)
     work = chain.copy()
     if iv_column not in work:
         iv_column = "impliedVolatility"
@@ -64,7 +68,7 @@ def calibrate_svi_by_expiry(
         observed_iv = smile["iv_num"].to_numpy(dtype=float)
         observed_w = observed_iv**2 * t
         weights, weight_meta = _svi_row_weights(smile, weight_column=weight_column)
-        params = _fit_svi(k, observed_w, sample_weights=weights)
+        params = _fit_svi(k, observed_w, sample_weights=weights, loss=loss_mode, loss_f_scale=f_scale)
         fitted_w = np.maximum(svi_total_variance(k, **params), 1e-10)
         fitted_iv = np.sqrt(fitted_w / t)
         residuals = fitted_iv - observed_iv
@@ -76,6 +80,8 @@ def calibrate_svi_by_expiry(
                 "points": int(len(smile)),
                 **params,
                 **weight_meta,
+                "loss_mode": loss_mode,
+                "loss_f_scale": f_scale,
                 "rmse": float(np.sqrt(np.mean(residuals**2))),
                 "weighted_rmse": weighted_rmse,
                 "mae": float(np.mean(np.abs(residuals))),
@@ -108,6 +114,9 @@ def calibrate_ssvi_surface(
     spot: float,
     *,
     iv_column: str = "computedIV",
+    weight_column: str | None = "fitWeight",
+    loss: str = "soft_l1",
+    loss_f_scale: float = 0.01,
     min_expiries: int = 2,
     min_points_per_expiry: int = 5,
 ) -> dict[str, Any]:
@@ -117,6 +126,8 @@ def calibrate_ssvi_surface(
     each expiry, then forced to be nondecreasing before fitting a single
     power-law SSVI smile shape across all expiries.
     """
+    loss_mode = _validate_loss(loss)
+    f_scale = _validate_loss_f_scale(loss_f_scale)
     work = _prepared_surface_frame(chain, spot, iv_column)
     if work.empty:
         return _empty_ssvi_result("No valid IV rows for SSVI calibration")
@@ -134,11 +145,15 @@ def calibrate_ssvi_surface(
     if fit_rows.empty:
         return _empty_ssvi_result("No rows matched calibrated SSVI expiries")
 
+    weights, weight_meta = _svi_row_weights(fit_rows, weight_column=weight_column)
     params = _fit_ssvi(
         fit_rows["log_money_num"].to_numpy(dtype=float),
         fit_rows["iv_num"].to_numpy(dtype=float),
         fit_rows["time_num"].to_numpy(dtype=float),
         fit_rows["theta"].to_numpy(dtype=float),
+        sample_weights=weights,
+        loss=loss_mode,
+        loss_f_scale=f_scale,
     )
     fitted_w = np.maximum(
         ssvi_total_variance(
@@ -153,6 +168,8 @@ def calibrate_ssvi_surface(
     fitted_iv = np.sqrt(fitted_w / fit_rows["time_num"].to_numpy(dtype=float))
     observed_iv = fit_rows["iv_num"].to_numpy(dtype=float)
     residuals = fitted_iv - observed_iv
+    unweighted_rmse = float(np.sqrt(np.mean(residuals**2)))
+    weighted_rmse = _weighted_rmse(residuals, weights)
     constraints = ssvi_constraint_summary(
         expiry_frame["theta"].to_numpy(dtype=float),
         params["rho"],
@@ -163,6 +180,9 @@ def calibrate_ssvi_surface(
         "model": "SSVI",
         "status": "fitted",
         "parameterization": "surface_svi_power_law_phi",
+        "loss_mode": loss_mode,
+        "loss_f_scale": f_scale,
+        **weight_meta,
         "documented_constraints": [
             "theta is nondecreasing by expiry",
             "theta * phi(theta) is nondecreasing by expiry",
@@ -174,7 +194,9 @@ def calibrate_ssvi_surface(
         "gamma": params["gamma"],
         "fitted_expiries": int(len(expiry_frame)),
         "points": int(len(fit_rows)),
-        "rmse": float(np.sqrt(np.mean(residuals**2))),
+        "rmse": unweighted_rmse,
+        "unweighted_rmse": unweighted_rmse,
+        "weighted_rmse": weighted_rmse,
         "mae": float(np.mean(np.abs(residuals))),
         "max_error": float(np.max(np.abs(residuals))),
         "constraints": constraints,
@@ -197,8 +219,9 @@ def calibrate_ssvi_surface(
                 "observed_iv": float(observed),
                 "fitted_iv": float(fitted),
                 "residual": float(residual),
+                "fit_weight": float(weight),
             }
-            for expiry, dte, log_money, strike, observed, fitted, residual in zip(
+            for expiry, dte, log_money, strike, observed, fitted, residual, weight in zip(
                 fit_rows["expiration_norm"],
                 fit_rows["dte_num"],
                 fit_rows["log_money_num"],
@@ -206,6 +229,7 @@ def calibrate_ssvi_surface(
                 observed_iv,
                 fitted_iv,
                 residuals,
+                weights,
             )
         ],
     }
@@ -232,6 +256,8 @@ def fit_diagnostics_from_svi(svi_rows: pd.DataFrame) -> dict[str, Any]:
         "points": int(pd.to_numeric(svi_rows["points"], errors="coerce").sum()),
         "weight_mode": _joined_unique(svi_rows, "weight_mode"),
         "weight_column": _joined_unique(svi_rows, "weight_column"),
+        "loss_mode": _joined_unique(svi_rows, "loss_mode"),
+        "loss_f_scale": _mean_or_none(svi_rows, "loss_f_scale"),
     }
 
 
@@ -243,8 +269,14 @@ def fit_diagnostics_from_ssvi(ssvi_result: dict[str, Any]) -> dict[str, Any]:
         "fitted_expiries": int(ssvi_result.get("fitted_expiries") or 0),
         "points": int(ssvi_result.get("points") or 0),
         "rmse": ssvi_result.get("rmse"),
+        "unweighted_rmse": ssvi_result.get("unweighted_rmse"),
+        "weighted_rmse": ssvi_result.get("weighted_rmse"),
         "mae": ssvi_result.get("mae"),
         "max_error": ssvi_result.get("max_error"),
+        "weight_mode": ssvi_result.get("weight_mode"),
+        "weight_column": ssvi_result.get("weight_column"),
+        "loss_mode": ssvi_result.get("loss_mode"),
+        "loss_f_scale": ssvi_result.get("loss_f_scale"),
         "constraints_passed": bool((ssvi_result.get("constraints") or {}).get("passed", False)),
     }
 
@@ -278,6 +310,8 @@ def _fit_svi(
     observed_w: np.ndarray,
     *,
     sample_weights: np.ndarray | None = None,
+    loss: str,
+    loss_f_scale: float,
 ) -> dict[str, float]:
     min_w = max(float(np.nanmin(observed_w)), 1e-6)
     max_w = max(float(np.nanmax(observed_w)), min_w)
@@ -289,8 +323,8 @@ def _fit_svi(
         lambda params: (svi_total_variance(k, *params) - observed_w) * sqrt_weights,
         x0=np.clip(x0, lower, upper),
         bounds=(lower, upper),
-        loss="soft_l1",
-        f_scale=0.01,
+        loss=loss,
+        f_scale=loss_f_scale,
         max_nfev=2000,
     )
     a, b, rho, m, sigma = result.x
@@ -303,12 +337,23 @@ def _fit_svi(
     }
 
 
-def _fit_ssvi(k: np.ndarray, observed_iv: np.ndarray, time: np.ndarray, theta: np.ndarray) -> dict[str, float]:
+def _fit_ssvi(
+    k: np.ndarray,
+    observed_iv: np.ndarray,
+    time: np.ndarray,
+    theta: np.ndarray,
+    *,
+    sample_weights: np.ndarray | None = None,
+    loss: str,
+    loss_f_scale: float,
+) -> dict[str, float]:
+    sqrt_weights = _least_squares_sqrt_weights(sample_weights, len(k))
+
     def residual_vector(params: np.ndarray) -> np.ndarray:
         rho, eta, gamma = params
         fitted_w = np.maximum(ssvi_total_variance(k, theta, rho, eta, gamma), 1e-10)
         fitted_iv = np.sqrt(fitted_w / time)
-        residuals = fitted_iv - observed_iv
+        residuals = (fitted_iv - observed_iv) * sqrt_weights
         constraints = ssvi_constraint_summary(np.unique(theta), rho, eta, gamma)
         penalties = np.array(
             [
@@ -323,8 +368,8 @@ def _fit_ssvi(k: np.ndarray, observed_iv: np.ndarray, time: np.ndarray, theta: n
         residual_vector,
         x0=np.array([-0.25, 1.0, 0.25]),
         bounds=(np.array([-0.95, 1e-4, 0.0]), np.array([0.95, 10.0, 0.5])),
-        loss="soft_l1",
-        f_scale=0.01,
+        loss=loss,
+        f_scale=loss_f_scale,
         max_nfev=3000,
     )
     rho, eta, gamma = result.x
@@ -398,6 +443,20 @@ def _least_squares_sqrt_weights(sample_weights: np.ndarray | None, size: int) ->
     positive = weights[weights > 0.0]
     normalized = weights / float(np.mean(positive))
     return np.sqrt(np.clip(normalized, 0.0, None))
+
+
+def _validate_loss(loss: str) -> str:
+    normalized = str(loss).strip().lower()
+    if normalized not in {"linear", "huber", "soft_l1"}:
+        raise ValueError(f"Unsupported SVI loss mode: {loss!r}")
+    return normalized
+
+
+def _validate_loss_f_scale(loss_f_scale: float) -> float:
+    value = float(loss_f_scale)
+    if not np.isfinite(value) or value <= 0.0:
+        raise ValueError("SVI loss_f_scale must be a positive finite number")
+    return value
 
 
 def _weight_metadata(weights: np.ndarray, *, mode: str, column: str | None) -> dict[str, Any]:

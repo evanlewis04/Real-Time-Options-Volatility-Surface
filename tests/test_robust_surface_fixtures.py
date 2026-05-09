@@ -6,12 +6,14 @@ import pandas as pd
 
 from dashboard_connector import DashboardConnector
 from tests.fixtures.noisy_option_chain import (
+    FIXTURE_SPOT,
     checked_clean_chain,
     checked_noisy_chain,
     fixture_reason_buckets,
     normalized_clean_chain,
     normalized_noisy_chain,
 )
+from src.quant.svi import calibrate_svi_by_expiry
 
 
 def test_noisy_fixture_has_stable_row_counts_and_reason_buckets():
@@ -64,6 +66,42 @@ def test_clean_fixture_is_high_quality_and_has_low_standard_fit_error():
     assert meta["fit_diagnostics"]["rmse"] < 0.005
 
 
+def test_robust_loss_improves_noisy_fixture_without_moving_clean_fixture():
+    clean_checked, _ = checked_clean_chain()
+    noisy_checked, _ = checked_noisy_chain()
+    clean_surface_chain = DashboardConnector._surface_iv_chain(clean_checked)
+    noisy_surface_chain = DashboardConnector._surface_iv_chain(noisy_checked)
+
+    clean_linear = calibrate_svi_by_expiry(
+        clean_surface_chain,
+        spot=FIXTURE_SPOT,
+        iv_column="computedIV",
+        loss="linear",
+    )
+    clean_robust = calibrate_svi_by_expiry(
+        clean_surface_chain,
+        spot=FIXTURE_SPOT,
+        iv_column="computedIV",
+        loss="soft_l1",
+    )
+    noisy_linear = calibrate_svi_by_expiry(
+        noisy_surface_chain,
+        spot=FIXTURE_SPOT,
+        iv_column="computedIV",
+        loss="linear",
+    )
+    noisy_robust = calibrate_svi_by_expiry(
+        noisy_surface_chain,
+        spot=FIXTURE_SPOT,
+        iv_column="computedIV",
+        loss="soft_l1",
+    )
+
+    assert _mean_rmse(clean_robust) <= _mean_rmse(clean_linear) + 5e-6
+    assert _mean_rmse(noisy_robust) < _mean_rmse(noisy_linear)
+    assert _abs_residual_quantile(noisy_robust, 0.95) < _abs_residual_quantile(noisy_linear, 0.95)
+
+
 def test_compare_surface_fit_modes_script_emits_deterministic_json():
     result = subprocess.run(
         [sys.executable, "scripts/compare_surface_fit_modes.py", "--json"],
@@ -83,3 +121,16 @@ def test_compare_surface_fit_modes_script_emits_deterministic_json():
     assert noisy["no_arbitrage_excluded_count"] == 15
     assert noisy["reason_buckets"]["no_arbitrage_violation"] == 15
     assert pd.notna(noisy["residual_quantiles"]["p95"])
+
+
+def _mean_rmse(fitted: pd.DataFrame) -> float:
+    return float(pd.to_numeric(fitted["rmse"], errors="coerce").mean())
+
+
+def _abs_residual_quantile(fitted: pd.DataFrame, quantile: float) -> float:
+    residuals = [
+        abs(float(row["residual"]))
+        for smile in fitted.to_dict("records")
+        for row in smile.get("residuals") or []
+    ]
+    return float(pd.Series(residuals).quantile(quantile))

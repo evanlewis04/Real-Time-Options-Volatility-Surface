@@ -117,11 +117,11 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
   - Suggested file: `src/quant/svi.py`.
   - Acceptance: high-weight clean rows influence fit more than low-weight outliers in deterministic tests.
 
-- [ ] Add robust loss support.
+- [x] Add robust loss support.
   - Support at least `linear`, `huber`, and `soft_l1` loss modes through SciPy least squares.
   - Acceptance: noisy fixture robust RMSE and residual quantiles improve without materially changing clean fixture output.
 
-- [ ] Add weighted global SSVI calibration.
+- [x] Add weighted global SSVI calibration.
   - Extend SSVI fit to use row weights and robust loss.
   - Acceptance: global fit diagnostics include weight mode, loss mode, weighted RMSE, unweighted RMSE, and constraints.
 
