@@ -32,6 +32,7 @@ def calibrate_svi_by_expiry(
     spot: float,
     *,
     iv_column: str = "computedIV",
+    weight_column: str | None = "fitWeight",
     min_points: int = 5,
 ) -> pd.DataFrame:
     """Fit raw SVI parameters independently for each expiry."""
@@ -62,17 +63,21 @@ def calibrate_svi_by_expiry(
         k = smile["log_money_num"].to_numpy(dtype=float)
         observed_iv = smile["iv_num"].to_numpy(dtype=float)
         observed_w = observed_iv**2 * t
-        params = _fit_svi(k, observed_w)
+        weights, weight_meta = _svi_row_weights(smile, weight_column=weight_column)
+        params = _fit_svi(k, observed_w, sample_weights=weights)
         fitted_w = np.maximum(svi_total_variance(k, **params), 1e-10)
         fitted_iv = np.sqrt(fitted_w / t)
         residuals = fitted_iv - observed_iv
+        weighted_rmse = _weighted_rmse(residuals, weights)
         rows.append(
             {
                 "expiration": expiry.date().isoformat(),
                 "dte": dte,
                 "points": int(len(smile)),
                 **params,
+                **weight_meta,
                 "rmse": float(np.sqrt(np.mean(residuals**2))),
+                "weighted_rmse": weighted_rmse,
                 "mae": float(np.mean(np.abs(residuals))),
                 "max_error": float(np.max(np.abs(residuals))),
                 "residuals": [
@@ -82,13 +87,15 @@ def calibrate_svi_by_expiry(
                         "observed_iv": float(observed),
                         "fitted_iv": float(fitted),
                         "residual": float(residual),
+                        "fit_weight": float(weight),
                     }
-                    for log_money, strike, observed, fitted, residual in zip(
+                    for log_money, strike, observed, fitted, residual, weight in zip(
                         k,
                         smile["strike_num"].to_numpy(dtype=float),
                         observed_iv,
                         fitted_iv,
                         residuals,
+                        weights,
                     )
                 ],
             }
@@ -219,9 +226,12 @@ def fit_diagnostics_from_svi(svi_rows: pd.DataFrame) -> dict[str, Any]:
         "model": "SVI",
         "fitted_expiries": int(len(svi_rows)),
         "rmse": float(pd.to_numeric(svi_rows["rmse"], errors="coerce").mean()),
+        "weighted_rmse": _mean_or_none(svi_rows, "weighted_rmse"),
         "mae": float(pd.to_numeric(svi_rows["mae"], errors="coerce").mean()),
         "max_error": float(pd.to_numeric(svi_rows["max_error"], errors="coerce").max()),
         "points": int(pd.to_numeric(svi_rows["points"], errors="coerce").sum()),
+        "weight_mode": _joined_unique(svi_rows, "weight_mode"),
+        "weight_column": _joined_unique(svi_rows, "weight_column"),
     }
 
 
@@ -263,14 +273,20 @@ def ssvi_constraint_summary(theta: np.ndarray, rho: float, eta: float, gamma: fl
     }
 
 
-def _fit_svi(k: np.ndarray, observed_w: np.ndarray) -> dict[str, float]:
+def _fit_svi(
+    k: np.ndarray,
+    observed_w: np.ndarray,
+    *,
+    sample_weights: np.ndarray | None = None,
+) -> dict[str, float]:
     min_w = max(float(np.nanmin(observed_w)), 1e-6)
     max_w = max(float(np.nanmax(observed_w)), min_w)
     x0 = np.array([min_w * 0.5, max(max_w, 1e-4), 0.0, float(np.median(k)), 0.1])
     lower = np.array([0.0, 1e-8, -0.999, -2.0, 1e-4])
     upper = np.array([5.0, 10.0, 0.999, 2.0, 5.0])
+    sqrt_weights = _least_squares_sqrt_weights(sample_weights, len(k))
     result = least_squares(
-        lambda params: svi_total_variance(k, *params) - observed_w,
+        lambda params: (svi_total_variance(k, *params) - observed_w) * sqrt_weights,
         x0=np.clip(x0, lower, upper),
         bounds=(lower, upper),
         loss="soft_l1",
@@ -313,6 +329,109 @@ def _fit_ssvi(k: np.ndarray, observed_iv: np.ndarray, time: np.ndarray, theta: n
     )
     rho, eta, gamma = result.x
     return {"rho": float(rho), "eta": float(eta), "gamma": float(gamma)}
+
+
+def _svi_row_weights(smile: pd.DataFrame, *, weight_column: str | None) -> tuple[np.ndarray, dict[str, Any]]:
+    """Return deterministic per-row SVI weights plus provenance metadata."""
+    source_column = _first_numeric_column(smile, [weight_column] if weight_column else [])
+    mode = "uniform"
+    if source_column:
+        raw = pd.to_numeric(smile[source_column], errors="coerce").to_numpy(dtype=float)
+        mode = "quote_reliability_liquidity" if source_column == "fitWeight" else "provided"
+    else:
+        reliability_column = _first_numeric_column(smile, ["quoteReliabilityScore"])
+        liquidity_weights = _liquidity_weights(smile)
+        if reliability_column:
+            reliability = pd.to_numeric(smile[reliability_column], errors="coerce").to_numpy(dtype=float)
+            if liquidity_weights is None:
+                liquidity_weights = np.ones(len(smile), dtype=float)
+            raw = reliability * liquidity_weights
+            source_column = reliability_column
+            mode = "quote_reliability_liquidity"
+        elif liquidity_weights is not None:
+            raw = liquidity_weights
+            mode = "liquidity"
+        else:
+            raw = np.ones(len(smile), dtype=float)
+
+    weights = _sanitize_weights(raw, len(smile))
+    return weights, _weight_metadata(weights, mode=mode, column=source_column)
+
+
+def _first_numeric_column(frame: pd.DataFrame, columns: list[str | None]) -> str | None:
+    for column in columns:
+        if column and column in frame:
+            values = pd.to_numeric(frame[column], errors="coerce")
+            if values.notna().any():
+                return column
+    return None
+
+
+def _liquidity_weights(smile: pd.DataFrame) -> np.ndarray | None:
+    columns = [column for column in ("volume", "openInterest") if column in smile]
+    if not columns:
+        return None
+    components: list[np.ndarray] = []
+    for column in columns:
+        values = pd.to_numeric(smile[column], errors="coerce").fillna(0.0).clip(lower=0.0).to_numpy(dtype=float)
+        scale = float(np.nanmedian(values[values > 0])) if np.any(values > 0) else 0.0
+        if scale <= 0.0 or not np.isfinite(scale):
+            components.append(np.full(len(smile), 0.5, dtype=float))
+        else:
+            components.append(np.clip(values / scale, 0.05, 2.0))
+    return np.mean(components, axis=0)
+
+
+def _sanitize_weights(raw: np.ndarray, size: int) -> np.ndarray:
+    if raw.size != size:
+        return np.ones(size, dtype=float)
+    weights = np.asarray(raw, dtype=float)
+    weights = np.where(np.isfinite(weights), weights, 0.0)
+    weights = np.clip(weights, 0.0, None)
+    if not np.any(weights > 0.0):
+        return np.ones(size, dtype=float)
+    return weights
+
+
+def _least_squares_sqrt_weights(sample_weights: np.ndarray | None, size: int) -> np.ndarray:
+    weights = _sanitize_weights(sample_weights, size) if sample_weights is not None else np.ones(size, dtype=float)
+    positive = weights[weights > 0.0]
+    normalized = weights / float(np.mean(positive))
+    return np.sqrt(np.clip(normalized, 0.0, None))
+
+
+def _weight_metadata(weights: np.ndarray, *, mode: str, column: str | None) -> dict[str, Any]:
+    positive = weights[weights > 0.0]
+    return {
+        "weight_mode": mode,
+        "weight_column": column,
+        "weight_min": float(np.min(weights)),
+        "weight_max": float(np.max(weights)),
+        "weight_mean": float(np.mean(weights)),
+        "positive_weight_count": int(len(positive)),
+    }
+
+
+def _weighted_rmse(residuals: np.ndarray, weights: np.ndarray) -> float:
+    clean_weights = _sanitize_weights(weights, len(residuals))
+    total_weight = float(np.sum(clean_weights))
+    if total_weight <= 0.0:
+        return float(np.sqrt(np.mean(residuals**2)))
+    return float(np.sqrt(np.average(residuals**2, weights=clean_weights)))
+
+
+def _mean_or_none(frame: pd.DataFrame, column: str) -> float | None:
+    if column not in frame:
+        return None
+    values = pd.to_numeric(frame[column], errors="coerce").dropna()
+    return float(values.mean()) if not values.empty else None
+
+
+def _joined_unique(frame: pd.DataFrame, column: str) -> str | None:
+    if column not in frame:
+        return None
+    values = [str(value) for value in frame[column].dropna().unique() if str(value)]
+    return ",".join(sorted(values)) if values else None
 
 
 def _prepared_surface_frame(chain: pd.DataFrame, spot: float, iv_column: str) -> pd.DataFrame:

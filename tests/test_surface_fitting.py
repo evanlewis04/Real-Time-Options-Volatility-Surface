@@ -51,6 +51,38 @@ def test_svi_calibration_recovers_low_error_smile():
     assert len(fitted.iloc[0]["residuals"]) == 9
 
 
+def test_weighted_svi_calibration_prefers_high_weight_clean_rows():
+    expiry = pd.Timestamp("2026-06-19")
+    dte = 45.0
+    k = np.linspace(-0.25, 0.25, 11)
+    params = {"a": 0.002, "b": 0.04, "rho": -0.35, "m": 0.02, "sigma": 0.30}
+    clean_iv = np.sqrt(svi_total_variance(k, **params) / (dte / 365.0))
+    observed_iv = clean_iv.copy()
+    observed_iv[-1] *= 1.45
+    weights = np.ones(len(k))
+    weights[-1] = 0.001
+    chain = pd.DataFrame(
+        {
+            "expiration": expiry,
+            "daysToExpiration": dte,
+            "strike": 100.0 * np.exp(k),
+            "logMoneyness": k,
+            "computedIV": observed_iv,
+            "fitWeight": weights,
+        }
+    )
+
+    weighted = calibrate_svi_by_expiry(chain, spot=100.0)
+    unweighted = calibrate_svi_by_expiry(chain, spot=100.0, weight_column=None)
+
+    weighted_clean_rmse = _clean_residual_rmse(weighted.iloc[0]["residuals"])
+    unweighted_clean_rmse = _clean_residual_rmse(unweighted.iloc[0]["residuals"])
+    assert weighted.iloc[0]["weight_mode"] == "quote_reliability_liquidity"
+    assert weighted.iloc[0]["positive_weight_count"] == 11
+    assert weighted.iloc[0]["weighted_rmse"] < weighted.iloc[0]["rmse"]
+    assert weighted_clean_rmse < unweighted_clean_rmse * 0.35
+
+
 def test_ssvi_global_calibration_recovers_constrained_surface():
     expiries = [
         (pd.Timestamp("2026-06-19"), 45.0, 0.010),
@@ -134,3 +166,8 @@ def test_connector_svi_metadata_includes_global_ssvi_diagnostics():
     assert meta["global_fit_diagnostics"]["fitted_expiries"] == 2
     assert meta["global_fit_diagnostics"]["constraints_passed"]
     assert meta["ssvi_surface"]["rmse"] < 1e-3
+
+
+def _clean_residual_rmse(residuals):
+    values = [row["residual"] for row in residuals[:-1]]
+    return float(np.sqrt(np.mean(np.square(values))))

@@ -111,7 +111,7 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 3: Weighted Robust SVI And SSVI Fitting
 
-- [ ] Add weighted SVI calibration.
+- [x] Add weighted SVI calibration.
   - Modify per-expiry SVI fitting to accept row weights.
   - Use quote reliability and liquidity as default weights.
   - Suggested file: `src/quant/svi.py`.
