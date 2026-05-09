@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+UTC = timezone.utc
 
 
 class StructuredJsonFormatter(logging.Formatter):
