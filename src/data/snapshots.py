@@ -190,6 +190,28 @@ def load_latest_snapshot(symbol: str, directory: Path | str = DEFAULT_SNAPSHOT_D
     return load_snapshot(matches[0]) if matches else None
 
 
+def load_recent_snapshots(
+    symbol: str,
+    directory: Path | str = DEFAULT_SNAPSHOT_DIR,
+    *,
+    before: datetime | None = None,
+    max_count: int | None = None,
+) -> list[MarketDataSnapshot]:
+    """Load recent persisted snapshots for ``symbol``, newest first."""
+    snapshots: list[MarketDataSnapshot] = []
+    for metadata_path in list_snapshots(symbol, directory):
+        try:
+            snapshot = load_snapshot(metadata_path)
+        except Exception:
+            continue
+        if before is not None and snapshot.spot_timestamp >= before:
+            continue
+        snapshots.append(snapshot)
+        if max_count is not None and len(snapshots) >= max_count:
+            break
+    return snapshots
+
+
 def _snapshot_metadata(snapshot: MarketDataSnapshot) -> dict[str, Any]:
     options_name = f"{snapshot.symbol}_{snapshot.spot_timestamp.strftime('%Y%m%d_%H%M%S')}.options.parquet"
     return {

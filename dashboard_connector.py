@@ -82,6 +82,7 @@ from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
 from src.quant.shocks import surface_shock_scenarios
 from src.quant.surface_change import rich_cheap_scanner, surface_change_analytics
+from src.quant.surface_prior import blend_surface_with_prior, load_historical_surface_prior
 from src.quant.svi import (
     calibrate_ssvi_surface,
     calibrate_svi_by_expiry,
@@ -391,6 +392,37 @@ class DashboardConnector:
                 **self._sabr_metadata(key, surface_chain, spot),
             }
             metadata.update(self._surface_quality_metadata(surface_chain, metadata))
+            prior = load_historical_surface_prior(
+                key,
+                self.snapshot_dir,
+                as_of=metadata.get("timestamp") or metadata.get("spot_timestamp"),
+            )
+            current_smoothing = metadata.get("surface_smoothing")
+            vols, prior_blend = blend_surface_with_prior(
+                strikes,
+                expiries,
+                vols,
+                spot,
+                prior,
+                quality_score=metadata.get("surface_quality_score"),
+            )
+            metadata.update(
+                {
+                    "historical_surface_prior": prior.metadata(),
+                    "historical_surface_prior_grid": prior.records(),
+                    "surface_prior": prior_blend,
+                    "surface_prior_applied": bool(prior_blend.get("applied")),
+                    "surface_prior_source": prior_blend.get("prior_source"),
+                    "surface_prior_age_days": prior_blend.get("prior_age_days"),
+                    "surface_prior_blend_weight": prior_blend.get("blend_weight"),
+                    "surface_prior_overlap_count": prior_blend.get("overlap_count"),
+                    "surface_estimate_type": (
+                        "prior_assisted_estimate" if prior_blend.get("applied") else "current_fit_estimate"
+                    ),
+                    "current_surface_smoothing": current_smoothing,
+                    "surface_smoothing": smoothing_summary(strikes, expiries, vols),
+                }
+            )
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, surface_chain, spot))
             metadata.update(self._surface_change_metadata(key, surface_chain, spot, metadata))

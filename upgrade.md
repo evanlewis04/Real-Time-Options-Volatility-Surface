@@ -135,17 +135,17 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 4: Historical Prior And Surface Stabilization
 
-- [ ] Build a historical surface prior loader.
+- [x] Build a historical surface prior loader.
   - Use recent persisted snapshots to construct a prior grid by moneyness/log-moneyness and DTE.
   - Suggested files: `src/quant/surface_prior.py`, `src/data/snapshots.py`.
   - Acceptance: loader returns deterministic priors from fixture snapshots and refuses stale/insufficient history.
 
-- [ ] Add prior blending for poor-quality current data.
+- [x] Add prior blending for poor-quality current data.
   - Blend current robust fit with recent prior when quote quality is low.
   - Blend weight should depend on current data quality, snapshot recency, and overlap.
   - Acceptance: metadata reports prior source, prior age, blend weight, overlap count, and whether prior was applied.
 
-- [ ] Add jump detection before blending.
+- [x] Add jump detection before blending.
   - If current clean quotes strongly indicate a true surface move, do not over-anchor to history.
   - Acceptance: tests cover both noisy false spikes and genuine broad IV shifts.
 
