@@ -6,39 +6,37 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
 
-Current head before this session's commit: `86584a4d7b456db3a2ee7cd98db243edca1c953c`
+Current head before this session's commit: `6b2e0a54868e34baf59129254ee5c2795fbe7ac4`
 
-Branch state before this session's commit: `main...origin/main [ahead 2]`
+Branch state before this session's commit: `main...origin/main [ahead 3]`
 
 ## Upgrade State
 
 The original dashboard upgrade plan is complete. The robust volatility surface fitting plan is underway.
 
-Robust plan count: `20/45` complete.
+Robust plan count: `21/45` complete.
 
 Completed this session:
 
-1. Completed Phase 4 item: built a historical surface prior loader in `src/quant/surface_prior.py`.
-2. Added `load_recent_snapshots` to `src/data/snapshots.py` for newest-first persisted snapshot loading with an optional before timestamp.
-3. The prior loader builds deterministic grids by DTE bucket and log-moneyness bucket from recent persisted snapshots, and returns unavailable payloads for stale or insufficient history.
-4. Completed Phase 4 item: added quality-gated prior blending for poor-quality current surfaces.
-5. `DashboardConnector.get_vol_surface_data` now records prior metadata, prior grid records, prior source, prior age, blend weight, overlap count, applied flag, and `surface_estimate_type`.
-6. Completed Phase 4 item: added jump detection before blending so broad current IV shifts are not over-anchored to history, while isolated noisy spikes can still be stabilized.
-7. Historical prior and blended values are labeled as estimates/provenance, not market observations.
+1. Completed Phase 4 item: added prior comparison charts.
+2. `surface_prior_comparison_records` now emits deterministic overlapping grid rows with current robust fit estimate, historical prior estimate, current-minus-prior IV, and provenance labels.
+3. `DashboardConnector.get_vol_surface_data` stores `surface_prior_comparison` and `surface_prior_comparison_available` before any prior blend is applied.
+4. SurfaceWorkspace now shows a Historical Prior Comparison section with current fit estimate, historical prior estimate, and current-minus-prior heatmaps.
+5. Dashboard captions explicitly label historical prior and prior-assisted values as estimates, not market observations.
+6. Phase 4 is complete.
 
 Next unchecked section:
 
-1. Phase 4: Historical Prior And Surface Stabilization
-   - Continue with `Add prior comparison charts`.
+1. Phase 5: ML Denoising Prototype
+   - Continue with `Define a surface ML feature set`.
 
 Recent context:
 
 - Phase 3 remains complete: weighted/robust SVI and SSVI, residual diagnostics, and Standard SVI / Robust SVI / Robust SSVI comparison metadata.
-- Historical prior metadata uses `historical_prior_estimate_not_market_observation` provenance.
-- Prior blending is a pure function in `src/quant/surface_prior.py`; it depends on current surface quality, prior recency, and overlap.
-- Jump detection blocks blending when overlapping current cells show a broad directional IV shift.
-- The dashboard stores `current_surface_smoothing` before any prior blend and recomputes `surface_smoothing` after the potential blend.
-- The remaining Phase 4 chart item should show current robust fit, prior surface, and current-minus-prior heatmap, with prior-assisted values labeled as estimates.
+- Phase 4 is complete: historical prior loader, quality-gated prior blending, jump detection before blending, and prior comparison charts.
+- Historical prior metadata and comparison rows use `historical_prior_estimate_not_market_observation` provenance.
+- Prior comparison rows are captured before blending, so the current-vs-prior charts compare the current robust fit estimate to history rather than comparing the already prior-assisted surface to itself.
+- ML/denoising work must remain opt-in/research-labeled and must not be presented as market truth.
 
 ## Latest Verification
 
@@ -52,7 +50,7 @@ python scripts\compare_surface_fit_modes.py --json
 $env:PYTHONPATH='.'; python scripts\healthcheck.py
 ```
 
-Passing: Ruff, compileall, targeted tests (`38 passed`), fixture comparison script, and healthcheck.
+Passing: Ruff, compileall, targeted tests (`39 passed`), fixture comparison script, and healthcheck.
 
 Full `python -m pytest -q` was not rerun. Prior context: it completed with `183 passed, 5 failed, 35 warnings`; the five failures were Streamlit `AppTest` dashboard tests timing out at their hardcoded 90-second `at.run` limit. `scripts\verify.py --skip-healthcheck` also timed out because it runs the same full pytest command.
 
@@ -65,7 +63,7 @@ Repo:
 C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
 
 Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Continue the robust surface plan at Phase 4. Implement the unchecked Phase 4 items in order if they fit cleanly, starting with "Add prior comparison charts."
+Continue the robust surface plan at Phase 5. Implement unchecked Phase 5 items in order if they fit cleanly, starting with "Define a surface ML feature set."
 Preserve provenance, keep deterministic offline tests, avoid treating ML/denoising as market truth, run full verification when appropriate, update SESSION_HANDOFF.md, commit changes, and report the updated robust-fitting plan count.
 ```
 

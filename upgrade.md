@@ -149,7 +149,7 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
   - If current clean quotes strongly indicate a true surface move, do not over-anchor to history.
   - Acceptance: tests cover both noisy false spikes and genuine broad IV shifts.
 
-- [ ] Add prior comparison charts.
+- [x] Add prior comparison charts.
   - Show current robust fit, prior surface, and current-minus-prior heatmap.
   - Acceptance: dashboard labels prior-assisted values as estimates.
 

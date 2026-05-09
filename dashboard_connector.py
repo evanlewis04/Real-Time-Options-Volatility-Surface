@@ -82,7 +82,11 @@ from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
 from src.quant.shocks import surface_shock_scenarios
 from src.quant.surface_change import rich_cheap_scanner, surface_change_analytics
-from src.quant.surface_prior import blend_surface_with_prior, load_historical_surface_prior
+from src.quant.surface_prior import (
+    blend_surface_with_prior,
+    load_historical_surface_prior,
+    surface_prior_comparison_records,
+)
 from src.quant.svi import (
     calibrate_ssvi_surface,
     calibrate_svi_by_expiry,
@@ -398,6 +402,7 @@ class DashboardConnector:
                 as_of=metadata.get("timestamp") or metadata.get("spot_timestamp"),
             )
             current_smoothing = metadata.get("surface_smoothing")
+            prior_comparison = surface_prior_comparison_records(strikes, expiries, vols, spot, prior)
             vols, prior_blend = blend_surface_with_prior(
                 strikes,
                 expiries,
@@ -410,6 +415,8 @@ class DashboardConnector:
                 {
                     "historical_surface_prior": prior.metadata(),
                     "historical_surface_prior_grid": prior.records(),
+                    "surface_prior_comparison": prior_comparison,
+                    "surface_prior_comparison_available": bool(prior_comparison),
                     "surface_prior": prior_blend,
                     "surface_prior_applied": bool(prior_blend.get("applied")),
                     "surface_prior_source": prior_blend.get("prior_source"),

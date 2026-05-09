@@ -5,7 +5,11 @@ import pytest
 
 from src.data.models import MarketDataSnapshot, OptionQuote
 from src.data.snapshots import save_snapshot
-from src.quant.surface_prior import blend_surface_with_prior, load_historical_surface_prior
+from src.quant.surface_prior import (
+    blend_surface_with_prior,
+    load_historical_surface_prior,
+    surface_prior_comparison_records,
+)
 
 
 EXPIRIES = (
@@ -204,6 +208,33 @@ def test_prior_blending_stabilizes_single_spike_but_not_broad_jump(tmp_path):
     assert broad_meta["jump_detection"]["broad_shift_detected"]
     assert broad_meta["jump_detection"]["median_change"] == pytest.approx(0.08)
     assert np.array_equal(broad_blended, broad_jump_vols)
+
+
+def test_surface_prior_comparison_records_label_estimates(tmp_path):
+    save_snapshot(_snapshot(datetime(2026, 5, 1, 10), bump=0.00), tmp_path)
+    save_snapshot(_snapshot(datetime(2026, 5, 2, 10), bump=0.02), tmp_path)
+    prior = load_historical_surface_prior(
+        "AAPL",
+        tmp_path,
+        as_of=datetime(2026, 5, 3, 10),
+        max_age=timedelta(days=4),
+        log_moneyness_step=0.05,
+        dte_step=30,
+    )
+    strikes = 100.0 * np.exp(np.array([-0.10, 0.0, 0.10]))
+    expiries = np.array([30.0, 60.0])
+    vols = _prior_vol_matrix(prior.records(), expiries, [-0.10, 0.0, 0.10]) + 0.03
+
+    records = surface_prior_comparison_records(strikes, expiries, vols, 100.0, prior)
+
+    assert len(records) == 6
+    atm_30 = next(row for row in records if row["dte"] == 30.0 and row["log_moneyness"] == pytest.approx(0.0))
+    assert atm_30["current_iv"] == pytest.approx(0.24)
+    assert atm_30["prior_iv"] == pytest.approx(0.21)
+    assert atm_30["iv_change"] == pytest.approx(0.03)
+    assert atm_30["current_label"] == "current_robust_fit_estimate"
+    assert atm_30["prior_label"] == "historical_prior_estimate"
+    assert atm_30["provenance"] == "historical_prior_estimate_not_market_observation"
 
 
 def _prior_vol_matrix(records, expiries, log_moneyness):

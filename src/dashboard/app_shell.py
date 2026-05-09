@@ -1065,6 +1065,35 @@ def run_dashboard() -> None:
         )
         return fig
 
+    def _prior_comparison_figure(
+        records: list[dict[str, Any]],
+        value_col: str,
+        title: str,
+        colorbar_title: str,
+        *,
+        colorscale: str = "Cividis",
+        zmid: float | None = None,
+    ) -> go.Figure | None:
+        grid = _heatmap_from_points(records, value_col)
+        if grid.empty:
+            return None
+        heatmap_kwargs = {
+            "z": grid.values,
+            "x": list(grid.columns),
+            "y": list(grid.index),
+            "colorscale": colorscale,
+            "colorbar": dict(title=colorbar_title),
+            "hovertemplate": (
+                "Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>"
+                f"{colorbar_title}: %{{z:.2%}}<extra></extra>"
+            ),
+        }
+        if zmid is not None:
+            heatmap_kwargs["zmid"] = zmid
+        fig = go.Figure(data=[go.Heatmap(**heatmap_kwargs)])
+        fig.update_layout(title=title, xaxis_title="Strike", yaxis_title="Days to expiry")
+        return fig
+
     market_df = load_with_status(
         st,
         LoadingState(
@@ -1193,6 +1222,58 @@ def run_dashboard() -> None:
             yaxis_title="Days to expiry",
         )
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
+
+        prior_comparison = surface_meta.get("surface_prior_comparison") or []
+        if prior_comparison:
+            st.markdown('<div class="section-header">Historical Prior Comparison</div>', unsafe_allow_html=True)
+            prior_cols = st.columns(2)
+            current_prior_fig = _prior_comparison_figure(
+                prior_comparison,
+                "current_iv",
+                f"{surface_symbol} Current Robust Fit Estimate",
+                "Current IV",
+            )
+            historical_prior_fig = _prior_comparison_figure(
+                prior_comparison,
+                "prior_iv",
+                f"{surface_symbol} Historical Prior Estimate",
+                "Prior IV",
+            )
+            with prior_cols[0]:
+                if current_prior_fig is not None:
+                    st.plotly_chart(apply_chart_layout(current_prior_fig, 360), width="stretch")
+            with prior_cols[1]:
+                if historical_prior_fig is not None:
+                    st.plotly_chart(apply_chart_layout(historical_prior_fig, 360), width="stretch")
+            prior_change_fig = _prior_comparison_figure(
+                prior_comparison,
+                "iv_change",
+                f"{surface_symbol} Current Minus Historical Prior",
+                "dIV",
+                colorscale="RdBu",
+                zmid=0.0,
+            )
+            if prior_change_fig is not None:
+                st.plotly_chart(apply_chart_layout(prior_change_fig, 390), width="stretch")
+            st.caption(
+                "Historical prior and prior-assisted surface values are estimates, not market observations. "
+                f"Prior source {surface_meta.get('surface_prior_source') or 'persisted snapshots'}; "
+                f"age {_fmt_number(surface_meta.get('surface_prior_age_days'), 2)} days; "
+                f"overlap {fmt_int(surface_meta.get('surface_prior_overlap_count'))}; "
+                f"blend weight {fmt_pct(surface_meta.get('surface_prior_blend_weight'))}; "
+                f"applied {surface_meta.get('surface_prior_applied', False)}."
+            )
+        else:
+            prior_meta = surface_meta.get("historical_surface_prior") or {}
+            st.markdown(
+                render_empty_state(
+                    "Historical prior comparison unavailable",
+                    prior_meta.get("reason")
+                    or "No recent persisted prior grid overlaps the current fitted surface.",
+                    "Store recent overlapping snapshots to compare current fit estimates with historical priors.",
+                ),
+                unsafe_allow_html=True,
+            )
 
         if not fit_points.empty:
             residual_fig = go.Figure(

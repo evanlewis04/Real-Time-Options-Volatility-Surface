@@ -252,6 +252,49 @@ def blend_surface_with_prior(
     return blended, metadata
 
 
+def surface_prior_comparison_records(
+    strikes: Any,
+    expiries: Any,
+    vols: Any,
+    spot: float,
+    prior: HistoricalSurfacePrior,
+) -> list[dict[str, Any]]:
+    """Return current fit, prior estimate, and current-minus-prior rows."""
+    current = np.asarray(vols, dtype=float)
+    if not prior.available or prior.grid.empty or current.size == 0 or spot <= 0.0:
+        return []
+    strike_grid, expiry_grid = _surface_mesh(strikes, expiries, current.shape)
+    prior_values, overlap = _nearest_prior_values(strike_grid, expiry_grid, spot, prior.grid)
+    mask = overlap & np.isfinite(current) & np.isfinite(prior_values)
+    if not np.any(mask):
+        return []
+
+    log_moneyness = np.log(np.where(strike_grid > 0.0, strike_grid / float(spot), np.nan))
+    rows = []
+    for index in np.argwhere(mask):
+        idx = tuple(index)
+        current_iv = float(current[idx])
+        prior_iv = float(prior_values[idx])
+        rows.append(
+            {
+                "strike": float(strike_grid[idx]),
+                "dte": float(expiry_grid[idx]),
+                "log_moneyness": float(log_moneyness[idx]),
+                "current_iv": current_iv,
+                "prior_iv": prior_iv,
+                "iv_change": current_iv - prior_iv,
+                "abs_iv_change": abs(current_iv - prior_iv),
+                "prior_timestamp": prior.latest_snapshot_timestamp,
+                "prior_age_days": prior.latest_age_days,
+                "source": prior.source,
+                "provenance": "historical_prior_estimate_not_market_observation",
+                "current_label": "current_robust_fit_estimate",
+                "prior_label": "historical_prior_estimate",
+            }
+        )
+    return sorted(rows, key=lambda row: (row["dte"], row["strike"]))
+
+
 def _prepared_prior_frame(
     chain: pd.DataFrame,
     spot: float,
