@@ -1177,25 +1177,82 @@ class DashboardConnector:
     @staticmethod
     def _svi_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:
         svi = calibrate_svi_by_expiry(chain, spot, iv_column=iv_column)
+        standard_svi = calibrate_svi_by_expiry(
+            chain,
+            spot,
+            iv_column=iv_column,
+            weight_column=None,
+            use_weight_fallbacks=False,
+            loss="linear",
+        )
         ssvi = calibrate_ssvi_surface(chain, spot, iv_column=iv_column)
         diagnostics = fit_diagnostics_from_svi(svi)
+        standard_diagnostics = fit_diagnostics_from_svi(standard_svi)
         global_diagnostics = fit_diagnostics_from_ssvi(ssvi)
+        fit_mode_comparison = DashboardConnector._surface_fit_mode_comparison(
+            standard_diagnostics,
+            diagnostics,
+            global_diagnostics,
+        )
         if svi.empty:
             return {
                 "svi_smiles": [],
                 "fit_diagnostics": diagnostics,
+                "standard_svi_smiles": standard_svi.replace({np.nan: None}).to_dict("records"),
+                "standard_fit_diagnostics": standard_diagnostics,
                 "ssvi_surface": ssvi,
                 "global_fit_diagnostics": global_diagnostics,
+                "fit_mode_comparison": fit_mode_comparison,
             }
         records = svi.replace({np.nan: None}).to_dict("records")
         return {
             "svi_smiles": records,
             "fit_diagnostics": diagnostics,
+            "standard_svi_smiles": standard_svi.replace({np.nan: None}).to_dict("records"),
+            "standard_fit_diagnostics": standard_diagnostics,
             "ssvi_surface": ssvi,
             "global_fit_diagnostics": global_diagnostics,
+            "fit_mode_comparison": fit_mode_comparison,
             "front_svi_rmse": records[0].get("rmse"),
             "front_svi_mae": records[0].get("mae"),
         }
+
+    @staticmethod
+    def _surface_fit_mode_comparison(
+        standard_svi: Dict[str, Any],
+        robust_svi: Dict[str, Any],
+        robust_ssvi: Dict[str, Any],
+    ) -> list[Dict[str, Any]]:
+        modes = [
+            ("Standard SVI", standard_svi, "unweighted_linear_loss"),
+            ("Robust SVI", robust_svi, "weighted_quote_reliability_soft_l1"),
+            ("Robust SSVI", robust_ssvi, "weighted_global_ssvi_soft_l1"),
+        ]
+        rows: list[Dict[str, Any]] = []
+        for name, diagnostics, policy in modes:
+            residuals = diagnostics.get("residual_diagnostics") or {}
+            rows.append(
+                {
+                    "mode": name,
+                    "model": diagnostics.get("model"),
+                    "status": diagnostics.get("status", "fitted" if diagnostics.get("points") else "unavailable"),
+                    "fit_policy": policy,
+                    "fitted_expiries": diagnostics.get("fitted_expiries"),
+                    "points": diagnostics.get("points"),
+                    "rmse": diagnostics.get("rmse"),
+                    "weighted_rmse": diagnostics.get("weighted_rmse"),
+                    "mae": diagnostics.get("mae"),
+                    "max_error": diagnostics.get("max_error"),
+                    "weight_mode": diagnostics.get("weight_mode"),
+                    "loss_mode": diagnostics.get("loss_mode"),
+                    "clipped_count": residuals.get("clipped_count"),
+                    "downweighted_count": residuals.get("downweighted_count"),
+                    "clip_threshold_abs_residual": residuals.get("clip_threshold_abs_residual"),
+                    "rmse_after_clipping": residuals.get("rmse_after_clipping"),
+                    "constraints_passed": diagnostics.get("constraints_passed"),
+                }
+            )
+        return rows
 
     @staticmethod
     def _heston_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:

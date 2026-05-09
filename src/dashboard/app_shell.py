@@ -2117,9 +2117,36 @@ def run_dashboard() -> None:
 
         svi_smiles = surface_meta.get("svi_smiles") or []
         fit_diagnostics = surface_meta.get("fit_diagnostics") or {}
+        fit_mode_comparison = surface_meta.get("fit_mode_comparison") or []
+        if fit_mode_comparison:
+            st.markdown('<div class="section-header">Surface Fit Mode Comparison</div>', unsafe_allow_html=True)
+            st.dataframe(
+                pd.DataFrame(fit_mode_comparison),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "mode": st.column_config.TextColumn("Mode"),
+                    "model": st.column_config.TextColumn("Model"),
+                    "status": st.column_config.TextColumn("Status"),
+                    "fit_policy": st.column_config.TextColumn("Fit Policy"),
+                    "fitted_expiries": st.column_config.NumberColumn("Expiries", format="%d"),
+                    "points": st.column_config.NumberColumn("Points", format="%d"),
+                    "rmse": st.column_config.NumberColumn("RMSE", format="%.2%"),
+                    "weighted_rmse": st.column_config.NumberColumn("Weighted RMSE", format="%.2%"),
+                    "mae": st.column_config.NumberColumn("MAE", format="%.2%"),
+                    "max_error": st.column_config.NumberColumn("Max Error", format="%.2%"),
+                    "weight_mode": st.column_config.TextColumn("Weight Mode"),
+                    "loss_mode": st.column_config.TextColumn("Loss"),
+                    "clipped_count": st.column_config.NumberColumn("Clipped", format="%d"),
+                    "downweighted_count": st.column_config.NumberColumn("Downweighted", format="%d"),
+                    "clip_threshold_abs_residual": st.column_config.NumberColumn("Clip Threshold", format="%.2%"),
+                    "rmse_after_clipping": st.column_config.NumberColumn("Clipped RMSE", format="%.2%"),
+                    "constraints_passed": st.column_config.CheckboxColumn("Constraints"),
+                },
+            )
         if svi_smiles:
             st.markdown('<div class="section-header">SVI Fit Diagnostics</div>', unsafe_allow_html=True)
-            svi_display = pd.DataFrame(svi_smiles).drop(columns=["residuals"], errors="ignore")
+            svi_display = pd.DataFrame(svi_smiles).drop(columns=["residuals", "residual_diagnostics"], errors="ignore")
             st.dataframe(
                 svi_display,
                 width="stretch",
@@ -2134,10 +2161,35 @@ def run_dashboard() -> None:
                     "m": st.column_config.NumberColumn("m", format="%.4f"),
                     "sigma": st.column_config.NumberColumn("sigma", format="%.4f"),
                     "rmse": st.column_config.NumberColumn("RMSE", format="%.2%"),
+                    "weighted_rmse": st.column_config.NumberColumn("Weighted RMSE", format="%.2%"),
                     "mae": st.column_config.NumberColumn("MAE", format="%.2%"),
                     "max_error": st.column_config.NumberColumn("Max Error", format="%.2%"),
+                    "weight_mode": st.column_config.TextColumn("Weight Mode"),
+                    "loss_mode": st.column_config.TextColumn("Loss"),
                 },
             )
+            residual_diagnostics = fit_diagnostics.get("residual_diagnostics") or {}
+            top_residuals = pd.DataFrame(residual_diagnostics.get("top_residuals") or [])
+            if not top_residuals.empty:
+                st.dataframe(
+                    top_residuals,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "expiration": st.column_config.TextColumn("Expiry"),
+                        "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                        "strike": st.column_config.NumberColumn("Strike", format="%.2f"),
+                        "log_moneyness": st.column_config.NumberColumn("Log-moneyness", format="%.3f"),
+                        "observed_iv": st.column_config.NumberColumn("Observed IV", format="%.2%"),
+                        "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
+                        "residual": st.column_config.NumberColumn("Residual", format="%.2%"),
+                        "abs_residual": st.column_config.NumberColumn("Abs Residual", format="%.2%"),
+                        "clipped_residual": st.column_config.NumberColumn("Clipped Residual", format="%.2%"),
+                        "fit_weight": st.column_config.NumberColumn("Fit Weight", format="%.3f"),
+                        "clipped": st.column_config.CheckboxColumn("Clipped"),
+                        "downweighted": st.column_config.CheckboxColumn("Downweighted"),
+                    },
+                )
             front_residuals = pd.DataFrame(svi_smiles[0].get("residuals") or [])
             if not front_residuals.empty:
                 fig_residual = go.Figure()
@@ -2168,6 +2220,9 @@ def run_dashboard() -> None:
                 f"expiries {fmt_int(fit_diagnostics.get('fitted_expiries'))}; "
                 f"points {fmt_int(fit_diagnostics.get('points'))}; "
                 f"RMSE {fmt_pct(fit_diagnostics.get('rmse'))}; "
+                f"weighted RMSE {fmt_pct(fit_diagnostics.get('weighted_rmse'))}; "
+                f"clipped {fmt_int(residual_diagnostics.get('clipped_count'))}; "
+                f"downweighted {fmt_int(residual_diagnostics.get('downweighted_count'))}; "
                 f"MAE {fmt_pct(fit_diagnostics.get('mae'))}; "
                 f"max error {fmt_pct(fit_diagnostics.get('max_error'))}."
             )
@@ -2200,6 +2255,26 @@ def run_dashboard() -> None:
                     },
                 )
             constraints = ssvi_surface.get("constraints") or {}
+            ssvi_residual_diagnostics = ssvi_surface.get("residual_diagnostics") or {}
+            ssvi_top_residuals = pd.DataFrame(ssvi_residual_diagnostics.get("top_residuals") or [])
+            if not ssvi_top_residuals.empty:
+                st.dataframe(
+                    ssvi_top_residuals,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "expiration": st.column_config.TextColumn("Expiry"),
+                        "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                        "strike": st.column_config.NumberColumn("Strike", format="%.2f"),
+                        "log_moneyness": st.column_config.NumberColumn("Log-moneyness", format="%.3f"),
+                        "observed_iv": st.column_config.NumberColumn("Observed IV", format="%.2%"),
+                        "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
+                        "residual": st.column_config.NumberColumn("Residual", format="%.2%"),
+                        "fit_weight": st.column_config.NumberColumn("Fit Weight", format="%.3f"),
+                        "clipped": st.column_config.CheckboxColumn("Clipped"),
+                        "downweighted": st.column_config.CheckboxColumn("Downweighted"),
+                    },
+                )
             st.caption(
                 "SSVI global fit: "
                 f"rho {ssvi_surface.get('rho'):.4f}; "
@@ -2208,6 +2283,9 @@ def run_dashboard() -> None:
                 f"expiries {fmt_int(global_fit.get('fitted_expiries'))}; "
                 f"points {fmt_int(global_fit.get('points'))}; "
                 f"RMSE {fmt_pct(global_fit.get('rmse'))}; "
+                f"weighted RMSE {fmt_pct(global_fit.get('weighted_rmse'))}; "
+                f"clipped {fmt_int(ssvi_residual_diagnostics.get('clipped_count'))}; "
+                f"downweighted {fmt_int(ssvi_residual_diagnostics.get('downweighted_count'))}; "
                 f"constraints passed {constraints.get('passed')}."
             )
         else:

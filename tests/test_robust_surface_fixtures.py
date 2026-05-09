@@ -64,6 +64,12 @@ def test_clean_fixture_is_high_quality_and_has_low_standard_fit_error():
     assert meta["fit_diagnostics"]["fitted_expiries"] == 4
     assert meta["fit_diagnostics"]["points"] == 56
     assert meta["fit_diagnostics"]["rmse"] < 0.005
+    assert [row["mode"] for row in meta["fit_mode_comparison"]] == [
+        "Standard SVI",
+        "Robust SVI",
+        "Robust SSVI",
+    ]
+    assert meta["fit_diagnostics"]["residual_diagnostics"]["policy"] == "diagnostic_only_no_rows_removed"
 
 
 def test_robust_loss_improves_noisy_fixture_without_moving_clean_fixture():
@@ -100,6 +106,11 @@ def test_robust_loss_improves_noisy_fixture_without_moving_clean_fixture():
     assert _mean_rmse(clean_robust) <= _mean_rmse(clean_linear) + 5e-6
     assert _mean_rmse(noisy_robust) < _mean_rmse(noisy_linear)
     assert _abs_residual_quantile(noisy_robust, 0.95) < _abs_residual_quantile(noisy_linear, 0.95)
+    noisy_diagnostics = DashboardConnector._svi_metadata(noisy_surface_chain, spot=FIXTURE_SPOT, iv_column="computedIV")
+    assert noisy_diagnostics["fit_diagnostics"]["residual_diagnostics"]["clipped_count"] >= 1
+    assert noisy_diagnostics["fit_mode_comparison"][0]["mode"] == "Standard SVI"
+    assert noisy_diagnostics["fit_mode_comparison"][0]["weight_mode"] == "uniform"
+    assert noisy_diagnostics["fit_mode_comparison"][1]["mode"] == "Robust SVI"
 
 
 def test_compare_surface_fit_modes_script_emits_deterministic_json():

@@ -33,6 +33,7 @@ def calibrate_svi_by_expiry(
     *,
     iv_column: str = "computedIV",
     weight_column: str | None = "fitWeight",
+    use_weight_fallbacks: bool = True,
     loss: str = "soft_l1",
     loss_f_scale: float = 0.01,
     min_points: int = 5,
@@ -67,12 +68,40 @@ def calibrate_svi_by_expiry(
         k = smile["log_money_num"].to_numpy(dtype=float)
         observed_iv = smile["iv_num"].to_numpy(dtype=float)
         observed_w = observed_iv**2 * t
-        weights, weight_meta = _svi_row_weights(smile, weight_column=weight_column)
+        weights, weight_meta = _svi_row_weights(
+            smile,
+            weight_column=weight_column,
+            use_fallbacks=use_weight_fallbacks,
+        )
         params = _fit_svi(k, observed_w, sample_weights=weights, loss=loss_mode, loss_f_scale=f_scale)
         fitted_w = np.maximum(svi_total_variance(k, **params), 1e-10)
         fitted_iv = np.sqrt(fitted_w / t)
         residuals = fitted_iv - observed_iv
         weighted_rmse = _weighted_rmse(residuals, weights)
+        residual_rows = [
+            {
+                "log_moneyness": float(log_money),
+                "strike": float(strike),
+                "observed_iv": float(observed),
+                "fitted_iv": float(fitted),
+                "residual": float(residual),
+                "fit_weight": float(weight),
+            }
+            for log_money, strike, observed, fitted, residual, weight in zip(
+                k,
+                smile["strike_num"].to_numpy(dtype=float),
+                observed_iv,
+                fitted_iv,
+                residuals,
+                weights,
+            )
+        ]
+        residual_diagnostics = _residual_diagnostics(
+            residual_rows,
+            model="SVI",
+            loss_mode=loss_mode,
+            loss_f_scale=f_scale,
+        )
         rows.append(
             {
                 "expiration": expiry.date().isoformat(),
@@ -86,24 +115,8 @@ def calibrate_svi_by_expiry(
                 "weighted_rmse": weighted_rmse,
                 "mae": float(np.mean(np.abs(residuals))),
                 "max_error": float(np.max(np.abs(residuals))),
-                "residuals": [
-                    {
-                        "log_moneyness": float(log_money),
-                        "strike": float(strike),
-                        "observed_iv": float(observed),
-                        "fitted_iv": float(fitted),
-                        "residual": float(residual),
-                        "fit_weight": float(weight),
-                    }
-                    for log_money, strike, observed, fitted, residual, weight in zip(
-                        k,
-                        smile["strike_num"].to_numpy(dtype=float),
-                        observed_iv,
-                        fitted_iv,
-                        residuals,
-                        weights,
-                    )
-                ],
+                "residual_diagnostics": residual_diagnostics,
+                "residuals": residual_rows,
             }
         )
     return pd.DataFrame(rows).sort_values("dte").reset_index(drop=True) if rows else pd.DataFrame()
@@ -115,6 +128,7 @@ def calibrate_ssvi_surface(
     *,
     iv_column: str = "computedIV",
     weight_column: str | None = "fitWeight",
+    use_weight_fallbacks: bool = True,
     loss: str = "soft_l1",
     loss_f_scale: float = 0.01,
     min_expiries: int = 2,
@@ -145,7 +159,11 @@ def calibrate_ssvi_surface(
     if fit_rows.empty:
         return _empty_ssvi_result("No rows matched calibrated SSVI expiries")
 
-    weights, weight_meta = _svi_row_weights(fit_rows, weight_column=weight_column)
+    weights, weight_meta = _svi_row_weights(
+        fit_rows,
+        weight_column=weight_column,
+        use_fallbacks=use_weight_fallbacks,
+    )
     params = _fit_ssvi(
         fit_rows["log_money_num"].to_numpy(dtype=float),
         fit_rows["iv_num"].to_numpy(dtype=float),
@@ -176,6 +194,28 @@ def calibrate_ssvi_surface(
         params["eta"],
         params["gamma"],
     )
+    residual_rows = [
+        {
+            "expiration": expiry.date().isoformat(),
+            "dte": float(dte),
+            "log_moneyness": float(log_money),
+            "strike": float(strike),
+            "observed_iv": float(observed),
+            "fitted_iv": float(fitted),
+            "residual": float(residual),
+            "fit_weight": float(weight),
+        }
+        for expiry, dte, log_money, strike, observed, fitted, residual, weight in zip(
+            fit_rows["expiration_norm"],
+            fit_rows["dte_num"],
+            fit_rows["log_money_num"],
+            fit_rows["strike_num"],
+            observed_iv,
+            fitted_iv,
+            residuals,
+            weights,
+        )
+    ]
     return {
         "model": "SSVI",
         "status": "fitted",
@@ -200,6 +240,12 @@ def calibrate_ssvi_surface(
         "mae": float(np.mean(np.abs(residuals))),
         "max_error": float(np.max(np.abs(residuals))),
         "constraints": constraints,
+        "residual_diagnostics": _residual_diagnostics(
+            residual_rows,
+            model="SSVI",
+            loss_mode=loss_mode,
+            loss_f_scale=f_scale,
+        ),
         "atm_total_variance": [
             {
                 "expiration": str(row.expiration),
@@ -210,28 +256,7 @@ def calibrate_ssvi_surface(
             }
             for row in expiry_frame.itertuples()
         ],
-        "residuals": [
-            {
-                "expiration": expiry.date().isoformat(),
-                "dte": float(dte),
-                "log_moneyness": float(log_money),
-                "strike": float(strike),
-                "observed_iv": float(observed),
-                "fitted_iv": float(fitted),
-                "residual": float(residual),
-                "fit_weight": float(weight),
-            }
-            for expiry, dte, log_money, strike, observed, fitted, residual, weight in zip(
-                fit_rows["expiration_norm"],
-                fit_rows["dte_num"],
-                fit_rows["log_money_num"],
-                fit_rows["strike_num"],
-                observed_iv,
-                fitted_iv,
-                residuals,
-                weights,
-            )
-        ],
+        "residuals": residual_rows,
     }
 
 
@@ -245,7 +270,14 @@ def fit_diagnostics_from_svi(svi_rows: pd.DataFrame) -> dict[str, Any]:
             "mae": None,
             "max_error": None,
             "points": 0,
+            "residual_diagnostics": _empty_residual_diagnostics("SVI"),
         }
+    residual_diagnostics = _residual_diagnostics(
+        _flatten_svi_residual_rows(svi_rows),
+        model="SVI",
+        loss_mode=_joined_unique(svi_rows, "loss_mode"),
+        loss_f_scale=_mean_or_none(svi_rows, "loss_f_scale"),
+    )
     return {
         "model": "SVI",
         "fitted_expiries": int(len(svi_rows)),
@@ -258,6 +290,7 @@ def fit_diagnostics_from_svi(svi_rows: pd.DataFrame) -> dict[str, Any]:
         "weight_column": _joined_unique(svi_rows, "weight_column"),
         "loss_mode": _joined_unique(svi_rows, "loss_mode"),
         "loss_f_scale": _mean_or_none(svi_rows, "loss_f_scale"),
+        "residual_diagnostics": residual_diagnostics,
     }
 
 
@@ -277,6 +310,7 @@ def fit_diagnostics_from_ssvi(ssvi_result: dict[str, Any]) -> dict[str, Any]:
         "weight_column": ssvi_result.get("weight_column"),
         "loss_mode": ssvi_result.get("loss_mode"),
         "loss_f_scale": ssvi_result.get("loss_f_scale"),
+        "residual_diagnostics": ssvi_result.get("residual_diagnostics") or _empty_residual_diagnostics("SSVI"),
         "constraints_passed": bool((ssvi_result.get("constraints") or {}).get("passed", False)),
     }
 
@@ -376,14 +410,19 @@ def _fit_ssvi(
     return {"rho": float(rho), "eta": float(eta), "gamma": float(gamma)}
 
 
-def _svi_row_weights(smile: pd.DataFrame, *, weight_column: str | None) -> tuple[np.ndarray, dict[str, Any]]:
+def _svi_row_weights(
+    smile: pd.DataFrame,
+    *,
+    weight_column: str | None,
+    use_fallbacks: bool = True,
+) -> tuple[np.ndarray, dict[str, Any]]:
     """Return deterministic per-row SVI weights plus provenance metadata."""
     source_column = _first_numeric_column(smile, [weight_column] if weight_column else [])
     mode = "uniform"
     if source_column:
         raw = pd.to_numeric(smile[source_column], errors="coerce").to_numpy(dtype=float)
         mode = "quote_reliability_liquidity" if source_column == "fitWeight" else "provided"
-    else:
+    elif use_fallbacks:
         reliability_column = _first_numeric_column(smile, ["quoteReliabilityScore"])
         liquidity_weights = _liquidity_weights(smile)
         if reliability_column:
@@ -398,6 +437,8 @@ def _svi_row_weights(smile: pd.DataFrame, *, weight_column: str | None) -> tuple
             mode = "liquidity"
         else:
             raw = np.ones(len(smile), dtype=float)
+    else:
+        raw = np.ones(len(smile), dtype=float)
 
     weights = _sanitize_weights(raw, len(smile))
     return weights, _weight_metadata(weights, mode=mode, column=source_column)
@@ -477,6 +518,134 @@ def _weighted_rmse(residuals: np.ndarray, weights: np.ndarray) -> float:
     if total_weight <= 0.0:
         return float(np.sqrt(np.mean(residuals**2)))
     return float(np.sqrt(np.average(residuals**2, weights=clean_weights)))
+
+
+def _flatten_svi_residual_rows(svi_rows: pd.DataFrame) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for smile in svi_rows.to_dict("records"):
+        for row in smile.get("residuals") or []:
+            rows.append(
+                {
+                    **row,
+                    "expiration": smile.get("expiration"),
+                    "dte": smile.get("dte"),
+                    "model": "SVI",
+                }
+            )
+    return rows
+
+
+def _residual_diagnostics(
+    rows: list[dict[str, Any]],
+    *,
+    model: str,
+    loss_mode: str | None,
+    loss_f_scale: float | None,
+    top_n: int = 10,
+) -> dict[str, Any]:
+    if not rows:
+        return _empty_residual_diagnostics(model)
+
+    frame = pd.DataFrame(rows)
+    frame["residual"] = pd.to_numeric(frame.get("residual"), errors="coerce")
+    frame["fit_weight"] = pd.to_numeric(frame.get("fit_weight", 1.0), errors="coerce").fillna(1.0)
+    frame = frame.dropna(subset=["residual"])
+    if frame.empty:
+        return _empty_residual_diagnostics(model)
+
+    residuals = frame["residual"].to_numpy(dtype=float)
+    abs_residuals = np.abs(residuals)
+    threshold = _residual_clip_threshold(residuals)
+    clipped = np.clip(residuals, -threshold, threshold)
+    clipped_mask = abs_residuals > threshold
+    positive_weights = frame.loc[frame["fit_weight"] > 0.0, "fit_weight"]
+    weight_threshold = float(positive_weights.median() * 0.5) if not positive_weights.empty else 0.0
+    downweighted_mask = frame["fit_weight"].to_numpy(dtype=float) < weight_threshold if weight_threshold > 0 else np.zeros(
+        len(frame),
+        dtype=bool,
+    )
+
+    display = frame.copy()
+    display["abs_residual"] = abs_residuals
+    display["clipped_residual"] = clipped
+    display["clipped"] = clipped_mask
+    display["downweighted"] = downweighted_mask
+    top_rows = display.sort_values("abs_residual", ascending=False).head(top_n)
+
+    return {
+        "model": model,
+        "policy": "diagnostic_only_no_rows_removed",
+        "loss_mode": loss_mode,
+        "loss_f_scale": loss_f_scale,
+        "points": int(len(frame)),
+        "clip_threshold_abs_residual": float(threshold),
+        "clipped_count": int(np.count_nonzero(clipped_mask)),
+        "downweighted_count": int(np.count_nonzero(downweighted_mask)),
+        "downweight_threshold": weight_threshold,
+        "rmse_before_clipping": float(np.sqrt(np.mean(residuals**2))),
+        "rmse_after_clipping": float(np.sqrt(np.mean(clipped**2))),
+        "rmse_clipping_impact": float(np.sqrt(np.mean(residuals**2)) - np.sqrt(np.mean(clipped**2))),
+        "max_abs_residual": float(np.max(abs_residuals)),
+        "top_residuals": [_top_residual_row(row) for row in top_rows.to_dict("records")],
+    }
+
+
+def _residual_clip_threshold(residuals: np.ndarray) -> float:
+    residuals = np.asarray(residuals, dtype=float)
+    median = float(np.median(residuals))
+    mad = float(np.median(np.abs(residuals - median)))
+    robust_sigma = 1.4826 * mad
+    if np.isfinite(robust_sigma) and robust_sigma > 0.0:
+        return max(3.0 * robust_sigma, 1e-6)
+    abs_residuals = np.abs(residuals)
+    fallback = float(np.quantile(abs_residuals, 0.95)) if len(abs_residuals) else 0.0
+    return max(fallback, 1e-6)
+
+
+def _top_residual_row(row: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "model",
+        "expiration",
+        "dte",
+        "strike",
+        "log_moneyness",
+        "observed_iv",
+        "fitted_iv",
+        "residual",
+        "abs_residual",
+        "clipped_residual",
+        "fit_weight",
+        "clipped",
+        "downweighted",
+    )
+    return {key: _json_safe_value(row.get(key)) for key in keys if key in row}
+
+
+def _json_safe_value(value: Any) -> Any:
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    if isinstance(value, (np.integer, int)):
+        return int(value)
+    if isinstance(value, (np.floating, float)):
+        return float(value)
+    return value
+
+
+def _empty_residual_diagnostics(model: str) -> dict[str, Any]:
+    return {
+        "model": model,
+        "policy": "diagnostic_only_no_rows_removed",
+        "points": 0,
+        "clip_threshold_abs_residual": None,
+        "clipped_count": 0,
+        "downweighted_count": 0,
+        "downweight_threshold": None,
+        "rmse_before_clipping": None,
+        "rmse_after_clipping": None,
+        "rmse_clipping_impact": None,
+        "max_abs_residual": None,
+        "top_residuals": [],
+    }
 
 
 def _mean_or_none(frame: pd.DataFrame, column: str) -> float | None:

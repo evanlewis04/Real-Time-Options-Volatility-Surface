@@ -27,7 +27,7 @@ from tests.fixtures.noisy_option_chain import (
 
 
 def fixture_fit_summary(name: str) -> dict[str, Any]:
-    """Return deterministic standard-fit diagnostics for one fixture."""
+    """Return deterministic fit diagnostics for one fixture."""
     if name == "clean":
         raw = clean_option_chain_raw()
         checked, no_arb = checked_clean_chain()
@@ -46,7 +46,7 @@ def fixture_fit_summary(name: str) -> dict[str, Any]:
 
     return {
         "fixture": name,
-        "mode": "standard_svi_current",
+        "mode": "robust_svi_current",
         "provenance": {
             "source": "deterministic_fixture",
             "observed_quote_input": "normalized yfinance-shaped rows",
@@ -64,6 +64,7 @@ def fixture_fit_summary(name: str) -> dict[str, Any]:
         "fit_mae": fit_meta.get("fit_diagnostics", {}).get("mae"),
         "fit_max_error": fit_meta.get("fit_diagnostics", {}).get("max_error"),
         "fit_expiries": fit_meta.get("fit_diagnostics", {}).get("fitted_expiries"),
+        "fit_modes": fit_meta.get("fit_mode_comparison") or [],
         "residual_quantiles": _quantiles(residuals),
     }
 
@@ -74,7 +75,7 @@ def main() -> None:
     args = parser.parse_args()
 
     payload = {
-        "description": "Current standard SVI fixture comparison. Robust and ML-denoised modes are not market truth.",
+        "description": "Current SVI/SSVI fixture comparison. Robust and ML-denoised modes are not market truth.",
         "fixtures": [fixture_fit_summary("clean"), fixture_fit_summary("noisy")],
     }
     if args.json:

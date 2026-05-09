@@ -81,6 +81,11 @@ def test_svi_robust_loss_improves_clean_rows_around_noisy_center_point():
     assert _abs_residual_quantile(robust.iloc[0]["residuals"], 0.90) < (
         _abs_residual_quantile(standard.iloc[0]["residuals"], 0.90) * 0.15
     )
+    residual_diagnostics = robust.iloc[0]["residual_diagnostics"]
+    assert residual_diagnostics["policy"] == "diagnostic_only_no_rows_removed"
+    assert residual_diagnostics["clipped_count"] >= 1
+    assert residual_diagnostics["rmse_after_clipping"] < residual_diagnostics["rmse_before_clipping"]
+    assert residual_diagnostics["top_residuals"][0]["clipped"]
 
 
 def test_weighted_svi_calibration_prefers_high_weight_clean_rows():
@@ -212,6 +217,14 @@ def test_connector_svi_metadata_includes_fit_diagnostics():
     assert meta["fit_diagnostics"]["fitted_expiries"] == 1
     assert meta["fit_diagnostics"]["points"] == 9
     assert meta["fit_diagnostics"]["loss_mode"] == "soft_l1"
+    assert meta["fit_diagnostics"]["residual_diagnostics"]["points"] == 9
+    assert [row["mode"] for row in meta["fit_mode_comparison"]] == [
+        "Standard SVI",
+        "Robust SVI",
+        "Robust SSVI",
+    ]
+    assert meta["standard_fit_diagnostics"]["loss_mode"] == "linear"
+    assert meta["standard_fit_diagnostics"]["weight_mode"] == "uniform"
     assert meta["svi_smiles"][0]["rmse"] < 1e-3
 
 
@@ -243,6 +256,7 @@ def test_connector_svi_metadata_includes_global_ssvi_diagnostics():
     assert meta["global_fit_diagnostics"]["loss_mode"] == "soft_l1"
     assert meta["global_fit_diagnostics"]["weight_mode"] == "uniform"
     assert meta["global_fit_diagnostics"]["weighted_rmse"] == meta["global_fit_diagnostics"]["unweighted_rmse"]
+    assert meta["global_fit_diagnostics"]["residual_diagnostics"]["points"] == 18
     assert meta["global_fit_diagnostics"]["constraints_passed"]
     assert meta["ssvi_surface"]["rmse"] < 1e-3
 

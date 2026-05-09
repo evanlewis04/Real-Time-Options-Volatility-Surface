@@ -125,11 +125,11 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
   - Extend SSVI fit to use row weights and robust loss.
   - Acceptance: global fit diagnostics include weight mode, loss mode, weighted RMSE, unweighted RMSE, and constraints.
 
-- [ ] Add residual clipping diagnostics.
+- [x] Add residual clipping diagnostics.
   - Do not silently remove outliers. Report clipped/downweighted rows, residual thresholds, and impact on fit.
   - Acceptance: dashboard can show clipped/downweighted counts and top residual rows.
 
-- [ ] Preserve standard fit as a comparison mode.
+- [x] Preserve standard fit as a comparison mode.
   - Fit modes: `Standard SVI`, `Robust SVI`, `Robust SSVI`, and later `ML Denoised`.
   - Acceptance: user can compare standard and robust diagnostics from the same quote set.
 
