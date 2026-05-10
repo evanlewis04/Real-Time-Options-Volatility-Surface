@@ -203,27 +203,27 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 7: Dashboard Workflow Updates
 
-- [ ] Add `Fit Mode` controls to SurfaceWorkspace.
+- [x] Add `Fit Mode` controls to SurfaceWorkspace.
   - Modes: `Standard`, `Robust`, `Prior Assisted`, `ML Denoised`, `Diagnostic Raw`.
   - Acceptance: selected mode updates charts, captions, and provenance.
 
-- [ ] Add a quote reliability overlay.
+- [x] Add a quote reliability overlay.
   - Raw quote points should be colored or sized by reliability score.
   - Acceptance: low-reliability outliers are visually distinct from clean quotes.
 
-- [ ] Add a fit comparison panel.
+- [x] Add a fit comparison panel.
   - Table: fit mode, eligible rows, excluded rows, weighted RMSE, unweighted RMSE, no-arb violations, prior weight, ML uncertainty, timestamp.
   - Acceptance: all values are sourced from metadata, not recomputed ad hoc in the UI.
 
-- [ ] Improve DataQualityPanel for actionability.
+- [x] Improve DataQualityPanel for actionability.
   - Show top penalty reasons, worst expiries, worst residual contracts, no-arb violation counts, and suggested stricter preset.
   - Acceptance: the user can understand why the score changed from yesterday.
 
-- [ ] Add an alert when quality materially drops.
+- [x] Add an alert when quality materially drops.
   - Compare current quality score and reason buckets with prior snapshots.
   - Acceptance: dashboard can say whether a surface shape change is likely data-quality driven.
 
-- [ ] Add exports for fit diagnostics.
+- [x] Add exports for fit diagnostics.
   - CSV/JSON export for row weights, residuals, fit diagnostics, and provenance.
   - Acceptance: exported payload can reproduce the selected fit mode offline.
 

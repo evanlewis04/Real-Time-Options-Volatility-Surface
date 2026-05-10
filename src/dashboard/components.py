@@ -20,8 +20,22 @@ SurfaceWorkspace = DashboardComponentSpec(
     key="surface_workspace",
     title="SurfaceWorkspace",
     workflow="surface_analysis",
-    required_views=("3d_surface", "heatmap", "raw_points", "fit_residuals", "axis_controls"),
-    provenance_fields=("surface_mode", "surface_source", "surface_quality_score", "pricing_model_label"),
+    required_views=(
+        "3d_surface",
+        "heatmap",
+        "raw_points",
+        "fit_residuals",
+        "axis_controls",
+        "fit_mode_controls",
+        "quote_reliability_overlay",
+    ),
+    provenance_fields=(
+        "surface_mode",
+        "surface_source",
+        "surface_quality_score",
+        "pricing_model_label",
+        "surface_estimate_type",
+    ),
 )
 
 ChainExplorer = DashboardComponentSpec(
@@ -52,8 +66,17 @@ DataQualityPanel = DashboardComponentSpec(
     key="data_quality_panel",
     title="DataQualityPanel",
     workflow="data_quality",
-    required_views=("source", "timestamp", "cache_age", "rejected_rows", "violations", "fit_errors"),
-    provenance_fields=("source", "timestamp", "cache_age_seconds", "quality_reason_buckets"),
+    required_views=(
+        "source",
+        "timestamp",
+        "cache_age",
+        "rejected_rows",
+        "violations",
+        "fit_errors",
+        "quality_drop_alert",
+        "actionable_reasons",
+    ),
+    provenance_fields=("source", "timestamp", "cache_age_seconds", "quality_reason_buckets", "quality_drop_alert"),
 )
 
 ScannerPanel = DashboardComponentSpec(
@@ -92,7 +115,7 @@ ReportExportPanel = DashboardComponentSpec(
     key="report_export_panel",
     title="ReportExportPanel",
     workflow="report_export",
-    required_views=("html_export", "notebook_export", "workspace_export"),
+    required_views=("html_export", "notebook_export", "workspace_export", "fit_diagnostics_export"),
     provenance_fields=("source", "mode", "data_timestamp", "model_assumptions"),
 )
 
@@ -114,4 +137,3 @@ PHASE6_COMPONENTS: tuple[DashboardComponentSpec, ...] = (
 def phase6_component_titles() -> list[str]:
     """Return Phase 6 component titles in implementation order."""
     return [component.title for component in PHASE6_COMPONENTS]
-

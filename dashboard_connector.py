@@ -26,7 +26,7 @@ from src.data.market_calendar import MarketCalendar
 from src.data.models import MarketDataSnapshot
 from src.data.options_provider import OptionsChainMetadata, YFinanceOptionsProvider
 from src.data.price_provider import RealTimePriceProvider
-from src.data.snapshots import load_latest_snapshot, save_snapshot
+from src.data.snapshots import load_latest_snapshot, load_recent_snapshots, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
 from src.ml.surface_denoiser import ml_surface_mode_metadata
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
@@ -402,6 +402,7 @@ class DashboardConnector:
                 **self._sabr_metadata(key, surface_chain, spot),
             }
             metadata.update(self._surface_quality_metadata(surface_chain, metadata))
+            metadata.update(self._quality_drop_metadata(key, metadata))
             current_vols = np.asarray(vols, dtype=float).copy()
             prior = load_historical_surface_prior(
                 key,
@@ -596,6 +597,7 @@ class DashboardConnector:
                 }
             )
             metadata.update(self._surface_quality_metadata(chain, metadata))
+            metadata.update(self._quality_drop_metadata(key, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, chain, spot, iv_column="impliedVolatility"))
             metadata.update(
@@ -1938,6 +1940,53 @@ class DashboardConnector:
             "fit_last_only_policy": filters["last_only_policy"],
         }
 
+    def _quality_drop_metadata(self, symbol: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        current_score = _finite_or_none(metadata.get("surface_quality_score") or metadata.get("data_quality_score"))
+        current_buckets = dict(metadata.get("quality_reason_buckets") or metadata.get("rejection_reasons") or {})
+        current_timestamp = metadata.get("timestamp") or metadata.get("spot_timestamp") or datetime.now()
+        try:
+            snapshots = load_recent_snapshots(symbol.upper(), self.snapshot_dir, before=current_timestamp, max_count=5)
+        except Exception:
+            snapshots = []
+
+        previous = next((snapshot for snapshot in snapshots if snapshot.quality_score is not None), None)
+        if current_score is None or previous is None:
+            return {
+                "quality_drop_alert": {
+                    "available": False,
+                    "triggered": False,
+                    "reason": "No previous quality snapshot available",
+                    "current_quality_score": current_score,
+                    "previous_quality_score": None,
+                    "provenance": "persisted_snapshot_quality_comparison",
+                }
+            }
+
+        previous_score = float(previous.quality_score)
+        previous_buckets = dict(previous.quality_reason_buckets)
+        score_change = float(current_score - previous_score)
+        bucket_delta = {
+            reason: int(current_buckets.get(reason, 0) - previous_buckets.get(reason, 0))
+            for reason in sorted(set(current_buckets) | set(previous_buckets))
+            if int(current_buckets.get(reason, 0) - previous_buckets.get(reason, 0)) != 0
+        }
+        triggered = score_change <= -10.0 or any(delta >= 3 for delta in bucket_delta.values())
+        return {
+            "quality_drop_alert": {
+                "available": True,
+                "triggered": bool(triggered),
+                "current_quality_score": float(current_score),
+                "previous_quality_score": previous_score,
+                "score_change": score_change,
+                "current_reason_buckets": {str(key): int(value) for key, value in current_buckets.items() if value},
+                "previous_reason_buckets": {str(key): int(value) for key, value in previous_buckets.items() if value},
+                "reason_bucket_delta": bucket_delta,
+                "previous_snapshot_timestamp": previous.spot_timestamp.isoformat(),
+                "previous_snapshot_source": previous.source,
+                "provenance": "persisted_snapshot_quality_comparison",
+            }
+        }
+
     def _safe_fallback(self, symbol: str) -> Dict[str, Any]:
         try:
             price = self.price_provider.get_live_price(symbol)
@@ -2000,6 +2049,11 @@ def _float_or_nan(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return np.nan
+
+
+def _finite_or_none(value: Any) -> float | None:
+    number = _float_or_nan(value)
+    return float(number) if np.isfinite(number) else None
 
 
 def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:

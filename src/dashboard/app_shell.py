@@ -1,8 +1,179 @@
 from __future__ import annotations
 
 
+FIT_MODE_CHOICES = ("Robust", "Standard", "Prior Assisted", "ML Denoised", "Diagnostic Raw")
+
+
+def fit_mode_state(selected_mode: str, surface_meta: dict) -> dict:
+    """Return dashboard fit-mode state sourced from existing metadata."""
+    selected = selected_mode if selected_mode in FIT_MODE_CHOICES else "Robust"
+    prior_applied = bool(surface_meta.get("surface_prior_applied"))
+    mode_rows = surface_meta.get("fit_mode_comparison") or []
+    mode_by_name = {str(row.get("mode")): row for row in mode_rows}
+    mapping = {
+        "Robust": ("Robust SVI", "current_robust_fit_estimate"),
+        "Standard": ("Standard SVI", "standard_svi_fit_estimate"),
+        "Prior Assisted": ("Prior Assisted", "prior_assisted_estimate"),
+        "ML Denoised": ("ML Denoised", "ml_denoised_research_estimate"),
+        "Diagnostic Raw": ("Diagnostic Raw", "raw_quote_diagnostic_overlay"),
+    }
+    row_name, estimate_type = mapping[selected]
+    row = mode_by_name.get(row_name, {})
+    available = True
+    if selected == "Prior Assisted":
+        available = prior_applied or bool(row)
+    elif selected == "ML Denoised":
+        available = bool(row.get("enabled")) if row else False
+    elif selected == "Diagnostic Raw":
+        available = bool(surface_meta.get("svi_smiles") or surface_meta.get("fit_diagnostics"))
+    warning = ""
+    if selected == "ML Denoised" and not available:
+        warning = "ML Denoised is research-only and off by default; robust deterministic estimates remain displayed."
+    elif selected == "Prior Assisted" and not prior_applied:
+        warning = "Prior Assisted was not applied; current robust fit estimates remain displayed."
+    elif selected == "Standard":
+        warning = "Standard mode is shown for comparison; reliability-weighted robust estimates remain the active surface."
+    elif selected == "Diagnostic Raw":
+        warning = "Diagnostic Raw emphasizes observed quote points and reliability; fitted surface estimates remain visible for context."
+    return {
+        "selected_mode": selected,
+        "comparison_row": row,
+        "estimate_type": estimate_type,
+        "available": bool(available),
+        "chart_label": f"{selected} View",
+        "provenance": row.get("provenance") or surface_meta.get("surface_estimate_type") or estimate_type,
+        "warning": warning,
+    }
+
+
+def fit_comparison_display_rows(surface_meta: dict) -> list[dict]:
+    """Normalize fit-mode metadata into the Phase 7 comparison table shape."""
+    rows = []
+    timestamp = surface_meta.get("timestamp") or surface_meta.get("spot_timestamp")
+    if hasattr(timestamp, "isoformat"):
+        timestamp = timestamp.isoformat()
+    fit_eligible = surface_meta.get("fit_eligible_count")
+    fit_excluded = surface_meta.get("fit_excluded_count")
+    for row in surface_meta.get("fit_mode_comparison") or []:
+        rows.append(
+            {
+                "fit_mode": row.get("mode"),
+                "status": row.get("status"),
+                "eligible_rows": row.get("eligible_rows", fit_eligible),
+                "excluded_rows": row.get("excluded_rows", fit_excluded),
+                "weighted_rmse": row.get("weighted_rmse"),
+                "unweighted_rmse": row.get("unweighted_rmse", row.get("rmse")),
+                "no_arb_violations": row.get("arbitrage_violations", surface_meta.get("no_arbitrage_violation_count")),
+                "prior_weight": row.get("prior_weight", surface_meta.get("surface_prior_blend_weight")),
+                "ml_uncertainty": row.get("uncertainty"),
+                "timestamp": timestamp,
+                "provenance": row.get("provenance") or surface_meta.get("surface_source"),
+            }
+        )
+    return rows
+
+
+def data_quality_actionability(surface_meta: dict) -> dict:
+    """Summarize actionable quality diagnostics from metadata only."""
+    reason_buckets = dict(surface_meta.get("quality_reason_buckets") or surface_meta.get("rejection_reasons") or {})
+    penalty_buckets = dict(surface_meta.get("fit_penalty_reason_buckets") or {})
+    hard_buckets = dict(surface_meta.get("fit_hard_rejection_reason_buckets") or {})
+    combined = {}
+    for source in (reason_buckets, penalty_buckets, hard_buckets):
+        for reason, count in source.items():
+            if count:
+                combined[str(reason)] = combined.get(str(reason), 0) + int(count)
+    top_penalties = [
+        {"reason": reason, "count": count}
+        for reason, count in sorted(combined.items(), key=lambda item: (-item[1], item[0]))[:8]
+    ]
+    expiry_rows = []
+    for expiry, payload in sorted((surface_meta.get("expiry_quality") or {}).items()):
+        expiry_rows.append(
+            {
+                "expiry": expiry,
+                "score": payload.get("score"),
+                "surface_quotes": payload.get("surface_quotes"),
+                "rejected_quotes": payload.get("rejected_quotes"),
+                "reason_buckets": payload.get("reason_buckets") or {},
+            }
+        )
+    expiry_rows.sort(key=lambda row: (999.0 if row["score"] is None else float(row["score"]), str(row["expiry"])))
+    residuals = ((surface_meta.get("fit_diagnostics") or {}).get("residual_diagnostics") or {}).get("top_residuals") or []
+    no_arb = {
+        "violation_count": surface_meta.get("no_arbitrage_violation_count"),
+        "violation_rows": surface_meta.get("no_arbitrage_violation_rows"),
+        "excluded_count": surface_meta.get("no_arbitrage_excluded_count"),
+        "reason_buckets": surface_meta.get("no_arbitrage_reason_buckets") or {},
+        "post_fit": (surface_meta.get("post_fit_arbitrage") or {}).get("reason_buckets") or {},
+    }
+    suggest_strict = bool(
+        (surface_meta.get("surface_quality_score") is not None and float(surface_meta.get("surface_quality_score")) < 80.0)
+        or no_arb.get("violation_rows")
+        or hard_buckets
+    )
+    return {
+        "top_penalty_reasons": top_penalties,
+        "worst_expiries": expiry_rows[:5],
+        "worst_residual_contracts": residuals[:8],
+        "no_arbitrage": no_arb,
+        "suggested_preset": "Strict" if suggest_strict else surface_meta.get("fit_filter_preset") or "Standard",
+    }
+
+
+def quality_drop_alert_summary(surface_meta: dict) -> dict:
+    """Return alert copy for material quality changes versus persisted snapshots."""
+    alert = surface_meta.get("quality_drop_alert") or {}
+    if not alert.get("available"):
+        return {"level": "info", "message": alert.get("reason") or "No prior quality snapshot is available."}
+    score_change = alert.get("score_change")
+    deltas = alert.get("reason_bucket_delta") or {}
+    if alert.get("triggered"):
+        drivers = ", ".join(f"{key}: +{value}" for key, value in deltas.items() if value > 0) or "score drop"
+        return {
+            "level": "warning",
+            "message": f"Quality dropped {score_change:.1f} points versus {alert.get('previous_snapshot_timestamp')}; likely drivers: {drivers}.",
+        }
+    return {
+        "level": "success",
+        "message": f"Quality is stable versus {alert.get('previous_snapshot_timestamp')}; score change {score_change:.1f}.",
+    }
+
+
+def fit_diagnostics_export_payload(symbol: str, surface_meta: dict) -> dict:
+    """Build a reproducible diagnostics export payload without recomputing metrics."""
+    return {
+        "symbol": symbol,
+        "selected_surface_mode": surface_meta.get("selected_fit_mode"),
+        "fit_mode_comparison": surface_meta.get("fit_mode_comparison") or [],
+        "fit_diagnostics": surface_meta.get("fit_diagnostics") or {},
+        "global_fit_diagnostics": surface_meta.get("global_fit_diagnostics") or {},
+        "surface_quality": surface_meta.get("surface_quality") or {},
+        "post_fit_arbitrage": surface_meta.get("post_fit_arbitrage") or {},
+        "surface_prior": surface_meta.get("surface_prior") or {},
+        "surface_repair": surface_meta.get("surface_repair") or {},
+        "row_weights": _fit_residual_rows_for_export(surface_meta),
+        "provenance": {
+            "surface_source": surface_meta.get("surface_source"),
+            "surface_mode": surface_meta.get("surface_mode"),
+            "surface_estimate_type": surface_meta.get("surface_estimate_type"),
+            "option_price_source": surface_meta.get("option_price_source"),
+            "pricing_model": surface_meta.get("pricing_model_label"),
+        },
+    }
+
+
+def _fit_residual_rows_for_export(surface_meta: dict) -> list[dict]:
+    rows = []
+    for smile in surface_meta.get("svi_smiles") or []:
+        for row in smile.get("residuals") or []:
+            rows.append({**row, "expiration": smile.get("expiration"), "dte": smile.get("dte")})
+    return rows
+
+
 def run_dashboard() -> None:
 
+    import json
     import os
     import sys
     import time
@@ -456,6 +627,17 @@ def run_dashboard() -> None:
             index=0,
             help=CONTROL_HELP["surface_x_axis"],
         )
+        selected_fit_mode = st.selectbox(
+            "Fit Mode",
+            options=list(FIT_MODE_CHOICES),
+            index=0,
+            help="Select the dashboard view for fitted, prior-assisted, ML research, or diagnostic raw surface context.",
+        )
+        show_reliability_overlay = st.checkbox(
+            "Reliability overlay",
+            value=True,
+            help="Color and size raw quote points by deterministic fit weight/reliability metadata.",
+        )
         show_correlations = st.checkbox("Realized correlation", value=True, help=CONTROL_HELP["show_correlations"])
         show_chain = st.checkbox("Option chain", value=True, help=CONTROL_HELP["show_chain"])
         auto_refresh = st.checkbox("Auto refresh", value=False, help=CONTROL_HELP["auto_refresh"])
@@ -700,6 +882,8 @@ def run_dashboard() -> None:
         lambda: get_vol_surface_data_cached(surface_symbol, data_key),
     )
     surface_meta = get_surface_metadata_cached(surface_symbol, data_key)
+    fit_mode_view = fit_mode_state(selected_fit_mode, surface_meta)
+    surface_meta = {**surface_meta, "selected_fit_mode": fit_mode_view["selected_mode"]}
     stats = surface_stats(strikes, expiries, vol_surface, current_data["price"])
     term_metrics = stats.get("term_metrics") or {}
     market_status = get_market_status_cached()
@@ -726,6 +910,7 @@ def run_dashboard() -> None:
             {status_pill("Price", current_data.get("data_mode", "Unknown"))}
             {status_pill("IV", current_data.get("iv_source", "Unknown"))}
             {status_pill("Model", surface_meta.get("pricing_model_label") or "BSM with dividends")}
+            {status_pill("Fit View", fit_mode_view["selected_mode"])}
             {status_pill("Market", market_status.get("session_state", "Unknown"))}
         </div>
     </div>
@@ -964,6 +1149,10 @@ def run_dashboard() -> None:
                 "surface_quality_score": surface_meta.get("surface_quality_score"),
                 "fit_diagnostics": surface_meta.get("fit_diagnostics"),
                 "global_fit_diagnostics": surface_meta.get("global_fit_diagnostics"),
+                "fit_mode_comparison": surface_meta.get("fit_mode_comparison"),
+                "post_fit_arbitrage": surface_meta.get("post_fit_arbitrage"),
+                "surface_repair": surface_meta.get("surface_repair"),
+                "quality_drop_alert": surface_meta.get("quality_drop_alert"),
                 "warnings": surface_meta.get("warnings"),
                 "source": surface_meta.get("surface_source") or current_data.get("price_source"),
                 "mode": surface_meta.get("surface_mode") or current_data.get("data_mode"),
@@ -1140,9 +1329,15 @@ def run_dashboard() -> None:
                 surface_x_axis,
                 current_data["price"],
             )
+            fit_points["reliability_overlay"] = pd.to_numeric(
+                fit_points.get("fit_weight", 1.0),
+                errors="coerce",
+            ).fillna(1.0).clip(0.0, 1.0)
         else:
             fit_axis_title = axis_title
             fit_axis_label = axis_title
+        if fit_mode_view.get("warning"):
+            st.caption(fit_mode_view["warning"])
 
         if show_3d_surface:
             fig_3d = go.Figure(
@@ -1158,6 +1353,17 @@ def run_dashboard() -> None:
                 ]
             )
             if not fit_points.empty:
+                marker_3d = {"size": 3, "color": "#f97316", "opacity": 0.82}
+                if show_reliability_overlay:
+                    marker_3d = {
+                        "size": 4 + (fit_points["reliability_overlay"] * 5),
+                        "color": fit_points["reliability_overlay"],
+                        "colorscale": "Viridis",
+                        "cmin": 0,
+                        "cmax": 1,
+                        "colorbar": dict(title="Reliability"),
+                        "opacity": 0.82,
+                    }
                 fig_3d.add_trace(
                     go.Scatter3d(
                         x=fit_points["axis_value"],
@@ -1165,17 +1371,18 @@ def run_dashboard() -> None:
                         z=fit_points["observed_iv"],
                         mode="markers",
                         name="Raw IV points",
-                        marker=dict(size=3, color="#f97316", opacity=0.78),
-                        customdata=fit_points[["fitted_iv", "residual", "source"]],
+                        marker=marker_3d,
+                        customdata=fit_points[["fitted_iv", "residual", "source", "reliability_overlay"]],
                         hovertemplate=(
                             f"{fit_axis_label}: %{{x:.3f}}<br>DTE: %{{y:.0f}}<br>"
                             "Observed IV: %{z:.2%}<br>Fitted IV: %{customdata[0]:.2%}<br>"
-                            "Residual: %{customdata[1]:.2%}<br>%{customdata[2]}<extra></extra>"
+                            "Residual: %{customdata[1]:.2%}<br>Reliability: %{customdata[3]:.2f}<br>"
+                            "%{customdata[2]}<extra></extra>"
                         ),
                     )
                 )
             fig_3d.update_layout(
-                title=f"{surface_symbol} Implied Volatility Surface",
+                title=f"{surface_symbol} Implied Volatility Surface - {fit_mode_view['chart_label']}",
                 scene=dict(
                     xaxis_title=fit_axis_title,
                     yaxis_title="Days to expiry",
@@ -1200,28 +1407,44 @@ def run_dashboard() -> None:
             ]
         )
         if not fit_points.empty:
+            marker_2d = {"color": "#111827", "size": 6, "symbol": "circle-open"}
+            if show_reliability_overlay:
+                marker_2d = {
+                    "color": fit_points["reliability_overlay"],
+                    "size": 5 + (fit_points["reliability_overlay"] * 8),
+                    "symbol": "circle-open",
+                    "colorscale": "Viridis",
+                    "cmin": 0,
+                    "cmax": 1,
+                    "colorbar": dict(title="Reliability"),
+                }
             fig_heatmap.add_trace(
                 go.Scatter(
                     x=fit_points["axis_value"],
                     y=fit_points["dte"],
                     mode="markers",
                     name="Raw IV points",
-                    marker=dict(color="#111827", size=6, symbol="circle-open"),
-                    customdata=fit_points[["observed_iv", "fitted_iv", "residual", "source"]],
+                    marker=marker_2d,
+                    customdata=fit_points[["observed_iv", "fitted_iv", "residual", "source", "reliability_overlay"]],
                     hovertemplate=(
                         f"{fit_axis_label}: %{{x:.3f}}<br>DTE: %{{y:.0f}}<br>"
                         "Observed IV: %{customdata[0]:.2%}<br>"
                         "Fitted IV: %{customdata[1]:.2%}<br>"
-                        "Residual: %{customdata[2]:.2%}<br>%{customdata[3]}<extra></extra>"
+                        "Residual: %{customdata[2]:.2%}<br>Reliability: %{customdata[4]:.2f}<br>"
+                        "%{customdata[3]}<extra></extra>"
                     ),
                 )
             )
         fig_heatmap.update_layout(
-            title=f"{surface_symbol} Surface Heatmap",
+            title=f"{surface_symbol} Surface Heatmap - {fit_mode_view['chart_label']}",
             xaxis_title=axis_title,
             yaxis_title="Days to expiry",
         )
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
+        st.caption(
+            f"Selected fit view {fit_mode_view['selected_mode']}; provenance {fit_mode_view['provenance']}. "
+            "Prior-assisted, ML-denoised, repaired, and diagnostic raw values are estimates or overlays, not market observations."
+        )
 
         prior_comparison = surface_meta.get("surface_prior_comparison") or []
         if prior_comparison:
@@ -2201,29 +2424,32 @@ def run_dashboard() -> None:
         fit_mode_comparison = surface_meta.get("fit_mode_comparison") or []
         if fit_mode_comparison:
             st.markdown('<div class="section-header">Surface Fit Mode Comparison</div>', unsafe_allow_html=True)
+            fit_comparison_rows = fit_comparison_display_rows(surface_meta)
+            fit_comparison_frame = pd.DataFrame(fit_comparison_rows)
             st.dataframe(
-                pd.DataFrame(fit_mode_comparison),
+                fit_comparison_frame,
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "mode": st.column_config.TextColumn("Mode"),
-                    "model": st.column_config.TextColumn("Model"),
+                    "fit_mode": st.column_config.TextColumn("Fit Mode"),
                     "status": st.column_config.TextColumn("Status"),
-                    "fit_policy": st.column_config.TextColumn("Fit Policy"),
-                    "fitted_expiries": st.column_config.NumberColumn("Expiries", format="%d"),
-                    "points": st.column_config.NumberColumn("Points", format="%d"),
-                    "rmse": st.column_config.NumberColumn("RMSE", format="%.2%"),
+                    "eligible_rows": st.column_config.NumberColumn("Eligible Rows", format="%d"),
+                    "excluded_rows": st.column_config.NumberColumn("Excluded Rows", format="%d"),
                     "weighted_rmse": st.column_config.NumberColumn("Weighted RMSE", format="%.2%"),
-                    "mae": st.column_config.NumberColumn("MAE", format="%.2%"),
-                    "max_error": st.column_config.NumberColumn("Max Error", format="%.2%"),
-                    "weight_mode": st.column_config.TextColumn("Weight Mode"),
-                    "loss_mode": st.column_config.TextColumn("Loss"),
-                    "clipped_count": st.column_config.NumberColumn("Clipped", format="%d"),
-                    "downweighted_count": st.column_config.NumberColumn("Downweighted", format="%d"),
-                    "clip_threshold_abs_residual": st.column_config.NumberColumn("Clip Threshold", format="%.2%"),
-                    "rmse_after_clipping": st.column_config.NumberColumn("Clipped RMSE", format="%.2%"),
-                    "constraints_passed": st.column_config.CheckboxColumn("Constraints"),
+                    "unweighted_rmse": st.column_config.NumberColumn("Unweighted RMSE", format="%.2%"),
+                    "no_arb_violations": st.column_config.NumberColumn("No-Arb Violations", format="%d"),
+                    "prior_weight": st.column_config.NumberColumn("Prior Weight", format="%.2%"),
+                    "ml_uncertainty": st.column_config.NumberColumn("ML Uncertainty", format="%.2%"),
+                    "timestamp": st.column_config.TextColumn("Timestamp"),
+                    "provenance": st.column_config.TextColumn("Provenance"),
                 },
+            )
+            st.download_button(
+                "Export fit comparison CSV",
+                dataframe_to_csv_bytes(fit_comparison_frame),
+                file_name=f"{surface_symbol}_fit_comparison.csv",
+                mime="text/csv",
+                key="fit_comparison_export_csv",
             )
         if svi_smiles:
             st.markdown('<div class="section-header">SVI Fit Diagnostics</div>', unsafe_allow_html=True)
@@ -2519,6 +2745,42 @@ def run_dashboard() -> None:
         for col, (label, value, delta) in zip(quality_cols, quality_metrics):
             with col:
                 st.metric(label, value, delta=delta)
+        quality_alert = quality_drop_alert_summary(surface_meta)
+        if quality_alert["level"] == "warning":
+            st.warning(quality_alert["message"])
+        elif quality_alert["level"] == "success":
+            st.success(quality_alert["message"])
+        else:
+            st.info(quality_alert["message"])
+        actionability = data_quality_actionability(surface_meta)
+        action_cols = st.columns(2)
+        with action_cols[0]:
+            penalty_frame = pd.DataFrame(actionability["top_penalty_reasons"])
+            if not penalty_frame.empty:
+                st.markdown("#### Top Quality Drivers")
+                st.dataframe(penalty_frame, width="stretch", hide_index=True)
+        with action_cols[1]:
+            no_arb_summary = actionability["no_arbitrage"]
+            st.markdown("#### No-Arbitrage Summary")
+            st.json(no_arb_summary)
+        worst_expiries = pd.DataFrame(actionability["worst_expiries"])
+        if not worst_expiries.empty:
+            st.markdown("#### Worst Expiries")
+            st.dataframe(
+                worst_expiries,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "score": st.column_config.NumberColumn("Score", format="%.1f"),
+                    "surface_quotes": st.column_config.NumberColumn("Surface Quotes", format="%d"),
+                    "rejected_quotes": st.column_config.NumberColumn("Rejected Quotes", format="%d"),
+                },
+            )
+        worst_residuals = pd.DataFrame(actionability["worst_residual_contracts"])
+        if not worst_residuals.empty:
+            st.markdown("#### Worst Residual Contracts")
+            st.dataframe(worst_residuals, width="stretch", hide_index=True)
+        st.caption(f"Suggested fit preset: {actionability['suggested_preset']}.")
         expiry_quality = surface_meta.get("expiry_quality") or {}
         if expiry_quality:
             quality_rows = []
@@ -3423,6 +3685,7 @@ def run_dashboard() -> None:
                             "max_bid_ask_spread_pct": max_spread_pct,
                             "max_quote_age_days": max_quote_age_days,
                             "surface_x_axis": surface_x_axis,
+                            "selected_fit_mode": fit_mode_view["selected_mode"],
                         },
                         "model_settings": {
                             "option_price_source": option_price_source,
@@ -3437,7 +3700,11 @@ def run_dashboard() -> None:
                             "fit_no_arbitrage_policy": fit_no_arbitrage_policy,
                             "fit_last_only_policy": fit_last_only_policy,
                         },
-                        "chart_layout": {"show_3d_surface": show_3d_surface, "show_chain": show_chain},
+                        "chart_layout": {
+                            "show_3d_surface": show_3d_surface,
+                            "show_chain": show_chain,
+                            "show_reliability_overlay": show_reliability_overlay,
+                        },
                         "provenance": export_payload["provenance"],
                     }
                     saved = save_workspace(workspace, name=f"{surface_symbol}_phase6_workspace")
@@ -3445,6 +3712,38 @@ def run_dashboard() -> None:
                         st.success(f"Workspace written to {saved.get('path')}")
                     else:
                         st.error(saved.get("reason", "Workspace export failed"))
+        diagnostics_payload = fit_diagnostics_export_payload(surface_symbol, surface_meta)
+        diagnostics_frame = pd.DataFrame(diagnostics_payload.get("row_weights") or [])
+        export_cols = st.columns(2)
+        with export_cols[0]:
+            st.download_button(
+                "Export fit diagnostics JSON",
+                json.dumps(diagnostics_payload, default=str, indent=2).encode("utf-8"),
+                file_name=f"{surface_symbol}_fit_diagnostics.json",
+                mime="application/json",
+                key="fit_diagnostics_export_json",
+                width="stretch",
+            )
+        with export_cols[1]:
+            if diagnostics_frame.empty:
+                st.download_button(
+                    "Export row diagnostics CSV",
+                    b"",
+                    file_name=f"{surface_symbol}_row_diagnostics.csv",
+                    mime="text/csv",
+                    key="fit_diagnostics_export_csv_empty",
+                    width="stretch",
+                    disabled=True,
+                )
+            else:
+                st.download_button(
+                    "Export row diagnostics CSV",
+                    dataframe_to_csv_bytes(diagnostics_frame),
+                    file_name=f"{surface_symbol}_row_diagnostics.csv",
+                    mime="text/csv",
+                    key="fit_diagnostics_export_csv",
+                    width="stretch",
+                )
         st.caption(
             f"Export payload source {export_payload['provenance'].get('surface_source') or 'unknown'}; "
             f"mode {export_payload['provenance'].get('surface_mode') or 'unknown'}; "

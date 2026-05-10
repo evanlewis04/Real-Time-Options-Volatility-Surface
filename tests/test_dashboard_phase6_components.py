@@ -23,9 +23,12 @@ def test_phase6_component_registry_is_complete_and_ordered():
         "raw_points",
         "fit_residuals",
         "axis_controls",
+        "fit_mode_controls",
+        "quote_reliability_overlay",
     )
     assert "source" in PHASE6_COMPONENTS[4].provenance_fields
     assert "notebook_export" in PHASE6_COMPONENTS[-1].required_views
+    assert "fit_diagnostics_export" in PHASE6_COMPONENTS[-1].required_views
 
 
 def test_page_registry_exposes_phase6_components():
@@ -33,4 +36,3 @@ def test_page_registry_exposes_phase6_components():
 
     assert page_titles(registry) == phase6_component_titles()
     assert [page.key for page in registry] == [component.key for component in PHASE6_COMPONENTS]
-
