@@ -184,20 +184,20 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 6: Arbitrage-Aware Surface Repair
 
-- [ ] Add post-fit static arbitrage checks.
+- [x] Add post-fit static arbitrage checks.
   - Check calendar monotonicity, butterfly convexity in total variance, positive vols, and smoothness bounds.
   - Suggested file: `src/quant/surface_arbitrage.py`.
   - Acceptance: test fixtures identify calendar and convexity violations.
 
-- [ ] Add repair suggestions before automated repair.
+- [x] Add repair suggestions before automated repair.
   - Report where the surface violates constraints and which input rows likely caused it.
   - Acceptance: DataQualityPanel shows violation locations and likely causes.
 
-- [ ] Implement conservative repair mode.
+- [x] Implement conservative repair mode.
   - Apply minimal smoothing or projection only when enabled, and label repaired regions.
   - Acceptance: repaired surface reduces violations while preserving provenance and raw data visibility.
 
-- [ ] Compare raw, robust, prior-assisted, and repaired surfaces.
+- [x] Compare raw, robust, prior-assisted, and repaired surfaces.
   - Add diagnostics for RMSE, weighted RMSE, arbitrage violations, smoothness, and residual tail risk.
   - Acceptance: fit comparison table is deterministic in tests.
 

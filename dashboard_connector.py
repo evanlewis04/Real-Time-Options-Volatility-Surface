@@ -82,6 +82,11 @@ from src.quant.sabr import calibrate_sabr_by_expiry
 from src.quant.skew import delta_skew_by_expiry
 from src.quant.smoothing import smoothing_summary
 from src.quant.shocks import surface_shock_scenarios
+from src.quant.surface_arbitrage import (
+    check_surface_arbitrage,
+    conservative_surface_repair,
+    surface_comparison_rows,
+)
 from src.quant.surface_change import rich_cheap_scanner, surface_change_analytics
 from src.quant.surface_prior import (
     blend_surface_with_prior,
@@ -397,6 +402,7 @@ class DashboardConnector:
                 **self._sabr_metadata(key, surface_chain, spot),
             }
             metadata.update(self._surface_quality_metadata(surface_chain, metadata))
+            current_vols = np.asarray(vols, dtype=float).copy()
             prior = load_historical_surface_prior(
                 key,
                 self.snapshot_dir,
@@ -411,6 +417,33 @@ class DashboardConnector:
                 spot,
                 prior,
                 quality_score=metadata.get("surface_quality_score"),
+            )
+            repair_candidate, repair_meta = conservative_surface_repair(strikes, expiries, vols, spot, enabled=True)
+            current_arbitrage = check_surface_arbitrage(
+                strikes,
+                expiries,
+                current_vols,
+                spot,
+                input_rows=surface_chain,
+                surface_label="current_robust_fit_estimate",
+            )
+            prior_arbitrage = check_surface_arbitrage(
+                strikes,
+                expiries,
+                vols,
+                spot,
+                input_rows=surface_chain,
+                surface_label="prior_assisted_estimate" if prior_blend.get("applied") else "current_fit_estimate",
+            )
+            surface_comparison = surface_comparison_rows(
+                strikes,
+                expiries,
+                spot,
+                current_vols=current_vols,
+                prior_assisted_vols=vols,
+                repaired_vols=repair_candidate,
+                prior_metadata=prior_blend,
+                repair_metadata=repair_meta,
             )
             metadata.update(
                 {
@@ -429,8 +462,26 @@ class DashboardConnector:
                     ),
                     "current_surface_smoothing": current_smoothing,
                     "surface_smoothing": smoothing_summary(strikes, expiries, vols),
+                    "current_fit_arbitrage": current_arbitrage,
+                    "post_fit_arbitrage": prior_arbitrage,
+                    "surface_repair": {
+                        **repair_meta,
+                        "candidate_only": True,
+                        "applied_to_displayed_surface": False,
+                    },
+                    "surface_repair_records": repair_meta.get("repair_records", []),
+                    "fit_mode_comparison": self._append_surface_comparison_rows(
+                        metadata.get("fit_mode_comparison") or [],
+                        surface_comparison,
+                    ),
                 }
             )
+            metadata.setdefault("surface_quality", {})["post_fit_arbitrage"] = {
+                "passed": prior_arbitrage.get("passed"),
+                "violation_count": prior_arbitrage.get("violation_count"),
+                "reason_buckets": prior_arbitrage.get("reason_buckets"),
+                "top_suggestions": prior_arbitrage.get("suggestions", [])[:5],
+            }
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, surface_chain, spot))
             metadata.update(self._surface_change_metadata(key, surface_chain, spot, metadata))
@@ -472,6 +523,23 @@ class DashboardConnector:
                 fallback_reason=str(exc),
             ):
                 strikes, expiries, vols = build_surface(chain, spot, key, risk_free_rate=surface_rate)
+            repair_candidate, repair_meta = conservative_surface_repair(strikes, expiries, vols, spot, enabled=True)
+            surface_arbitrage = check_surface_arbitrage(
+                strikes,
+                expiries,
+                vols,
+                spot,
+                input_rows=chain,
+                surface_label="synthetic_surface_estimate",
+            )
+            surface_comparison = surface_comparison_rows(
+                strikes,
+                expiries,
+                spot,
+                current_vols=vols,
+                repaired_vols=repair_candidate,
+                repair_metadata=repair_meta,
+            )
             metadata = {
                 **demo_meta,
                 "symbol": key,
@@ -511,6 +579,22 @@ class DashboardConnector:
                 **american_pricing_metadata(chain),
                 **contract_greeks_metadata(chain, self.pricing_model),
             }
+            metadata.update(
+                {
+                    "current_fit_arbitrage": surface_arbitrage,
+                    "post_fit_arbitrage": surface_arbitrage,
+                    "surface_repair": {
+                        **repair_meta,
+                        "candidate_only": True,
+                        "applied_to_displayed_surface": False,
+                    },
+                    "surface_repair_records": repair_meta.get("repair_records", []),
+                    "fit_mode_comparison": self._append_surface_comparison_rows(
+                        metadata.get("fit_mode_comparison") or [],
+                        surface_comparison,
+                    ),
+                }
+            )
             metadata.update(self._surface_quality_metadata(chain, metadata))
             metadata.update(self._local_vol_metadata(strikes, expiries, vols, spot, metadata))
             metadata.update(self._iv_history_metadata(key, chain, spot, iv_column="impliedVolatility"))
@@ -1296,6 +1380,41 @@ class DashboardConnector:
         return rows
 
     @staticmethod
+    def _append_surface_comparison_rows(
+        existing_rows: list[Dict[str, Any]],
+        surface_rows: list[Dict[str, Any]],
+    ) -> list[Dict[str, Any]]:
+        role_by_mode = {
+            "Standard SVI": "raw_standard_fit",
+            "Robust SVI": "robust_fit",
+            "Robust SSVI": "robust_global_fit",
+            "ML Denoised": "ml_research_off",
+        }
+        augmented = []
+        for row in existing_rows:
+            mode = str(row.get("mode") or "")
+            augmented.append(
+                {
+                    **row,
+                    "surface_role": role_by_mode.get(mode, "fit_mode"),
+                    "arbitrage_violations": row.get("arbitrage_violations"),
+                    "calendar_violations": row.get("calendar_violations"),
+                    "butterfly_convexity_violations": row.get("butterfly_convexity_violations"),
+                    "positive_vol_violations": row.get("positive_vol_violations"),
+                    "smoothness_violations": row.get("smoothness_violations"),
+                    "surface_roughness": row.get("surface_roughness"),
+                    "smoothness_max_adjacent_iv_change": row.get("smoothness_max_adjacent_iv_change"),
+                    "prior_weight": row.get("prior_weight"),
+                    "repair_applied": row.get("repair_applied"),
+                }
+            )
+        seen = {str(row.get("mode")) for row in augmented}
+        for row in surface_rows:
+            if str(row.get("mode")) not in seen:
+                augmented.append(row)
+        return augmented
+
+    @staticmethod
     def _heston_metadata(chain: pd.DataFrame, spot: float, iv_column: str = "computedIV") -> Dict[str, Any]:
         heston = calibrate_heston_research(chain, spot, iv_column=iv_column)
         return {
@@ -1786,6 +1905,14 @@ class DashboardConnector:
             "reason_buckets": {reason: int(count) for reason, count in reason_buckets.items() if count},
             "expiries": surface_expiry_counts,
         }
+        post_fit_arbitrage = metadata.get("post_fit_arbitrage") or {}
+        if post_fit_arbitrage:
+            surface_quality["post_fit_arbitrage"] = {
+                "passed": post_fit_arbitrage.get("passed"),
+                "violation_count": post_fit_arbitrage.get("violation_count"),
+                "reason_buckets": post_fit_arbitrage.get("reason_buckets"),
+                "top_suggestions": (post_fit_arbitrage.get("suggestions") or [])[:5],
+            }
         return {
             "surface_quality_score": score,
             "surface_quality": surface_quality,
