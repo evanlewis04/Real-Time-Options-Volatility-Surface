@@ -155,30 +155,30 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 5: ML Denoising Prototype
 
-- [ ] Define a surface ML feature set.
+- [x] Define a surface ML feature set.
   - Features: log-moneyness, moneyness, DTE, expiry bucket, option type, bid/ask spread, quote age, volume, open interest, selected price source, forward moneyness, rates, dividends, event flags, historical IV prior, and raw IV.
   - Suggested file: `src/ml/surface_features.py`.
   - Acceptance: feature builder is deterministic and handles missing fields.
 
-- [ ] Implement a baseline nonparametric denoiser.
+- [x] Implement a baseline nonparametric denoiser.
   - Start with `ExtraTreesRegressor` or `HistGradientBoostingRegressor` if available, trained only on local historical snapshots and/or deterministic fixtures.
   - Suggested file: `src/ml/surface_denoiser.py`.
   - Acceptance: model can fit fixture data offline and produce bounded IV predictions.
 
-- [ ] Add Gaussian Process or kernel smoother research mode.
+- [x] Add Gaussian Process or kernel smoother research mode.
   - Use log-moneyness and DTE coordinates with uncertainty estimates if dependencies are available.
   - Keep this optional and clearly labeled as research.
   - Acceptance: if dependency is unavailable, module returns a graceful unavailable payload.
 
-- [ ] Add uncertainty output.
+- [x] Add uncertainty output.
   - Denoised surfaces should expose prediction uncertainty or confidence bands.
   - Acceptance: dashboard can distinguish high-confidence smooth regions from extrapolated regions.
 
-- [ ] Add model persistence for local experiments.
+- [x] Add model persistence for local experiments.
   - Store model metadata, feature schema, training snapshot range, validation metrics, and provenance.
   - Acceptance: saved model can be loaded deterministically and refuses incompatible schemas.
 
-- [ ] Keep ML off by default at first.
+- [x] Keep ML off by default at first.
   - Add explicit `ML Denoised` mode but default to robust deterministic fit until validation is strong.
   - Acceptance: default dashboard behavior remains explainable and deterministic.
 

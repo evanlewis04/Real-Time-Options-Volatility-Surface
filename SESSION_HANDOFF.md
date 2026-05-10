@@ -4,55 +4,53 @@ Use this file as the small starting context for future Codex sessions. Read only
 
 ## Repo
 
-Path: `C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface`
+Path: `C:\Users\aruba\OneDrive\Documents\111 Projects\Real-Time Options Volatility Surface`
 
-Current head before this session's commit: `6b2e0a54868e34baf59129254ee5c2795fbe7ac4`
+Current head before this session's commit: `acb46832fdf301264ae904c4647f38370f24966d`
 
-Branch state before this session's commit: `main...origin/main [ahead 3]`
+Branch state before this session's commit: `main...origin/main`
 
 ## Upgrade State
 
 The original dashboard upgrade plan is complete. The robust volatility surface fitting plan is underway.
 
-Robust plan count: `21/45` complete.
+Robust plan count: `27/45` complete.
 
 Completed this session:
 
-1. Completed Phase 4 item: added prior comparison charts.
-2. `surface_prior_comparison_records` now emits deterministic overlapping grid rows with current robust fit estimate, historical prior estimate, current-minus-prior IV, and provenance labels.
-3. `DashboardConnector.get_vol_surface_data` stores `surface_prior_comparison` and `surface_prior_comparison_available` before any prior blend is applied.
-4. SurfaceWorkspace now shows a Historical Prior Comparison section with current fit estimate, historical prior estimate, and current-minus-prior heatmaps.
-5. Dashboard captions explicitly label historical prior and prior-assisted values as estimates, not market observations.
-6. Phase 4 is complete.
+1. Completed Phase 5: ML Denoising Prototype.
+2. Added deterministic ML feature schema/building in `src/ml/surface_features.py` for log-moneyness, moneyness, DTE, expiry bucket, option type, spreads, quote age, liquidity, selected price source, forward moneyness, rates, dividends, event flags, historical IV prior estimates, and raw IV.
+3. Added research-only `ExtraTreesRegressor` denoiser in `src/ml/surface_denoiser.py` with bounded IV predictions, uncertainty from ensemble dispersion, validation metrics, feature importances, and explicit `ml_denoised_research_estimate_not_market_observation` provenance.
+4. Added optional kernel smoother research mode with coordinate-based uncertainty.
+5. Added local model persistence with schema metadata, validation metrics, training snapshot range, provenance, deterministic loading, and incompatible-schema refusal.
+6. Added explicit `ML Denoised` fit comparison metadata row, but it remains `research_off_by_default`; robust deterministic fit remains the active default.
 
 Next unchecked section:
 
-1. Phase 5: ML Denoising Prototype
-   - Continue with `Define a surface ML feature set`.
+1. Phase 6: Arbitrage-Aware Surface Repair
+   - Continue with `Add post-fit static arbitrage checks`.
 
 Recent context:
 
-- Phase 3 remains complete: weighted/robust SVI and SSVI, residual diagnostics, and Standard SVI / Robust SVI / Robust SSVI comparison metadata.
-- Phase 4 is complete: historical prior loader, quality-gated prior blending, jump detection before blending, and prior comparison charts.
-- Historical prior metadata and comparison rows use `historical_prior_estimate_not_market_observation` provenance.
-- Prior comparison rows are captured before blending, so the current-vs-prior charts compare the current robust fit estimate to history rather than comparing the already prior-assisted surface to itself.
-- ML/denoising work must remain opt-in/research-labeled and must not be presented as market truth.
+- Phase 3 remains complete: weighted/robust SVI and SSVI, residual diagnostics, and fit comparison metadata.
+- Phase 4 remains complete: historical prior loader, quality-gated prior blending, jump detection before blending, and prior comparison charts.
+- Phase 5 is complete but intentionally opt-in/research-labeled. ML-denoised values must remain estimates, not market observations.
+- Historical prior metadata and comparison rows still use `historical_prior_estimate_not_market_observation` provenance.
 
 ## Latest Verification
 
-Run from the repo root on 2026-05-09:
+Run from the repo root on 2026-05-10:
 
 ```powershell
 python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
 python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py main.py
-python -m pytest tests\test_surface_prior.py tests\test_surface_fitting.py tests\test_quote_quality.py tests\test_robust_surface_fixtures.py tests\test_dashboard_connector_snapshot.py tests\test_surface_change.py -q
+python -m pytest tests\test_surface_ml.py tests\test_surface_prior.py tests\test_surface_fitting.py tests\test_quote_quality.py tests\test_robust_surface_fixtures.py tests\test_dashboard_connector_snapshot.py tests\test_surface_change.py -q
 python scripts\compare_surface_fit_modes.py --json
 $env:PYTHONPATH='.'; python scripts\healthcheck.py
+python -m pytest -q
 ```
 
-Passing: Ruff, compileall, targeted tests (`39 passed`), fixture comparison script, and healthcheck.
-
-Full `python -m pytest -q` was not rerun. Prior context: it completed with `183 passed, 5 failed, 35 warnings`; the five failures were Streamlit `AppTest` dashboard tests timing out at their hardcoded 90-second `at.run` limit. `scripts\verify.py --skip-healthcheck` also timed out because it runs the same full pytest command.
+Passing: Ruff, compileall, targeted tests (`43 passed`), fixture comparison script, healthcheck, and full pytest (`201 passed, 35 warnings`).
 
 ## New Session Prompt
 
@@ -60,11 +58,11 @@ Full `python -m pytest -q` was not rerun. Prior context: it completed with `183 
 Continue the Real-Time Options Volatility Surface robust-fitting upgrade.
 
 Repo:
-C:\Users\aruba\OneDrive\Documents\1 Professional Documents\Projects\Real-Time Options Volatility Surface
+C:\Users\aruba\OneDrive\Documents\111 Projects\Real-Time Options Volatility Surface
 
 Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Continue the robust surface plan at Phase 5. Implement unchecked Phase 5 items in order if they fit cleanly, starting with "Define a surface ML feature set."
-Preserve provenance, keep deterministic offline tests, avoid treating ML/denoising as market truth, run full verification when appropriate, update SESSION_HANDOFF.md, commit changes, and report the updated robust-fitting plan count.
+Continue the robust surface plan at Phase 6. Implement unchecked Phase 6 items in order if they fit cleanly, starting with "Add post-fit static arbitrage checks."
+Preserve provenance, keep deterministic offline tests, avoid treating repaired/denoised/prior-assisted values as market truth, run full verification when appropriate, update SESSION_HANDOFF.md, commit changes, and report the updated robust-fitting plan count.
 ```
 
 ## Notes

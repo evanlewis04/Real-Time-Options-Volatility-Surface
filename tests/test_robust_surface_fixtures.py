@@ -68,6 +68,7 @@ def test_clean_fixture_is_high_quality_and_has_low_standard_fit_error():
         "Standard SVI",
         "Robust SVI",
         "Robust SSVI",
+        "ML Denoised",
     ]
     assert meta["fit_diagnostics"]["residual_diagnostics"]["policy"] == "diagnostic_only_no_rows_removed"
 

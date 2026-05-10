@@ -28,6 +28,7 @@ from src.data.options_provider import OptionsChainMetadata, YFinanceOptionsProvi
 from src.data.price_provider import RealTimePriceProvider
 from src.data.snapshots import load_latest_snapshot, save_snapshot
 from src.data.synthetic_options import SyntheticOptionsGenerator
+from src.ml.surface_denoiser import ml_surface_mode_metadata
 from src.pricing.implied_vol import ImpliedVolatilityCalculator
 from src.quant.american import american_pricing_metadata, apply_american_pricing
 from src.quant.advanced_features import (
@@ -1291,6 +1292,7 @@ class DashboardConnector:
                     "constraints_passed": diagnostics.get("constraints_passed"),
                 }
             )
+        rows.append(ml_surface_mode_metadata(enabled=False))
         return rows
 
     @staticmethod

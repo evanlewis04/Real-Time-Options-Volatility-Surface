@@ -222,6 +222,7 @@ def test_connector_svi_metadata_includes_fit_diagnostics():
         "Standard SVI",
         "Robust SVI",
         "Robust SSVI",
+        "ML Denoised",
     ]
     assert meta["standard_fit_diagnostics"]["loss_mode"] == "linear"
     assert meta["standard_fit_diagnostics"]["weight_mode"] == "uniform"
