@@ -4,12 +4,10 @@ Real-Time Options Volatility Surface System - Simple Starter
 Works with your current system components, builds up gradually
 """
 
-import os
 import sys
 import time
 import logging
 import argparse
-from datetime import datetime
 from pathlib import Path
 
 # Force UTF-8 on stdout/stderr so non-ASCII output from third-party libs doesn't
@@ -88,11 +86,11 @@ class SimpleVolatilitySystem:
                 component_class = getattr(module, class_name)
                 self.available_components[comp_name] = component_class
                 self.logger.info(f"  + {comp_name} ({class_name}) available")
-            except ImportError as e:
+            except ImportError:
                 self.logger.info(f"  - {comp_name}: Module not found")
-            except AttributeError as e:
+            except AttributeError:
                 self.logger.info(f"  - {comp_name}: Class not found")
-            except Exception as e:
+            except Exception:
                 self.logger.info(f"  - {comp_name}: Other error")
         
         self.logger.info(f"Available components: {len(self.available_components)}/{len(components_to_test)}")

@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.quant.provenance import CURRENT_ROBUST_FIT_PROVENANCE, PRIOR_ASSISTED_FIT_PROVENANCE
+
 
 DIAGNOSTIC_PROVENANCE = "post_fit_surface_arbitrage_diagnostic_not_market_observation"
 REPAIR_PROVENANCE = "conservative_surface_repair_estimate_not_market_observation"
@@ -174,8 +176,8 @@ def surface_comparison_rows(
     rows = [
         _comparison_row(
             "Robust Surface",
-            "current_robust_fit_estimate",
-            check_surface_arbitrage(strikes, expiries, current_vols, spot, surface_label="current_robust_fit"),
+            CURRENT_ROBUST_FIT_PROVENANCE,
+            check_surface_arbitrage(strikes, expiries, current_vols, spot, surface_label=CURRENT_ROBUST_FIT_PROVENANCE),
         )
     ]
     if prior_assisted_vols is not None:
@@ -184,12 +186,12 @@ def surface_comparison_rows(
             expiries,
             prior_assisted_vols,
             spot,
-            surface_label="prior_assisted_estimate",
+            surface_label=PRIOR_ASSISTED_FIT_PROVENANCE,
         )
         rows.append(
             _comparison_row(
                 "Prior Assisted",
-                "prior_assisted_estimate",
+                PRIOR_ASSISTED_FIT_PROVENANCE,
                 prior_check,
                 prior_weight=(prior_metadata or {}).get("blend_weight"),
                 status="applied" if (prior_metadata or {}).get("applied") else "not_applied",

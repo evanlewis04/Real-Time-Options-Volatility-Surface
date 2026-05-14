@@ -8,11 +8,8 @@ import sys
 import os
 import time
 import logging
-import asyncio
-from datetime import datetime, timedelta
-from typing import Dict, List
+from datetime import datetime
 import pandas as pd
-import numpy as np
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -651,7 +648,7 @@ class Week2IntegrationTest:
                         
                         # Create a dashboard
                         surface_summary = {'total_contracts': len(sample_data)}
-                        fig = plotter.create_summary_dashboard(
+                        plotter.create_summary_dashboard(
                             sample_data, 
                             surface_summary, 
                             spot_price=100.0,

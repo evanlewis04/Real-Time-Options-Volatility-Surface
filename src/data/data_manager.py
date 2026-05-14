@@ -3,14 +3,13 @@ Multi-Asset Data Manager for Real-Time Volatility Surface System
 Coordinates data fetching, processing, and caching across multiple assets
 """
 
-import asyncio
 import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable, Any
+from typing import Dict, List, Optional, Callable
 import pandas as pd
 import numpy as np
 from collections import defaultdict

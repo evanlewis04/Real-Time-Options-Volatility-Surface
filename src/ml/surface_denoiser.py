@@ -17,9 +17,10 @@ import numpy as np
 import pandas as pd
 
 from src.ml.surface_features import SurfaceFeatureFrame, SurfaceFeatureSchema
+from src.quant.provenance import ML_DENOISED_PROVENANCE
 
 
-DENOISED_PROVENANCE = "ml_denoised_research_estimate_not_market_observation"
+DENOISED_PROVENANCE = ML_DENOISED_PROVENANCE
 ML_MODE_STATUS_OFF = "research_off_by_default"
 
 

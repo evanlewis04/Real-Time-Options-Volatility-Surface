@@ -11,10 +11,10 @@ select = [
     "F811",  # redefined while unused
     "F821",  # undefined name
     "F823",  # local variable referenced before assignment
+    "F401",  # unused imports
+    "F841",  # unused local variables
 ]
 
 [lint.per-file-ignores]
 # Tests legitimately redefine fixtures
 "tests/*.py" = ["F811"]
-# Pre-existing duplicate method definitions; tracked for follow-up cleanup
-"src/config/multi_asset_config.py" = ["F811"]

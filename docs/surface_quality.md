@@ -38,7 +38,8 @@ are trustworthy.
 
 Use `Robust` as the default fitted estimate. It keeps the raw quote cloud
 visible while reducing the influence of rows with weak reliability or liquidity.
-Robust fitted values are still estimates.
+Robust fitted values are still estimates and are labeled
+`current_robust_fit_estimate_not_market_observation`.
 
 Use `Strict` fit filters when the quality score drops, no-arb buckets grow, or
 the scanner is dominated by stale, last-only, wide-spread, or extreme-moneyness

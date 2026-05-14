@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from src.analysis.surface_builder import build_surface
-from src.config.settings import AppSettings, FitFilterSettings, load_app_settings
+from src.config.settings import AppSettings, load_app_settings
 from src.data.demo_provider import DemoOptionsProvider
 from src.data.historical import HistoricalPriceLoader
 from src.data.market_calendar import MarketCalendar
@@ -75,6 +75,11 @@ from src.quant.model_selection import (
     pricing_model_metadata,
 )
 from src.quant.price_decomposition import apply_price_decomposition, price_decomposition_metadata
+from src.quant.provenance import (
+    CURRENT_FIT_PROVENANCE,
+    CURRENT_ROBUST_FIT_PROVENANCE,
+    PRIOR_ASSISTED_FIT_PROVENANCE,
+)
 from src.quant.quote_quality import apply_quote_reliability_scores
 from src.quant.rates import RiskFreeRateProvider, apply_curve_to_options, expiry_rate_metadata
 from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
@@ -431,7 +436,7 @@ class DashboardConnector:
                 current_vols,
                 spot,
                 input_rows=surface_chain,
-                surface_label="current_robust_fit_estimate",
+                surface_label=CURRENT_ROBUST_FIT_PROVENANCE,
             )
             prior_arbitrage = check_surface_arbitrage(
                 strikes,
@@ -439,7 +444,7 @@ class DashboardConnector:
                 vols,
                 spot,
                 input_rows=surface_chain,
-                surface_label="prior_assisted_estimate" if prior_blend.get("applied") else "current_fit_estimate",
+                surface_label=PRIOR_ASSISTED_FIT_PROVENANCE if prior_blend.get("applied") else CURRENT_FIT_PROVENANCE,
             )
             surface_comparison = surface_comparison_rows(
                 strikes,
@@ -464,7 +469,7 @@ class DashboardConnector:
                     "surface_prior_blend_weight": prior_blend.get("blend_weight"),
                     "surface_prior_overlap_count": prior_blend.get("overlap_count"),
                     "surface_estimate_type": (
-                        "prior_assisted_estimate" if prior_blend.get("applied") else "current_fit_estimate"
+                        PRIOR_ASSISTED_FIT_PROVENANCE if prior_blend.get("applied") else CURRENT_FIT_PROVENANCE
                     ),
                     "current_surface_smoothing": current_smoothing,
                     "surface_smoothing": smoothing_summary(strikes, expiries, vols),

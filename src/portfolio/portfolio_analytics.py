@@ -4,19 +4,14 @@ Cross-asset analysis and portfolio risk management for volatility surfaces
 """
 
 import logging
-import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
-from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass
 import pandas as pd
 import numpy as np
 from scipy import stats
-from scipy.optimize import minimize
-import matplotlib.pyplot as plt
-import seaborn as sns
 from collections import defaultdict
 
-from src.analysis.vol_surface import VolatilitySurface
 
 
 
@@ -188,10 +183,6 @@ class PortfolioAnalytics:
             if not all([update1, update2, market1, market2]):
                 return None
             
-            # IV correlation (simplified - using current values)
-            iv1 = update1.statistics.get('mean_iv', 0)
-            iv2 = update2.statistics.get('mean_iv', 0)
-            
             # For real correlation, we'd need time series data
             # This is a simplified implementation
             iv_correlation = 0.5  # Placeholder
@@ -199,9 +190,7 @@ class PortfolioAnalytics:
             # Price correlation (using underlying prices)
             price_correlation = 0.3  # Placeholder
             
-            # Volume correlation
-            vol1 = update1.statistics.get('total_volume', 0)
-            vol2 = update2.statistics.get('total_volume', 0)
+            # Volume correlation placeholder
             volume_correlation = 0.2  # Placeholder
             
             return CorrelationMetrics(
@@ -307,7 +296,6 @@ class PortfolioAnalytics:
     def _detect_cross_asset_signals(self):
         """Detect cross-asset trading signals"""
         try:
-            current_time = datetime.now()
             new_signals = []
             
             # Volatility spread signals

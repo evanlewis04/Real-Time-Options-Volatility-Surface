@@ -17,6 +17,10 @@ CSS = """
         --good: #0f8a5f;
         --warn: #b7791f;
         --bad: #b42318;
+        --focus: #155e75;
+    }
+    .stApp {
+        background: var(--bg);
     }
     .block-container {
         padding-top: 1.2rem;
@@ -200,6 +204,40 @@ CSS = """
     .small-note {
         color: var(--muted);
         font-size: 0.82rem;
+    }
+    section[data-testid="stSidebar"] {
+        border-right: 1px solid var(--line);
+        background: #fbfcfe;
+    }
+    section[data-testid="stSidebar"] h3 {
+        color: var(--ink);
+        font-size: 0.92rem;
+        margin-top: 0.7rem;
+    }
+    div[data-testid="stTabs"] button {
+        border-radius: 6px 6px 0 0;
+        padding: 0.5rem 0.8rem;
+        color: var(--muted);
+        font-weight: 650;
+    }
+    div[data-testid="stTabs"] button[aria-selected="true"] {
+        color: var(--focus);
+        border-bottom-color: var(--focus);
+    }
+    div[data-testid="stDataFrame"], div[data-testid="stTable"] {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+        background: var(--panel);
+    }
+    div[data-testid="stDownloadButton"] button, div[data-testid="stButton"] button {
+        border-radius: 6px;
+        border-color: #b9c4d3;
+        font-weight: 700;
+    }
+    div[data-testid="stDownloadButton"] button:hover, div[data-testid="stButton"] button:hover {
+        border-color: var(--focus);
+        color: var(--focus);
     }
 </style>
 """

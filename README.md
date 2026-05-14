@@ -104,9 +104,11 @@ python -m scripts.healthcheck
 python scripts/verify.py
 ```
 
+Pytest discovery is scoped to `tests/` by `pytest.ini`; legacy runnable demos in
+`scripts/` remain import/compile checked without being collected as unit tests.
 Tests cover Black-Scholes pricing, put-call parity, Greeks signs/bounds,
-price-to-IV round trips, option-chain cleaning, provider contracts, and
-deterministic Streamlit AppTest states.
+price-to-IV round trips, option-chain cleaning, provider contracts, config
+round trips, provenance labels, and deterministic Streamlit AppTest states.
 
 ## Architecture And Glossary
 

@@ -7,7 +7,7 @@ the relevant unchecked section of `upgrade.md` after this file.
 
 Path: `C:\Users\aruba\OneDrive\Documents\111 Projects\Real-Time Options Volatility Surface`
 
-Current head before this session's Phase 9 commit: `5e2f24b656fcf42ead1d9c077fd50a620f49956f`
+Current head before this cleanup commit: `4e823456081ba565db50633f80ae42cb59ea7ec8`
 
 Branch state before this session's Phase 9 commit: `main`
 
@@ -18,7 +18,7 @@ fitting plan is complete.
 
 Robust plan count: `45/45` complete.
 
-Completed this session:
+Completed previous robust-fitting session:
 
 1. Completed Phase 8: Validation And Backtesting.
 2. Completed Phase 9: Documentation And Operating Guidance.
@@ -33,6 +33,7 @@ None. The robust-fitting upgrade checklist is complete.
 Recent context:
 
 - Validation, backtest, scanner confidence, prior-assisted, and shape-change outputs are diagnostics or estimates, not market observations.
+- Current, robust, standard, prior-assisted, historical-prior, and ML-denoised surface provenance labels now use shared constants and explicitly mark fitted/derived values as not market observations.
 - Phase 4 historical prior values remain labeled `historical_prior_estimate_not_market_observation`.
 - Phase 5 ML-denoised values remain opt-in/research-labeled and off by default.
 - Phase 6 repair values are candidate estimates only in connector metadata; do not silently apply them to displayed surfaces.
@@ -40,7 +41,7 @@ Recent context:
 
 ## Latest Verification
 
-Run from the repo root on 2026-05-14:
+Run from the repo root on 2026-05-14 after cleanup:
 
 ```powershell
 python -m pytest tests\test_docs_glossary.py -q
@@ -57,10 +58,10 @@ python scripts\verify.py --skip-healthcheck
 python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts\dashboard_screenshots --viewports desktop
 ```
 
-Passing: docs regression test (`2 passed`), project-wide Ruff, compileall, dashboard/AppTest subset
-(`32 passed`), deterministic robust/prior/ML/repair/validation subset (`35 passed`), full pytest
-(`215 passed, 107 warnings`, no skips reported), offline deterministic healthcheck, fit-mode comparison,
-fit-mode validation/backtest, diagnostic script, and `scripts\verify.py --skip-healthcheck`.
+Passing: project-wide Ruff, compileall, dashboard/AppTest subset (`33 passed`), deterministic
+robust/prior/ML/repair/validation subset (`35 passed`), full pytest (`210 passed`, no warnings),
+offline deterministic healthcheck, fit-mode comparison, fit-mode validation/backtest, diagnostic script,
+and `scripts\verify.py --skip-healthcheck`.
 
 The healthcheck surface and connector smoke checks now force deterministic offline market-data mode during
 local verification. The passing connector line is `mode=Fallback, yfinance=False`; no live market fetch is
@@ -68,6 +69,14 @@ needed for the healthcheck.
 
 Visual regression command exited successfully with a documented skip because Playwright is not installed:
 `SKIP dashboard visual regression: playwright is not installed`.
+
+Cleanup changes from this session:
+
+- Added `pytest.ini` so pytest discovery is scoped to `tests/`; legacy runnable demos in `scripts/` remain compile checked without producing pytest return-value warnings.
+- Broadened Ruff to catch unused imports and unused locals, then removed the current hits.
+- Removed duplicate `ConfigurationManager`/`ConfigurationPresets` definitions and fixed config import round trips when exported assets include `symbol`.
+- Centralized surface provenance labels in `src/quant/provenance.py`.
+- Polished the Streamlit workstation CSS for sidebar, tabs, buttons, and dataframes without changing the dashboard into a landing page.
 
 ## New Session Prompt
 

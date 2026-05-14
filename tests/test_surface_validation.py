@@ -3,7 +3,6 @@ import subprocess
 import sys
 
 import pandas as pd
-import pytest
 
 from tests.fixtures.noisy_option_chain import (
     FIXTURE_NOW,

@@ -5,6 +5,7 @@ import pytest
 
 from src.data.models import MarketDataSnapshot, OptionQuote
 from src.data.snapshots import save_snapshot
+from src.quant.provenance import CURRENT_ROBUST_FIT_PROVENANCE, HISTORICAL_PRIOR_PROVENANCE
 from src.quant.surface_prior import (
     blend_surface_with_prior,
     load_historical_surface_prior,
@@ -68,7 +69,7 @@ def test_historical_surface_prior_loads_deterministic_grid_from_snapshots(tmp_pa
     assert prior.cell_count == 6
     assert prior.latest_snapshot_timestamp == "2026-05-02T10:00:00"
     assert prior.latest_age_days == pytest.approx(1.0)
-    assert prior.metadata()["provenance"] == "historical_prior_estimate_not_market_observation"
+    assert prior.metadata()["provenance"] == HISTORICAL_PRIOR_PROVENANCE
 
     records = prior.records()
     assert [row["dte"] for row in records] == [30.0, 30.0, 30.0, 60.0, 60.0, 60.0]
@@ -77,7 +78,7 @@ def test_historical_surface_prior_loads_deterministic_grid_from_snapshots(tmp_pa
     assert atm_30["prior_iv_mean"] == pytest.approx(0.21)
     assert atm_30["observations"] == 2
     assert atm_30["snapshot_count"] == 2
-    assert atm_30["provenance"] == "historical_prior_estimate_not_market_observation"
+    assert atm_30["provenance"] == HISTORICAL_PRIOR_PROVENANCE
 
 
 def test_historical_surface_prior_refuses_stale_history(tmp_path):
@@ -145,7 +146,7 @@ def test_prior_blending_uses_quality_recency_and_overlap(tmp_path):
     assert meta["prior_age_days"] == pytest.approx(1.0)
     assert meta["overlap_count"] == 6
     assert meta["blend_weight"] == pytest.approx(0.15)
-    assert meta["provenance"] == "historical_prior_estimate_not_market_observation"
+    assert meta["provenance"] == HISTORICAL_PRIOR_PROVENANCE
     assert blended[0, 1] == pytest.approx((0.85 * 0.23) + (0.15 * 0.21))
 
     unblended, high_quality_meta = blend_surface_with_prior(
@@ -232,9 +233,9 @@ def test_surface_prior_comparison_records_label_estimates(tmp_path):
     assert atm_30["current_iv"] == pytest.approx(0.24)
     assert atm_30["prior_iv"] == pytest.approx(0.21)
     assert atm_30["iv_change"] == pytest.approx(0.03)
-    assert atm_30["current_label"] == "current_robust_fit_estimate"
-    assert atm_30["prior_label"] == "historical_prior_estimate"
-    assert atm_30["provenance"] == "historical_prior_estimate_not_market_observation"
+    assert atm_30["current_label"] == CURRENT_ROBUST_FIT_PROVENANCE
+    assert atm_30["prior_label"] == HISTORICAL_PRIOR_PROVENANCE
+    assert atm_30["provenance"] == HISTORICAL_PRIOR_PROVENANCE
 
 
 def _prior_vol_matrix(records, expiries, log_moneyness):

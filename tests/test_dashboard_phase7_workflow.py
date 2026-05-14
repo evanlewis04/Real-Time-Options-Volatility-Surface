@@ -10,15 +10,16 @@ from src.dashboard.app_shell import (
 )
 from src.data.models import MarketDataSnapshot
 from src.data.snapshots import save_snapshot
+from src.quant.provenance import CURRENT_FIT_PROVENANCE, CURRENT_ROBUST_FIT_PROVENANCE, ML_DENOISED_PROVENANCE
 
 
 def test_fit_mode_state_labels_unavailable_estimate_modes_without_changing_truth():
     meta = {
-        "surface_estimate_type": "current_fit_estimate",
+        "surface_estimate_type": CURRENT_FIT_PROVENANCE,
         "surface_prior_applied": False,
         "fit_mode_comparison": [
-            {"mode": "Robust SVI", "provenance": "current_robust_fit_estimate"},
-            {"mode": "ML Denoised", "enabled": False, "provenance": "ml_denoised_research_estimate_not_market_observation"},
+            {"mode": "Robust SVI", "provenance": CURRENT_ROBUST_FIT_PROVENANCE},
+            {"mode": "ML Denoised", "enabled": False, "provenance": ML_DENOISED_PROVENANCE},
         ],
     }
 

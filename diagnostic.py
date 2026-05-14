@@ -312,8 +312,7 @@ def debug_surface_construction():
             # For equity options, we expect higher vol for lower strikes
             mid_time_idx = vols.shape[0] // 2
             vol_slice = vols[mid_time_idx, :]
-            strikes_slice = surface_data['strikes'][mid_time_idx, :]
-            
+
             if len(vol_slice) > 2:
                 left_vol = vol_slice[0] # Lowest strike
                 right_vol = vol_slice[-1] # Highest strike

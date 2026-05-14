@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import os
 import sys
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, List
 
 import numpy as np
+
+STREAMLIT_CONTEXT_LOGGER = "streamlit.runtime.scriptrunner_utils.script_run_context"
+os.environ.setdefault("STREAMLIT_LOG_LEVEL", "error")
+
+
+def _quiet_streamlit_context_warning() -> None:
+    logger = logging.getLogger(STREAMLIT_CONTEXT_LOGGER)
+    logger.setLevel(logging.ERROR)
+    logger.disabled = True
+
+
+_quiet_streamlit_context_warning()
 
 
 @dataclass
@@ -128,6 +141,7 @@ def check_connector() -> str:
 def check_streamlit_testing() -> str:
     from streamlit.testing.v1 import AppTest
 
+    _quiet_streamlit_context_warning()
     previous_test_env = os.environ.get("PYTEST_CURRENT_TEST")
     os.environ["PYTEST_CURRENT_TEST"] = "scripts.healthcheck::streamlit_offline_smoke"
     at = AppTest.from_file("app.py")

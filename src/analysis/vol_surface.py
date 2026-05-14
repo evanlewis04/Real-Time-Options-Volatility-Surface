@@ -3,9 +3,8 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
+from typing import Dict
 from scipy.interpolate import griddata, RBFInterpolator
-import warnings
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -268,9 +267,7 @@ class VolatilitySurface:
         """Extract at-the-money volatility term structure."""
         
         surface = surface_data.get('combined', surface_data.get('calls', list(surface_data.values())[0]))
-        
-        strikes = surface['strikes']
-        times = surface['times']
+
         ivs = surface['implied_vols']
         moneyness = surface['moneyness']
         

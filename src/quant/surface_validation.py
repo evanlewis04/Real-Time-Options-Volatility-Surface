@@ -10,6 +10,11 @@ import numpy as np
 import pandas as pd
 
 from src.data.models import MarketDataSnapshot
+from src.quant.provenance import (
+    BACKTEST_DIAGNOSTIC_PROVENANCE,
+    PRIOR_ASSISTED_FIT_PROVENANCE,
+    VALIDATION_DIAGNOSTIC_PROVENANCE,
+)
 from src.quant.surface_arbitrage import check_surface_arbitrage
 from src.quant.svi import (
     calibrate_ssvi_surface,
@@ -19,9 +24,9 @@ from src.quant.svi import (
 )
 
 
-VALIDATION_PROVENANCE = "fit_mode_validation_diagnostic_not_market_observation"
-BACKTEST_PROVENANCE = "fit_mode_backtest_diagnostic_not_market_observation"
-PRIOR_ASSISTED_PROVENANCE = "prior_assisted_fit_estimate_not_market_observation"
+VALIDATION_PROVENANCE = VALIDATION_DIAGNOSTIC_PROVENANCE
+BACKTEST_PROVENANCE = BACKTEST_DIAGNOSTIC_PROVENANCE
+PRIOR_ASSISTED_PROVENANCE = PRIOR_ASSISTED_FIT_PROVENANCE
 
 
 def validate_fit_modes(

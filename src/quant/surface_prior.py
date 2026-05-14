@@ -12,6 +12,7 @@ import pandas as pd
 
 from src.data.models import MarketDataSnapshot
 from src.data.snapshots import load_recent_snapshots
+from src.quant.provenance import CURRENT_ROBUST_FIT_PROVENANCE, HISTORICAL_PRIOR_PROVENANCE
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ class HistoricalSurfacePrior:
             "min_snapshots": self.min_snapshots,
             "min_points": self.min_points,
             "max_age_days": self.max_age_days,
-            "provenance": "historical_prior_estimate_not_market_observation",
+            "provenance": HISTORICAL_PRIOR_PROVENANCE,
         }
 
     def records(self) -> list[dict[str, Any]]:
@@ -287,9 +288,9 @@ def surface_prior_comparison_records(
                 "prior_timestamp": prior.latest_snapshot_timestamp,
                 "prior_age_days": prior.latest_age_days,
                 "source": prior.source,
-                "provenance": "historical_prior_estimate_not_market_observation",
-                "current_label": "current_robust_fit_estimate",
-                "prior_label": "historical_prior_estimate",
+                "provenance": HISTORICAL_PRIOR_PROVENANCE,
+                "current_label": CURRENT_ROBUST_FIT_PROVENANCE,
+                "prior_label": HISTORICAL_PRIOR_PROVENANCE,
             }
         )
     return sorted(rows, key=lambda row: (row["dte"], row["strike"]))
@@ -345,7 +346,7 @@ def _prior_grid(source: pd.DataFrame) -> pd.DataFrame:
                 "observations": int(len(group)),
                 "snapshot_count": int(group["snapshot_timestamp"].nunique()),
                 "source": "persisted_snapshots",
-                "provenance": "historical_prior_estimate_not_market_observation",
+                "provenance": HISTORICAL_PRIOR_PROVENANCE,
                 "snapshot_timestamps": sorted(group["snapshot_timestamp"].unique().tolist()),
             }
         )
@@ -505,7 +506,7 @@ def _blend_metadata(prior: HistoricalSurfacePrior, *, applied: bool, reason: str
         "blend_weight": 0.0,
         "blended_cell_count": 0,
         "policy": "quality_recency_overlap_weighted_prior_assist",
-        "provenance": "historical_prior_estimate_not_market_observation",
+        "provenance": HISTORICAL_PRIOR_PROVENANCE,
     }
 
 

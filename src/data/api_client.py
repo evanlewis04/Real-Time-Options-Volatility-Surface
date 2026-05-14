@@ -4,7 +4,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
 import time
 import os
 import logging

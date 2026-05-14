@@ -156,7 +156,6 @@ class SyntheticOptionsGenerator:
 
         try:
             delta_call = OptionGreeks.delta(spot_price, spot_price, T, r, base_iv, 'call', q=q)
-            delta_put = OptionGreeks.delta(spot_price, spot_price, T, r, base_iv, 'put', q=q)
             gamma = OptionGreeks.gamma(spot_price, spot_price, T, r, base_iv, q=q)
             theta_call = OptionGreeks.theta(spot_price, spot_price, T, r, base_iv, 'call', q=q)
             theta_put = OptionGreeks.theta(spot_price, spot_price, T, r, base_iv, 'put', q=q)

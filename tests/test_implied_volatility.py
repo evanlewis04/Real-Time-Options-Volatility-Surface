@@ -39,12 +39,16 @@ def test_arbitrage_violation_returns_none(iv_calculator):
     intrinsic_lower_bound = S - K  # ignoring discount
     bad_price = max(0.0, intrinsic_lower_bound) - 5.0
 
-    iv = iv_calculator.newton_raphson(bad_price, S, K, T, r, "call")
+    with pytest.warns(UserWarning, match="below intrinsic value"):
+        iv = iv_calculator.newton_raphson(bad_price, S, K, T, r, "call")
 
     assert iv is None
 
 
 def test_invalid_inputs_return_none(iv_calculator):
-    assert iv_calculator.newton_raphson(-1.0, 100.0, 100.0, 0.5, 0.05, "call") is None
-    assert iv_calculator.newton_raphson(5.0, 0.0, 100.0, 0.5, 0.05, "call") is None
-    assert iv_calculator.newton_raphson(5.0, 100.0, 100.0, -0.1, 0.05, "call") is None
+    with pytest.warns(UserWarning, match="Market price must be positive"):
+        assert iv_calculator.newton_raphson(-1.0, 100.0, 100.0, 0.5, 0.05, "call") is None
+    with pytest.warns(UserWarning, match="Stock price must be positive"):
+        assert iv_calculator.newton_raphson(5.0, 0.0, 100.0, 0.5, 0.05, "call") is None
+    with pytest.warns(UserWarning, match="Time to expiration cannot be negative"):
+        assert iv_calculator.newton_raphson(5.0, 100.0, 100.0, -0.1, 0.05, "call") is None

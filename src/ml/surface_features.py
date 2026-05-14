@@ -12,11 +12,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.quant.provenance import HISTORICAL_PRIOR_PROVENANCE
 from src.quant.surface_prior import HistoricalSurfacePrior
 
 
 FEATURE_PROVENANCE = "ml_feature_set_research_inputs_not_market_observations"
-PRIOR_FEATURE_PROVENANCE = "historical_prior_estimate_not_market_observation"
+PRIOR_FEATURE_PROVENANCE = HISTORICAL_PRIOR_PROVENANCE
 
 EXPIRY_BUCKETS = ("front", "medium", "deferred", "long")
 OPTION_TYPES = ("call", "put")

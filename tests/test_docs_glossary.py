@@ -35,6 +35,7 @@ def test_surface_quality_guide_documents_presets_and_provenance():
         "Diagnostic Raw",
         "Prior Assisted",
         "ML Denoised",
+        "current_robust_fit_estimate_not_market_observation",
         "fit_mode_validation_diagnostic_not_market_observation",
         "prior_assisted_fit_estimate_not_market_observation",
         "ml_denoised_research_estimate_not_market_observation",

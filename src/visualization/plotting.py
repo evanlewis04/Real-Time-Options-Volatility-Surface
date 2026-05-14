@@ -3,7 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 import seaborn as sns
 from datetime import datetime
 

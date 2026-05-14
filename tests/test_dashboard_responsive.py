@@ -12,3 +12,10 @@ def test_mobile_breakpoint_stacks_loading_layout():
     assert ".loading-panel-top" in mobile_css
     assert "display: block" in mobile_css
     assert "grid-template-columns: 1fr" in mobile_css
+
+
+def test_theme_polishes_workstation_controls_without_large_radius_cards():
+    assert 'section[data-testid="stSidebar"]' in CSS
+    assert 'div[data-testid="stTabs"] button[aria-selected="true"]' in CSS
+    assert 'div[data-testid="stDataFrame"], div[data-testid="stTable"]' in CSS
+    assert "border-radius: 8px" in CSS

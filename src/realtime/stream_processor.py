@@ -3,11 +3,10 @@ Real-Time Stream Processor for Volatility Surface System
 Handles continuous data streams and incremental surface updates
 """
 
-import asyncio
 import logging
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Callable, Any, Set
+from datetime import datetime
+from typing import Dict, List, Optional, Callable, Any
 from dataclasses import dataclass, field
 from collections import deque, defaultdict
 import pandas as pd

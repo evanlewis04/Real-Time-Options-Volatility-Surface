@@ -4,10 +4,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
 
 # Import our modules
 from src.data.api_client import OptionsDataClient

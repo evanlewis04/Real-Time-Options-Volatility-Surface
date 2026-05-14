@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from src.quant.provenance import (
+    CURRENT_ROBUST_FIT_PROVENANCE,
+    ML_DENOISED_PROVENANCE,
+    PRIOR_ASSISTED_FIT_PROVENANCE,
+    RAW_QUOTE_DIAGNOSTIC_PROVENANCE,
+    STANDARD_SVI_FIT_PROVENANCE,
+)
 
 FIT_MODE_CHOICES = ("Robust", "Standard", "Prior Assisted", "ML Denoised", "Diagnostic Raw")
 
@@ -11,11 +18,11 @@ def fit_mode_state(selected_mode: str, surface_meta: dict) -> dict:
     mode_rows = surface_meta.get("fit_mode_comparison") or []
     mode_by_name = {str(row.get("mode")): row for row in mode_rows}
     mapping = {
-        "Robust": ("Robust SVI", "current_robust_fit_estimate"),
-        "Standard": ("Standard SVI", "standard_svi_fit_estimate"),
-        "Prior Assisted": ("Prior Assisted", "prior_assisted_estimate"),
-        "ML Denoised": ("ML Denoised", "ml_denoised_research_estimate"),
-        "Diagnostic Raw": ("Diagnostic Raw", "raw_quote_diagnostic_overlay"),
+        "Robust": ("Robust SVI", CURRENT_ROBUST_FIT_PROVENANCE),
+        "Standard": ("Standard SVI", STANDARD_SVI_FIT_PROVENANCE),
+        "Prior Assisted": ("Prior Assisted", PRIOR_ASSISTED_FIT_PROVENANCE),
+        "ML Denoised": ("ML Denoised", ML_DENOISED_PROVENANCE),
+        "Diagnostic Raw": ("Diagnostic Raw", RAW_QUOTE_DIAGNOSTIC_PROVENANCE),
     }
     row_name, estimate_type = mapping[selected]
     row = mode_by_name.get(row_name, {})

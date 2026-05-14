@@ -1,12 +1,10 @@
 # src/visualization/surface_plots.py
 
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple
 import plotly.graph_objects as go
-import plotly.express as px
 from plotly.subplots import make_subplots
 
 class VolatilitySurface3D:
@@ -52,8 +50,15 @@ class VolatilitySurface3D:
                               alpha=0.8, linewidth=0, antialiased=True)
         
         # Add contour lines
-        contours = ax.contour(strikes, times * 365, ivs, 
-                             zdir='z', offset=np.nanmin(ivs), cmap='viridis', alpha=0.5)
+        ax.contour(
+            strikes,
+            times * 365,
+            ivs,
+            zdir='z',
+            offset=np.nanmin(ivs),
+            cmap='viridis',
+            alpha=0.5,
+        )
         
         # Formatting
         ax.set_xlabel('Strike Price ($)', fontsize=12)
