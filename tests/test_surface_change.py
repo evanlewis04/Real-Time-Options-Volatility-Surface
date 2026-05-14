@@ -9,6 +9,7 @@ from src.data.snapshots import save_snapshot
 from src.quant.surface_change import (
     atm_iv_vol_of_vol_from_snapshots,
     rich_cheap_scanner,
+    surface_shape_change_quality_flag,
     surface_change_analytics,
     surface_change_heatmaps,
     surface_tape_analytics,
@@ -103,6 +104,7 @@ def _scanner_chain() -> pd.DataFrame:
                 "bidAskSpreadPct": 0.08,
                 "volume": 20,
                 "openInterest": 150,
+                "quoteReliabilityScore": 0.90,
             },
             {
                 "contractSymbol": "AAPL260619C00100000",
@@ -114,6 +116,7 @@ def _scanner_chain() -> pd.DataFrame:
                 "bidAskSpreadPct": 0.04,
                 "volume": 120,
                 "openInterest": 800,
+                "quoteReliabilityScore": 0.10,
             },
             {
                 "contractSymbol": "AAPL260619P00110000",
@@ -125,6 +128,7 @@ def _scanner_chain() -> pd.DataFrame:
                 "bidAskSpreadPct": 0.10,
                 "volume": 40,
                 "openInterest": 250,
+                "quoteReliabilityScore": 0.95,
             },
         ]
     )
@@ -247,14 +251,36 @@ def test_rich_cheap_scanner_ranks_residuals_with_liquidity_reasons():
     scanner = rich_cheap_scanner(_scanner_chain(), _svi_smiles())
 
     assert scanner["available"] is True
+    assert scanner["fit_mode"] == "Robust SVI"
+    assert scanner["ranking_policy"] == "abs_residual_z_score_times_liquidity_and_quote_reliability"
     assert scanner["candidate_count"] == 3
     assert scanner["rich_count"] == 2
     assert scanner["cheap_count"] == 1
     top = scanner["candidates"][0]
-    assert top["contract"] == "AAPL260619C00100000"
-    assert top["classification"] == "rich"
-    assert top["surface_residual"] == pytest.approx(0.06)
+    assert top["confidence_label"] in {"high", "medium"}
+    assert top["quote_reliability_score"] >= 0.90
     assert "z-score" in top["reason"]
+    low_confidence = next(row for row in scanner["candidates"] if row["contract"] == "AAPL260619C00100000")
+    assert low_confidence["confidence_label"] == "low"
+
+
+def test_surface_shape_change_flags_quality_driven_move():
+    flag = surface_shape_change_quality_flag(
+        {
+            "available": True,
+            "max_abs_iv_change": 0.08,
+            "median_abs_iv_change": 0.03,
+        },
+        current_quality_score=84.0,
+        previous_quality_score=98.0,
+        current_reason_buckets={"no_arbitrage_violation": 6, "wide_bid_ask_spread": 2},
+        previous_reason_buckets={"no_arbitrage_violation": 1},
+    )
+
+    assert flag["available"] is True
+    assert flag["likely_data_quality_driven"] is True
+    assert flag["deteriorated_buckets"]["no_arbitrage_violation"] == 5
+    assert flag["provenance"] == "surface_change_quality_diagnostic_not_market_observation"
 
 
 def test_connector_surface_change_metadata_flattens_dashboard_fields(tmp_path):
@@ -273,6 +299,7 @@ def test_connector_surface_change_metadata_flattens_dashboard_fields(tmp_path):
     assert metadata["surface_change_points"] == 3
     assert metadata["atm_iv_change"] == pytest.approx(0.03)
     assert metadata["surface_change"]["available"] is True
+    assert metadata["surface_shape_change_quality"]["available"] is True
     assert metadata["surface_tape_available"] is True
     assert metadata["surface_change_heatmap_available"] is True
 

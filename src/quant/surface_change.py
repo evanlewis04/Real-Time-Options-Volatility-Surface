@@ -227,11 +227,65 @@ def surface_tape_analytics(
     }
 
 
+def surface_shape_change_quality_flag(
+    change: dict[str, Any],
+    *,
+    current_quality_score: float | None = None,
+    previous_quality_score: float | None = None,
+    current_reason_buckets: dict[str, int] | None = None,
+    previous_reason_buckets: dict[str, int] | None = None,
+    material_change_threshold: float = 0.02,
+) -> dict[str, Any]:
+    """Classify whether a surface move is likely data-quality driven."""
+    if not change.get("available"):
+        return {
+            "available": False,
+            "reason": "Surface change comparison unavailable",
+            "provenance": "surface_change_quality_diagnostic_not_market_observation",
+        }
+
+    current_buckets = {str(key): int(value) for key, value in (current_reason_buckets or {}).items()}
+    previous_buckets = {str(key): int(value) for key, value in (previous_reason_buckets or {}).items()}
+    deteriorated_buckets = {
+        key: int(current_buckets.get(key, 0) - previous_buckets.get(key, 0))
+        for key in sorted(set(current_buckets) | set(previous_buckets))
+        if int(current_buckets.get(key, 0) - previous_buckets.get(key, 0)) > 0
+    }
+    score_change = None
+    quality_deteriorated = False
+    if current_quality_score is not None and previous_quality_score is not None:
+        score_change = float(current_quality_score) - float(previous_quality_score)
+        quality_deteriorated = bool(score_change <= -5.0)
+    material_shape_change = bool(float(change.get("max_abs_iv_change") or 0.0) >= material_change_threshold)
+    likely_quality_driven = bool(material_shape_change and (quality_deteriorated or deteriorated_buckets))
+    if likely_quality_driven:
+        reason = "Material shape change coincides with deteriorating quote-quality buckets."
+    elif material_shape_change:
+        reason = "Material shape change without matching quality deterioration; review as possible real move."
+    else:
+        reason = "No material shape change."
+    return {
+        "available": True,
+        "provenance": "surface_change_quality_diagnostic_not_market_observation",
+        "likely_data_quality_driven": likely_quality_driven,
+        "material_shape_change": material_shape_change,
+        "max_abs_iv_change": change.get("max_abs_iv_change"),
+        "median_abs_iv_change": change.get("median_abs_iv_change"),
+        "current_quality_score": current_quality_score,
+        "previous_quality_score": previous_quality_score,
+        "quality_score_change": score_change,
+        "quality_deteriorated": quality_deteriorated,
+        "deteriorated_buckets": deteriorated_buckets,
+        "reason": reason,
+    }
+
+
 def rich_cheap_scanner(
     chain: pd.DataFrame,
     svi_smiles: list[dict[str, Any]],
     *,
     iv_column: str = "computedIV",
+    fit_mode: str = "Robust SVI",
     limit: int = 20,
 ) -> dict[str, Any]:
     """Rank options by IV residual to fitted SVI surface plus liquidity context."""
@@ -256,7 +310,12 @@ def rich_cheap_scanner(
         joined["residual_z_score"] = 0.0
 
     joined["liquidity_score"] = _liquidity_scores(joined)
-    joined["scanner_score"] = joined["residual_z_score"].abs() * joined["liquidity_score"]
+    joined["quote_reliability_score"] = pd.to_numeric(
+        joined.get("quote_reliability_score", 1.0),
+        errors="coerce",
+    ).fillna(1.0).clip(0.0, 1.0)
+    joined["candidate_confidence"] = (joined["liquidity_score"] * joined["quote_reliability_score"]).clip(0.0, 1.0)
+    joined["scanner_score"] = joined["residual_z_score"].abs() * joined["candidate_confidence"]
     joined = joined.sort_values(
         ["scanner_score", "liquidity_score", "abs_surface_residual"],
         ascending=[False, False, False],
@@ -278,6 +337,9 @@ def rich_cheap_scanner(
                 "abs_surface_residual": float(row["abs_surface_residual"]),
                 "residual_z_score": float(row["residual_z_score"]),
                 "liquidity_score": float(row["liquidity_score"]),
+                "quote_reliability_score": float(row["quote_reliability_score"]),
+                "candidate_confidence": float(row["candidate_confidence"]),
+                "confidence_label": _confidence_label(float(row["candidate_confidence"])),
                 "scanner_score": float(row["scanner_score"]),
                 "bid_ask_spread_pct": _finite_or_none(row.get("bid_ask_spread_pct")),
                 "volume": _finite_or_none(row.get("volume")),
@@ -291,6 +353,8 @@ def rich_cheap_scanner(
         "available": bool(candidates),
         "source": "current_chain_plus_svi_fit",
         "model": "SVI",
+        "fit_mode": fit_mode,
+        "ranking_policy": "abs_residual_z_score_times_liquidity_and_quote_reliability",
         "input_rows": int(len(joined)),
         "candidate_count": len(candidates),
         "rich_count": int((joined["surface_residual"] > 0).sum()),
@@ -566,6 +630,7 @@ def _scanner_chain_frame(chain: pd.DataFrame, iv_column: str) -> pd.DataFrame:
             "bid_ask_spread_pct": pd.to_numeric(chain.get("bidAskSpreadPct"), errors="coerce"),
             "volume": pd.to_numeric(chain.get("volume"), errors="coerce"),
             "open_interest": pd.to_numeric(chain.get("openInterest"), errors="coerce"),
+            "quote_reliability_score": pd.to_numeric(chain.get("quoteReliabilityScore", 1.0), errors="coerce"),
         }
     )
     out = out.dropna(subset=["expiration", "strike", "iv"])
@@ -593,11 +658,21 @@ def _liquidity_scores(frame: pd.DataFrame) -> pd.Series:
 def _scanner_reason(row: pd.Series, direction: str) -> str:
     spread = _finite_or_none(row.get("bid_ask_spread_pct"))
     spread_text = "spread n/a" if spread is None else f"spread {spread:.1%}"
+    confidence = _confidence_label(float(row.get("candidate_confidence") or 0.0))
     return (
         f"{direction.title()} to fitted SVI by {row['surface_residual']:.2%}; "
         f"z-score {row['residual_z_score']:.2f}; "
-        f"{spread_text}; OI {int(row.get('open_interest') or 0)}; volume {int(row.get('volume') or 0)}"
+        f"{confidence} confidence; {spread_text}; OI {int(row.get('open_interest') or 0)}; "
+        f"volume {int(row.get('volume') or 0)}"
     )
+
+
+def _confidence_label(score: float) -> str:
+    if score >= 0.70:
+        return "high"
+    if score >= 0.35:
+        return "medium"
+    return "low"
 
 
 def _scanner_unavailable(reason: str) -> dict[str, Any]:
@@ -605,6 +680,8 @@ def _scanner_unavailable(reason: str) -> dict[str, Any]:
         "available": False,
         "source": "current_chain_plus_svi_fit",
         "model": "SVI",
+        "fit_mode": "Robust SVI",
+        "ranking_policy": "abs_residual_z_score_times_liquidity_and_quote_reliability",
         "reason": reason,
         "candidate_count": 0,
         "rich_count": 0,

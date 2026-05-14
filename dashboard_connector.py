@@ -87,7 +87,11 @@ from src.quant.surface_arbitrage import (
     conservative_surface_repair,
     surface_comparison_rows,
 )
-from src.quant.surface_change import rich_cheap_scanner, surface_change_analytics
+from src.quant.surface_change import (
+    rich_cheap_scanner,
+    surface_change_analytics,
+    surface_shape_change_quality_flag,
+)
 from src.quant.surface_prior import (
     blend_surface_with_prior,
     load_historical_surface_prior,
@@ -99,6 +103,7 @@ from src.quant.svi import (
     fit_diagnostics_from_ssvi,
     fit_diagnostics_from_svi,
 )
+from src.quant.surface_validation import validate_fit_modes
 from src.utils.structured_logging import configure_structured_logging, log_event
 from src.utils.timing import PerformanceRecorder
 
@@ -1315,6 +1320,7 @@ class DashboardConnector:
         diagnostics = fit_diagnostics_from_svi(svi)
         standard_diagnostics = fit_diagnostics_from_svi(standard_svi)
         global_diagnostics = fit_diagnostics_from_ssvi(ssvi)
+        validation = validate_fit_modes(chain, spot, iv_column=iv_column)
         fit_mode_comparison = DashboardConnector._surface_fit_mode_comparison(
             standard_diagnostics,
             diagnostics,
@@ -1329,6 +1335,7 @@ class DashboardConnector:
                 "ssvi_surface": ssvi,
                 "global_fit_diagnostics": global_diagnostics,
                 "fit_mode_comparison": fit_mode_comparison,
+                "fit_mode_validation": validation,
             }
         records = svi.replace({np.nan: None}).to_dict("records")
         return {
@@ -1339,6 +1346,7 @@ class DashboardConnector:
             "ssvi_surface": ssvi,
             "global_fit_diagnostics": global_diagnostics,
             "fit_mode_comparison": fit_mode_comparison,
+            "fit_mode_validation": validation,
             "front_svi_rmse": records[0].get("rmse"),
             "front_svi_mae": records[0].get("mae"),
         }
@@ -1496,12 +1504,27 @@ class DashboardConnector:
             current_timestamp=metadata.get("timestamp") or metadata.get("spot_timestamp") or datetime.now(),
             vol_of_vol_history=(metadata.get("iv_history") or {}).get("history"),
         )
+        quality_alert = metadata.get("quality_drop_alert") or {}
+        shape_quality = surface_shape_change_quality_flag(
+            change,
+            current_quality_score=quality_alert.get("current_quality_score")
+            if quality_alert
+            else metadata.get("surface_quality_score") or metadata.get("data_quality_score"),
+            previous_quality_score=quality_alert.get("previous_quality_score"),
+            current_reason_buckets=quality_alert.get("current_reason_buckets")
+            or metadata.get("quality_reason_buckets")
+            or metadata.get("rejection_reasons")
+            or {},
+            previous_reason_buckets=quality_alert.get("previous_reason_buckets") or {},
+        )
         atm_change = change.get("atm_change") or {}
         vol_of_vol = change.get("vol_of_vol") or {}
         return {
             "surface_change": change,
             "surface_change_available": change.get("available"),
             "surface_change_points": change.get("matched_points"),
+            "surface_shape_change_quality": shape_quality,
+            "surface_shape_likely_quality_driven": shape_quality.get("likely_data_quality_driven"),
             "surface_tape": change.get("tape") or {},
             "surface_tape_available": (change.get("tape") or {}).get("available"),
             "surface_tape_snapshots": (change.get("tape") or {}).get("snapshot_count"),
@@ -1520,7 +1543,12 @@ class DashboardConnector:
         metadata: Dict[str, Any],
         iv_column: str = "computedIV",
     ) -> Dict[str, Any]:
-        scanner = rich_cheap_scanner(chain, metadata.get("svi_smiles") or [], iv_column=iv_column)
+        scanner = rich_cheap_scanner(
+            chain,
+            metadata.get("svi_smiles") or [],
+            iv_column=iv_column,
+            fit_mode=str(metadata.get("selected_fit_mode") or "Robust SVI"),
+        )
         return {
             "rich_cheap_scanner": scanner,
             "rich_cheap_scanner_available": scanner.get("available"),

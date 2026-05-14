@@ -229,19 +229,19 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 8: Validation And Backtesting
 
-- [ ] Add fit-mode validation metrics.
+- [x] Add fit-mode validation metrics.
   - Metrics: out-of-sample residuals by expiry, residual quantiles, stability versus prior day, no-arb violation rate, and smoothness penalties.
   - Acceptance: metrics run offline on fixture snapshots.
 
-- [ ] Backtest robust fit against stored snapshots.
+- [x] Backtest robust fit against stored snapshots.
   - Compare standard fit versus robust/prior-assisted fits over historical local snapshots.
   - Acceptance: report shows when robust fit improves stability and when it hides real moves.
 
-- [ ] Validate rich/cheap scanner under noisy data.
+- [x] Validate rich/cheap scanner under noisy data.
   - Scanner should use selected fit mode and quote reliability.
   - Acceptance: noisy outliers do not dominate scanner candidates unless explicitly shown as low-confidence.
 
-- [ ] Add regression tests for yesterday-versus-today comparisons.
+- [x] Add regression tests for yesterday-versus-today comparisons.
   - Use two deterministic snapshots: one clean, one noisy.
   - Acceptance: dashboard flags shape change as likely data-quality driven when reason buckets deteriorate.
 
