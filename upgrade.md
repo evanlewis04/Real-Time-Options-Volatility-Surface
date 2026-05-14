@@ -247,20 +247,20 @@ python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts
 
 ## Phase 9: Documentation And Operating Guidance
 
-- [ ] Write a surface quality interpretation guide.
+- [x] Write a surface quality interpretation guide.
   - Explain quality score, fit eligibility, weights, no-arb violations, robust fit, prior-assisted fit, and ML-denoised fit.
   - Suggested file: `docs/surface_quality.md`.
   - Acceptance: concise enough for a user to act on during live analysis.
 
-- [ ] Add recommended filter presets.
+- [x] Add recommended filter presets.
   - Document when to use Standard, Strict, Diagnostic Raw, Prior Assisted, and ML Denoised.
   - Acceptance: README links to the guide.
 
-- [ ] Add provenance examples.
+- [x] Add provenance examples.
   - Include examples of good data, noisy data, prior-assisted data, and ML-denoised data.
   - Acceptance: examples use deterministic fixture output.
 
-- [ ] Update handoff workflow.
+- [x] Update handoff workflow.
   - Future sessions should read this file, implement the next unchecked item, run targeted tests plus full verification for completed phases, update `SESSION_HANDOFF.md`, and commit.
 
 ## Suggested Implementation Order

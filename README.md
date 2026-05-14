@@ -116,8 +116,9 @@ dashboard, with offline tests attached to the normalized and rendered states.
 Reviewer-facing definitions for IV, DTE, moneyness, skew, risk reversal,
 butterfly, IV rank, SVI, and data provenance modes live in
 [docs/glossary.md](docs/glossary.md).
-Surface-fit quality and the distinction between raw quotes and fitted estimates
-are covered in [docs/surface_quality.md](docs/surface_quality.md).
+Surface-fit quality, recommended fit presets, validation diagnostics, and the
+distinction between raw quotes and fitted estimates are covered in
+[docs/surface_quality.md](docs/surface_quality.md).
 
 ## Data Honesty
 

@@ -7,29 +7,28 @@ the relevant unchecked section of `upgrade.md` after this file.
 
 Path: `C:\Users\aruba\OneDrive\Documents\111 Projects\Real-Time Options Volatility Surface`
 
-Current head before this session's Phase 8 commit: `d7009d3653e9327ceb861db7742f504bb32987e6`
+Current head before this session's Phase 9 commit: `5e2f24b656fcf42ead1d9c077fd50a620f49956f`
 
-Branch state before this session's Phase 8 commit: `main...origin/main`
+Branch state before this session's Phase 9 commit: `main`
 
 ## Upgrade State
 
 The original dashboard upgrade plan is complete. The robust volatility surface
-fitting plan is underway.
+fitting plan is complete.
 
-Robust plan count: `41/45` complete.
+Robust plan count: `45/45` complete.
 
 Completed this session:
 
 1. Completed Phase 8: Validation And Backtesting.
-2. Added deterministic fit-mode validation diagnostics with out-of-sample residuals by expiry, residual quantiles, stability versus a prior snapshot, no-arb violation rates, and smoothness penalties.
-3. Added a fixture validation/backtest script that reports noisy-data robust stabilization and a stable-quality move where robust/prior-assisted dampening should be reviewed.
-4. Updated rich/cheap scanner ranking to use selected fit mode metadata, quote reliability, liquidity, confidence labels, and low-confidence candidate visibility.
-5. Added yesterday-versus-today shape-change quality diagnostics so material shape changes can be flagged as likely data-quality driven when quality buckets deteriorate.
+2. Completed Phase 9: Documentation And Operating Guidance.
+3. Added deterministic fit-mode validation/backtest diagnostics and scanner confidence handling in Phase 8.
+4. Expanded `docs/surface_quality.md` with quality interpretation, recommended fit presets, validation metric examples, scanner guidance, provenance examples, and the handoff workflow.
+5. Linked the guide from `README.md` and added a docs regression test for presets/provenance labels.
 
 Next unchecked section:
 
-1. Phase 9: Documentation And Operating Guidance
-   - Continue with `Write a surface quality interpretation guide`.
+None. The robust-fitting upgrade checklist is complete.
 
 Recent context:
 
@@ -44,32 +43,24 @@ Recent context:
 Run from the repo root on 2026-05-14:
 
 ```powershell
-python -m ruff check src\quant\surface_validation.py src\quant\surface_change.py dashboard_connector.py tests\test_surface_validation.py tests\test_surface_change.py scripts\validate_surface_fit_modes.py
-python -m pytest tests\test_surface_validation.py tests\test_surface_change.py tests\test_robust_surface_fixtures.py -q
-python scripts\validate_surface_fit_modes.py --json
-python -m pytest tests\test_dashboard_phase7_workflow.py tests\test_dashboard_connector_snapshot.py -q
-python -m compileall src tests scripts dashboard_connector.py
+python -m pytest tests\test_docs_glossary.py -q
 python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
 python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py main.py
 python -m pytest -q
 $env:PYTHONPATH='.'; python scripts\healthcheck.py
 ```
 
-Passing: Ruff on touched files, Phase 8 targeted tests (`17 passed`), validation fixture script, dashboard workflow/snapshot tests (`13 passed`), compileall, project-wide Ruff, full pytest (`214 passed, 111 warnings`), and healthcheck.
-
-Full verification should run again after Phase 9.
+Passing: docs regression test (`2 passed`), project-wide Ruff, compileall, full pytest (`215 passed, 115 warnings`), and healthcheck.
 
 ## New Session Prompt
 
 ```text
-Continue the Real-Time Options Volatility Surface robust-fitting upgrade.
+The Real-Time Options Volatility Surface robust-fitting upgrade checklist is complete.
 
 Repo:
 C:\Users\aruba\OneDrive\Documents\111 Projects\Real-Time Options Volatility Surface
 
-Start by reading SESSION_HANDOFF.md and only the relevant unchecked section of upgrade.md.
-Continue the robust surface plan at Phase 9. Implement unchecked Phase 9 items in order if they fit cleanly, starting with "Write a surface quality interpretation guide."
-Preserve provenance, keep deterministic offline tests, avoid treating repaired/denoised/prior-assisted/validation values as market truth, run targeted tests plus full verification, update SESSION_HANDOFF.md, commit changes, and report the updated robust-fitting plan count.
+Start by reading SESSION_HANDOFF.md and any relevant current task context. Preserve provenance: repaired, prior-assisted, ML-denoised, inferred, or validation-derived values must remain labeled as estimates or diagnostics, not market observations. Keep offline tests deterministic.
 ```
 
 ## Notes
