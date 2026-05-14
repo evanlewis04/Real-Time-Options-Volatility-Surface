@@ -46,11 +46,28 @@ Run from the repo root on 2026-05-14:
 python -m pytest tests\test_docs_glossary.py -q
 python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
 python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py main.py
+$files = Get-ChildItem -LiteralPath tests -Filter 'test_dashboard*.py' | ForEach-Object { $_.FullName }; python -m pytest @files -q
+python -m pytest tests\test_robust_surface_fixtures.py tests\test_surface_validation.py tests\test_surface_prior.py tests\test_surface_ml.py tests\test_quote_quality.py tests\test_surface_arbitrage.py tests\test_surface_change.py -q
 python -m pytest -q
 $env:PYTHONPATH='.'; python scripts\healthcheck.py
+python scripts\compare_surface_fit_modes.py --json
+python scripts\validate_surface_fit_modes.py --json
+python diagnostic.py
+python scripts\verify.py --skip-healthcheck
+python scripts\dashboard_visual_regression.py --port 8536 --output-dir artifacts\dashboard_screenshots --viewports desktop
 ```
 
-Passing: docs regression test (`2 passed`), project-wide Ruff, compileall, full pytest (`215 passed, 115 warnings`), and healthcheck.
+Passing: docs regression test (`2 passed`), project-wide Ruff, compileall, dashboard/AppTest subset
+(`32 passed`), deterministic robust/prior/ML/repair/validation subset (`35 passed`), full pytest
+(`215 passed, 107 warnings`, no skips reported), offline deterministic healthcheck, fit-mode comparison,
+fit-mode validation/backtest, diagnostic script, and `scripts\verify.py --skip-healthcheck`.
+
+The healthcheck surface and connector smoke checks now force deterministic offline market-data mode during
+local verification. The passing connector line is `mode=Fallback, yfinance=False`; no live market fetch is
+needed for the healthcheck.
+
+Visual regression command exited successfully with a documented skip because Playwright is not installed:
+`SKIP dashboard visual regression: playwright is not installed`.
 
 ## New Session Prompt
 

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable, List
+
+import numpy as np
 
 
 @dataclass
@@ -21,6 +24,25 @@ def _run(name: str, fn: Callable[[], str]) -> CheckResult:
         return CheckResult(name, True, detail)
     except Exception as exc:
         return CheckResult(name, False, f"{type(exc).__name__}: {exc}")
+
+
+@contextmanager
+def _deterministic_offline_market_data():
+    """Force local smoke checks away from yfinance/network providers."""
+    from src.data import options_provider, price_provider
+
+    previous_price_yfinance = price_provider.YFINANCE_AVAILABLE
+    previous_options_yfinance = options_provider.YFINANCE_AVAILABLE
+    previous_random_state = np.random.get_state()
+    price_provider.YFINANCE_AVAILABLE = False
+    options_provider.YFINANCE_AVAILABLE = False
+    np.random.seed(0)
+    try:
+        yield
+    finally:
+        price_provider.YFINANCE_AVAILABLE = previous_price_yfinance
+        options_provider.YFINANCE_AVAILABLE = previous_options_yfinance
+        np.random.set_state(previous_random_state)
 
 
 def check_imports() -> str:
@@ -71,10 +93,11 @@ def check_surface() -> str:
     from src.data.price_provider import RealTimePriceProvider
     from src.data.synthetic_options import SyntheticOptionsGenerator
 
-    provider = RealTimePriceProvider()
-    generator = SyntheticOptionsGenerator(provider)
-    chain = generator.create_chain("AAPL")
-    spot = provider.get_live_price("AAPL")
+    with _deterministic_offline_market_data():
+        provider = RealTimePriceProvider()
+        generator = SyntheticOptionsGenerator(provider, demo_seed=0)
+        spot = provider.get_live_price("AAPL")
+        chain = generator.create_chain("AAPL", spot_price=spot)
     _, _, vols = build_surface(chain, spot, "AAPL")
     if vols.size == 0:
         raise AssertionError("surface has no points")
@@ -84,17 +107,18 @@ def check_surface() -> str:
 def check_connector() -> str:
     from dashboard_connector import DashboardConnector
 
-    connector = DashboardConnector()
-    data = connector.get_current_data("AAPL")
-    required = {"price", "data_mode", "iv_30d", "timestamp"}
-    missing = required - set(data)
-    if missing:
-        raise AssertionError(f"missing connector fields: {sorted(missing)}")
-    health = connector.get_system_health()
-    snapshot = connector.get_market_data_snapshot("AAPL")
-    if snapshot.symbol != "AAPL":
-        raise AssertionError("snapshot symbol mismatch")
-    market_status = connector.get_market_status()
+    with _deterministic_offline_market_data():
+        connector = DashboardConnector()
+        data = connector.get_current_data("AAPL")
+        required = {"price", "data_mode", "iv_30d", "timestamp"}
+        missing = required - set(data)
+        if missing:
+            raise AssertionError(f"missing connector fields: {sorted(missing)}")
+        health = connector.get_system_health()
+        snapshot = connector.get_market_data_snapshot("AAPL")
+        if snapshot.symbol != "AAPL":
+            raise AssertionError("snapshot symbol mismatch")
+        market_status = connector.get_market_status()
     return (
         f"mode={data['data_mode']}, yfinance={health['overall'].get('yfinance_available')}, "
         f"snapshot_options={len(snapshot.options)}, market={market_status.get('session_state')}"
