@@ -8,20 +8,20 @@ from src.dashboard.app_shell import (
 
 def test_crawler_tab_specs_cover_dashboard_tabs():
     assert list(crawler.TAB_SPECS) == [
-        "SurfaceWorkspace",
-        "ChainExplorer",
-        "SkewLab",
-        "TermStructurePanel",
-        "DataQualityPanel",
-        "ScannerPanel",
-        "StrategyBuilder",
-        "PortfolioRiskPanel",
-        "DiagnosticsPanel",
-        "ReportExportPanel",
+        "F1 Surface",
+        "F2 Chain",
+        "F3 Skew",
+        "F4 Term",
+        "F5 Quality",
+        "F6 Scanner",
+        "F7 Strategy",
+        "F8 Risk",
+        "F9 Diag",
+        "F10 Export",
     ]
 
-    assert "Data Quality Panel" in crawler.TAB_SPECS["DataQualityPanel"]
-    assert "Report Export Panel" in crawler.TAB_SPECS["ReportExportPanel"]
+    assert "Data Quality Panel" in crawler.TAB_SPECS["F5 Quality"]
+    assert "Report Export Panel" in crawler.TAB_SPECS["F10 Export"]
 
 
 def test_crawler_slug_makes_stable_artifact_names():

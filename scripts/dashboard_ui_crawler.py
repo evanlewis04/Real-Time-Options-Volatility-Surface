@@ -38,16 +38,16 @@ from scripts.dashboard_visual_regression import (  # noqa: E402
 
 
 TAB_SPECS = {
-    "SurfaceWorkspace": ("Volatility Surface", "Market Snapshot", "Selected fit view"),
-    "ChainExplorer": ("Option Chain Explorer", ("Showing", "Option chain unavailable", "Option chain panel idle")),
-    "SkewLab": ("Smile And Term Structure", "Term structure:", ("Expected Move By Expiry", "Expected move unavailable")),
-    "TermStructurePanel": ("Term Structure Panel", ("ATM IV Term Structure", "Term structure unavailable")),
-    "DataQualityPanel": ("Data Quality Panel", ("Top Quality Drivers", "No-Arbitrage Summary", "Expiry quality unavailable")),
-    "ScannerPanel": ("Scanner Panel", "Relative Value Dashboard", "Cross-Sectional Vol Map"),
-    "StrategyBuilder": ("Earnings Vol Event Engine", "Strategy Builder"),
-    "PortfolioRiskPanel": ("Portfolio And Cross-Asset Risk", ("Portfolio book unavailable", "Portfolio Greeks")),
-    "DiagnosticsPanel": ("Diagnostics And Data Provenance", "Advanced Research Modules", "Surface Alerts"),
-    "ReportExportPanel": ("Report Export Panel", "Export fit diagnostics JSON", "Export payload source"),
+    "F1 Surface": ("Volatility Surface", "Market Snapshot", "Selected fit view"),
+    "F2 Chain": ("Option Chain Explorer", ("Showing", "Option chain unavailable", "Option chain panel idle")),
+    "F3 Skew": ("Smile And Term Structure", "Term structure:", ("Expected Move By Expiry", "Expected move unavailable")),
+    "F4 Term": ("Term Structure Panel", ("ATM IV Term Structure", "Term structure unavailable")),
+    "F5 Quality": ("Data Quality Panel", ("Top Quality Drivers", "No-Arbitrage Summary", "Expiry quality unavailable")),
+    "F6 Scanner": ("Scanner Panel", "Relative Value Dashboard", "Cross-Sectional Vol Map"),
+    "F7 Strategy": ("Earnings Vol Event Engine", "Strategy Builder"),
+    "F8 Risk": ("Portfolio And Cross-Asset Risk", ("Portfolio book unavailable", "Portfolio Greeks")),
+    "F9 Diag": ("Diagnostics And Data Provenance", "Advanced Research Modules", "Surface Alerts"),
+    "F10 Export": ("Report Export Panel", "Export fit diagnostics JSON", "Export payload source"),
 }
 
 STREAMLIT_ERROR_RE = re.compile(
@@ -285,7 +285,7 @@ def _crawl_tabs(page, output_dir: Path, result: CrawlResult) -> None:
             _assert_any_text(page, expected, context)
         if tab_name in {"DataQualityPanel", "DiagnosticsPanel"}:
             _assert_provenance_visible(page, context)
-        if tab_name == "ChainExplorer":
+        if tab_name == "F2 Chain":
             _assert_any_text(
                 page,
                 ("Option Chain Explorer", "Showing", "Option chain unavailable", "Option chain panel idle"),

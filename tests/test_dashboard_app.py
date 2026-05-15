@@ -29,16 +29,16 @@ def test_dashboard_default_state_renders_key_sections():
     assert 'data-dashboard-state="ready"' in markdown
     assert len(at.tabs) == 10
     assert [tab.label for tab in at.tabs] == [
-        "SurfaceWorkspace",
-        "ChainExplorer",
-        "SkewLab",
-        "TermStructurePanel",
-        "DataQualityPanel",
-        "ScannerPanel",
-        "StrategyBuilder",
-        "PortfolioRiskPanel",
-        "DiagnosticsPanel",
-        "ReportExportPanel",
+        "F1 Surface",
+        "F2 Chain",
+        "F3 Skew",
+        "F4 Term",
+        "F5 Quality",
+        "F6 Scanner",
+        "F7 Strategy",
+        "F8 Risk",
+        "F9 Diag",
+        "F10 Export",
     ]
     assert len(at.dataframe) >= 2
 

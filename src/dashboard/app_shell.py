@@ -224,6 +224,10 @@ def _render_workstation_header(
         f'<div class="kpi-strip-value">{_html(value)}</div></div>'
         for label, value in ticker_tiles
     )
+    function_keys = "".join(
+        f'<span class="function-key-item"><strong>F{index + 1}</strong> {_html(name)}</span>'
+        for index, name in enumerate(FUNCTION_KEY_NAMES)
+    )
     return f"""
     <div class="workstation-header">
         <div class="workstation-topline">
@@ -247,6 +251,7 @@ def _render_workstation_header(
             </div>
             {tile_markup}
         </div>
+        <div class="function-key-strip">{function_keys}</div>
         <div class="workstation-tape">
             <span>Source <strong>{_html(source)}</strong></span>
             <span>Market <strong>{_html(market_state)}</strong></span>
@@ -584,6 +589,28 @@ def render_command_rail_context(
     """
 
 
+FUNCTION_KEY_NAMES = (
+    "Surface",
+    "Chain",
+    "Skew",
+    "Term",
+    "Quality",
+    "Scanner",
+    "Strategy",
+    "Risk",
+    "Diag",
+    "Export",
+)
+
+
+def function_key_page_titles(page_registry: list) -> list[str]:
+    """Return Bloomberg-style function-key tab labels without changing page specs."""
+    return [
+        f"F{index + 1} {FUNCTION_KEY_NAMES[index] if index < len(FUNCTION_KEY_NAMES) else page.title}"
+        for index, page in enumerate(page_registry)
+    ]
+
+
 def fit_mode_state(selected_mode: str, surface_meta: dict) -> dict:
     """Return dashboard fit-mode state sourced from existing metadata."""
     selected = selected_mode if selected_mode in FIT_MODE_CHOICES else "Robust"
@@ -766,8 +793,9 @@ def run_dashboard() -> None:
     import streamlit as st
     from src.dashboard.components import card
     from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
+    from src.dashboard.keyboard import render_keyboard_layer
     from src.dashboard.loading import LoadingState, load_with_status, render_empty_state
-    from src.dashboard.pages import default_page_registry, page_titles
+    from src.dashboard.pages import default_page_registry
     from src.dashboard.state import DashboardStateService
     from src.dashboard.surface_view import extract_smile, surface_axis, surface_stats
     from src.dashboard.tables import add_freshness_column, dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
@@ -1896,6 +1924,8 @@ def run_dashboard() -> None:
     )
 
     page_registry = default_page_registry()
+    tab_labels = function_key_page_titles(page_registry)
+    render_keyboard_layer(page_labels=tab_labels, symbols=selected_symbols)
     (
         surface_tab,
         chain_tab,
@@ -1907,7 +1937,7 @@ def run_dashboard() -> None:
         risk_tab,
         diagnostics_tab,
         report_tab,
-    ) = st.tabs(page_titles(page_registry))
+    ) = st.tabs(tab_labels)
     local_vol_tab = surface_tab
     relative_tab = scanner_tab
 

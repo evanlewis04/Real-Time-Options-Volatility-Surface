@@ -289,6 +289,36 @@ CSS = """
         margin-top: 2px;
         overflow-wrap: anywhere;
     }
+    .function-key-strip {
+        display: grid;
+        grid-template-columns: repeat(10, minmax(max-content, 1fr));
+        min-height: 36px;
+        border-top: 1px solid var(--border-subtle);
+        border-bottom: 1px solid var(--border-subtle);
+        background: var(--surface-0);
+        overflow-x: auto;
+    }
+    .function-key-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-right: 1px solid var(--border-subtle);
+        color: var(--text-tertiary);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        font-weight: 800;
+        min-width: max-content;
+        padding: 0 var(--s-3);
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .function-key-item:first-child {
+        color: var(--accent);
+        box-shadow: inset 0 -2px 0 var(--accent);
+    }
+    .function-key-item strong {
+        color: var(--text-secondary);
+    }
     .workstation-tape {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
