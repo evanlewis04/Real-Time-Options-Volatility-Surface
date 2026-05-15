@@ -14,6 +14,38 @@ from src.quant.provenance import (
 )
 
 FIT_MODE_CHOICES = ("Robust", "Standard", "Prior Assisted", "ML Denoised", "Diagnostic Raw")
+FIT_PRESETS = {
+    "Standard": {
+        "max_bid_ask_spread_pct": 0.75,
+        "max_quote_age_days": 5,
+        "min_volume": 0,
+        "min_open_interest": 0,
+        "moneyness": (0.50, 2.00),
+        "max_raw_iv": 2.00,
+        "no_arbitrage_policy": "exclude",
+        "last_only_policy": "allow_penalized",
+    },
+    "Strict": {
+        "max_bid_ask_spread_pct": 0.35,
+        "max_quote_age_days": 2,
+        "min_volume": 10,
+        "min_open_interest": 50,
+        "moneyness": (0.70, 1.35),
+        "max_raw_iv": 1.50,
+        "no_arbitrage_policy": "exclude",
+        "last_only_policy": "exclude",
+    },
+    "Diagnostic Raw": {
+        "max_bid_ask_spread_pct": 1.50,
+        "max_quote_age_days": 0,
+        "min_volume": 0,
+        "min_open_interest": 0,
+        "moneyness": (0.35, 2.50),
+        "max_raw_iv": 5.00,
+        "no_arbitrage_policy": "allow",
+        "last_only_policy": "allow",
+    },
+}
 SCANNER_NUMERIC_COLUMNS = [
     "dte",
     "strike",
@@ -153,29 +185,67 @@ def _render_quality_workstation(
     """
 
 
+def _data_mode_class(mode: object) -> str:
+    lowered = str(mode or "").lower()
+    if "synthetic" in lowered:
+        return "status-synthetic"
+    if "fallback" in lowered or "unavailable" in lowered:
+        return "status-fallback"
+    return "status-live"
+
+
 def _render_workstation_header(
     *,
     symbol: str,
     spot: str,
+    atm_iv: str = "n/a",
+    risk_reversal: str = "n/a",
+    term_spread: str = "n/a",
+    surface_points: str = "n/a",
+    stale_age: str = "n/a",
     source: str,
     market_state: str,
     market_reason: str,
     updated: str,
+    model_label: str = "BSM with dividends",
     readiness_label: str,
     readiness_detail: str,
     status_markup: str,
 ) -> str:
+    ticker_tiles = [
+        ("ATM IV", atm_iv),
+        ("Risk Rev", risk_reversal),
+        ("Term Spread", term_spread),
+        ("Surface Points", surface_points),
+        ("Stale Age", stale_age),
+    ]
+    tile_markup = "".join(
+        f'<div class="kpi-strip-tile"><div class="kpi-strip-label">{_html(label)}</div>'
+        f'<div class="kpi-strip-value">{_html(value)}</div></div>'
+        for label, value in ticker_tiles
+    )
     return f"""
     <div class="workstation-header">
         <div class="workstation-topline">
-            <div>
-                <div class="workstation-kicker">VOL SURFACE // OPTIONS ANALYTICS</div>
+            <div class="brand-cluster">
+                <div class="brand-mark">VS.</div>
                 <div class="workstation-title">Options Volatility Surface Workstation</div>
+                <span class="env-tag">PROD</span>
             </div>
+            <div class="header-cluster">
+                <span class="workstation-clock">{_html(updated)}</span>
+                <span class="status-pill {_data_mode_class(market_state)}">Market: {_html(market_state)}</span>
+                <span class="status-pill status-live">Model: {_html(model_label)}</span>
+                <span class="shortcut-key">?</span>
+            </div>
+        </div>
+        <div class="ticker-strip">
             <div class="workstation-symbol-block">
                 <div class="workstation-symbol">{_html(symbol)}</div>
                 <div class="workstation-spot">{_html(spot)}</div>
+                <div class="spot-delta">{_html(surface_points)} pts</div>
             </div>
+            {tile_markup}
         </div>
         <div class="workstation-tape">
             <span>Source <strong>{_html(source)}</strong></span>
@@ -189,6 +259,327 @@ def _render_workstation_header(
             <div class="readiness-detail">{_html(readiness_detail)}</div>
         </div>
         <div class="status-rail">{status_markup}</div>
+    </div>
+    """
+
+
+def _mode_dot_class(mode: object) -> str:
+    lowered = str(mode or "").lower()
+    if "synthetic" in lowered:
+        return "synthetic"
+    if "fallback" in lowered or "unavailable" in lowered:
+        return "fallback"
+    if "stale" in lowered:
+        return "stale"
+    return "live"
+
+
+def _render_symbol_chips(symbols: list[str], active_symbol: str, mode: object) -> str:
+    chips = []
+    dot_class = _mode_dot_class(mode)
+    for symbol in symbols[:12]:
+        active = " active" if symbol == active_symbol else ""
+        chips.append(
+            f'<span class="rail-chip{active}"><span class="rail-dot {dot_class}"></span>{_html(symbol)}</span>'
+        )
+    return f'<div class="rail-chip-row">{"".join(chips)}</div>'
+
+
+def render_command_rail(
+    st_module,
+    *,
+    available_symbols: list[str],
+    watchlist_presets: dict,
+    connector,
+    control_help: dict,
+    model_choices,
+) -> dict:
+    """Render the dense left command rail and return selected control state."""
+    with st_module.sidebar:
+        st_module.markdown('<div class="rail-heading">Symbol Command</div>', unsafe_allow_html=True)
+        symbol_query = st_module.text_input(
+            "Symbol command",
+            value="",
+            placeholder="Cmd+K Search ticker or watchlist...",
+            label_visibility="collapsed",
+        ).strip().upper()
+        preset_name = st_module.selectbox(
+            "Watchlist preset",
+            options=["Custom", *watchlist_presets.keys()],
+            index=1 if watchlist_presets else 0,
+            help=control_help["watchlist_preset"],
+        )
+        preset_symbols = watchlist_presets.get(preset_name, []) if preset_name != "Custom" else []
+        default_symbols = preset_symbols or ["AAPL", "MSFT", "TSLA", "NVDA", "SPY"]
+        universe_options = sorted({*available_symbols, *default_symbols})
+        suggestions = [symbol for symbol in universe_options if not symbol_query or symbol.startswith(symbol_query)]
+        if symbol_query and suggestions:
+            selected_suggestion = st_module.selectbox(
+                "Ticker suggestions",
+                suggestions[:8],
+                index=0,
+                help="Type-ahead suggestions sourced from the configured dashboard universe.",
+            )
+            if selected_suggestion not in default_symbols:
+                default_symbols = [selected_suggestion, *default_symbols]
+        selected_symbols = st_module.multiselect(
+            "Universe",
+            options=universe_options,
+            default=[symbol for symbol in default_symbols if symbol in universe_options],
+            help=control_help["universe"],
+        )
+        selected_symbols = [str(symbol).upper() for symbol in selected_symbols]
+        if selected_symbols:
+            active_symbol = str(st_module.session_state.get("active_symbol", selected_symbols[0])).upper()
+            if active_symbol not in selected_symbols:
+                active_symbol = selected_symbols[0]
+            st_module.session_state["active_symbol"] = active_symbol
+            st_module.markdown(
+                _render_symbol_chips(selected_symbols, active_symbol, "live"),
+                unsafe_allow_html=True,
+            )
+            chip_columns = st_module.columns(min(4, len(selected_symbols)))
+            for index, symbol in enumerate(selected_symbols[:8]):
+                with chip_columns[index % len(chip_columns)]:
+                    if st_module.button(symbol, key=f"rail_symbol_{symbol}", width="stretch"):
+                        st_module.session_state["active_symbol"] = symbol
+                        active_symbol = symbol
+        else:
+            active_symbol = ""
+            st_module.markdown('<div class="rail-chip-row"></div>', unsafe_allow_html=True)
+
+        context_slot = st_module.empty()
+        context_slot.markdown(
+            render_command_rail_context(
+                symbol=active_symbol or "N/A",
+                spot="pending",
+                session_state="pending",
+                updated="pending",
+                source="pending",
+            ),
+            unsafe_allow_html=True,
+        )
+
+        with st_module.expander("View - 5 active", expanded=True):
+            show_3d_surface = st_module.checkbox("3D surface", value=True, help=control_help["show_3d_surface"])
+            surface_x_axis = st_module.selectbox(
+                "Surface x-axis",
+                options=["Strike", "Moneyness", "Log-moneyness", "Call delta"],
+                index=0,
+                help=control_help["surface_x_axis"],
+            )
+            show_reliability_overlay = st_module.checkbox(
+                "Reliability overlay",
+                value=True,
+                help="Color and size raw quote points by deterministic fit weight/reliability metadata.",
+            )
+            show_correlations = st_module.checkbox(
+                "Realized correlation",
+                value=True,
+                help=control_help["show_correlations"],
+            )
+            show_chain = st_module.checkbox("Option chain", value=True, help=control_help["show_chain"])
+
+        with st_module.expander("Fit - preset + guardrails", expanded=True):
+            selected_fit_mode = st_module.selectbox(
+                "Fit Mode",
+                options=list(FIT_MODE_CHOICES),
+                index=0,
+                help="Select the dashboard view for fitted, prior-assisted, ML research, or diagnostic raw surface context.",
+            )
+            fit_preset = st_module.selectbox(
+                "Fit preset",
+                options=list(FIT_PRESETS),
+                index=0,
+                help=control_help["fit_preset"],
+            )
+            fit_defaults = FIT_PRESETS[fit_preset]
+            fit_preset_key = fit_preset.lower().replace(" ", "_")
+            fit_max_spread_pct = st_module.slider(
+                "Fit max spread percent",
+                0.05,
+                1.50,
+                float(fit_defaults["max_bid_ask_spread_pct"]),
+                0.05,
+                key=f"fit_max_spread_pct_{fit_preset_key}",
+                help=control_help["fit_max_spread_pct"],
+            )
+            fit_max_quote_age_days = st_module.number_input(
+                "Fit max quote age days",
+                min_value=0,
+                value=int(fit_defaults["max_quote_age_days"]),
+                step=1,
+                key=f"fit_max_quote_age_days_{fit_preset_key}",
+                help=control_help["fit_max_quote_age_days"],
+            )
+            fit_min_volume = st_module.number_input(
+                "Fit min volume",
+                min_value=0,
+                value=int(fit_defaults["min_volume"]),
+                step=5,
+                key=f"fit_min_volume_{fit_preset_key}",
+                help=control_help["fit_min_volume"],
+            )
+            fit_min_open_interest = st_module.number_input(
+                "Fit min open interest",
+                min_value=0,
+                value=int(fit_defaults["min_open_interest"]),
+                step=10,
+                key=f"fit_min_open_interest_{fit_preset_key}",
+                help=control_help["fit_min_open_interest"],
+            )
+            fit_moneyness_band = st_module.slider(
+                "Fit moneyness",
+                0.35,
+                2.50,
+                fit_defaults["moneyness"],
+                0.05,
+                key=f"fit_moneyness_{fit_preset_key}",
+                help=control_help["fit_moneyness"],
+            )
+            fit_max_raw_iv = st_module.slider(
+                "Fit max raw IV",
+                0.50,
+                5.00,
+                float(fit_defaults["max_raw_iv"]),
+                0.05,
+                format="%.2f",
+                key=f"fit_max_raw_iv_{fit_preset_key}",
+                help=control_help["fit_max_raw_iv"],
+            )
+            fit_no_arbitrage_policy = st_module.selectbox(
+                "Fit no-arb policy",
+                options=["exclude", "penalize", "allow"],
+                index=["exclude", "penalize", "allow"].index(str(fit_defaults["no_arbitrage_policy"])),
+                key=f"fit_no_arbitrage_policy_{fit_preset_key}",
+                help=control_help["fit_no_arbitrage_policy"],
+            )
+            fit_last_only_policy = st_module.selectbox(
+                "Fit last-only policy",
+                options=["allow_penalized", "exclude", "allow"],
+                index=["allow_penalized", "exclude", "allow"].index(str(fit_defaults["last_only_policy"])),
+                key=f"fit_last_only_policy_{fit_preset_key}",
+                help=control_help["fit_last_only_policy"],
+            )
+
+        with st_module.expander("Chain filters - 5 active", expanded=False):
+            max_spread_pct = st_module.slider(
+                "Max spread percent",
+                0.05,
+                1.50,
+                0.75,
+                0.05,
+                help=control_help["max_spread_pct"],
+            )
+            min_open_interest = st_module.number_input(
+                "Min open interest",
+                min_value=0,
+                value=0,
+                step=10,
+                help=control_help["min_open_interest"],
+            )
+            min_volume = st_module.number_input(
+                "Min volume",
+                min_value=0,
+                value=0,
+                step=5,
+                help=control_help["min_volume"],
+            )
+            max_quote_age_days = st_module.number_input(
+                "Max quote age days",
+                min_value=0,
+                value=5,
+                step=1,
+                help=control_help["max_quote_age_days"],
+            )
+            option_price_source = st_module.selectbox(
+                "IV price source",
+                options=["mark", "midpoint", "last"],
+                index=0,
+                help=control_help["option_price_source"],
+            )
+            pricing_model = st_module.selectbox(
+                "Pricing model",
+                options=list(model_choices),
+                index=1,
+                help=control_help["pricing_model"],
+            )
+
+        with st_module.expander("Refresh - scheduler", expanded=True):
+            auto_refresh = st_module.checkbox("Auto refresh", value=False, help=control_help["auto_refresh"])
+            refresh_interval = st_module.slider(
+                "Refresh interval seconds",
+                15,
+                180,
+                60,
+                15,
+                help=control_help["refresh_interval"],
+            )
+            if st_module.button("Refresh data", width="stretch"):
+                result = connector.trigger_data_refresh()
+                st_module.cache_data.clear()
+                if result.get("status") == "success":
+                    st_module.success(result.get("message", "Data refreshed"))
+                else:
+                    st_module.error(result.get("message", "Refresh failed"))
+
+        st_module.markdown(
+            """
+            <div class="rail-footer">
+                <strong>1-0</strong> tabs &nbsp; <strong>R</strong> refresh &nbsp;
+                <strong>/</strong> symbol &nbsp; <strong>?</strong> help<br>
+                v1.x.y build · <a href="https://github.com/" target="_blank">docs</a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    return {
+        "context_slot": context_slot,
+        "preset_name": preset_name,
+        "selected_symbols": selected_symbols,
+        "surface_symbol": active_symbol,
+        "show_3d_surface": show_3d_surface,
+        "surface_x_axis": surface_x_axis,
+        "selected_fit_mode": selected_fit_mode,
+        "show_reliability_overlay": show_reliability_overlay,
+        "show_correlations": show_correlations,
+        "show_chain": show_chain,
+        "auto_refresh": auto_refresh,
+        "refresh_interval": refresh_interval,
+        "max_spread_pct": max_spread_pct,
+        "min_open_interest": min_open_interest,
+        "min_volume": min_volume,
+        "max_quote_age_days": max_quote_age_days,
+        "option_price_source": option_price_source,
+        "pricing_model": pricing_model,
+        "fit_preset": fit_preset,
+        "fit_max_spread_pct": fit_max_spread_pct,
+        "fit_max_quote_age_days": fit_max_quote_age_days,
+        "fit_min_volume": fit_min_volume,
+        "fit_min_open_interest": fit_min_open_interest,
+        "fit_moneyness_band": fit_moneyness_band,
+        "fit_max_raw_iv": fit_max_raw_iv,
+        "fit_no_arbitrage_policy": fit_no_arbitrage_policy,
+        "fit_last_only_policy": fit_last_only_policy,
+    }
+
+
+def render_command_rail_context(
+    *,
+    symbol: str,
+    spot: str,
+    session_state: str,
+    updated: str,
+    source: str,
+) -> str:
+    return f"""
+    <div class="rail-panel rail-context">
+        <div class="rail-command-label">Active Context</div>
+        <div class="rail-context-symbol">{_html(symbol)}</div>
+        <div class="rail-context-spot">{_html(spot)}</div>
+        <div class="rail-context-meta">Session {_html(session_state)} · Refresh {_html(updated)}</div>
+        <div class="rail-context-meta">Source {_html(source)}</div>
     </div>
     """
 
@@ -791,219 +1182,43 @@ def run_dashboard() -> None:
     ]
     watchlist_presets = get_watchlist_presets_cached()
 
-    with st.sidebar:
-        st.markdown("### Workspace")
-        preset_name = st.selectbox(
-            "Watchlist preset",
-            options=["Custom", *watchlist_presets.keys()],
-            index=1 if watchlist_presets else 0,
-            help=CONTROL_HELP["watchlist_preset"],
-        )
-        preset_symbols = watchlist_presets.get(preset_name, []) if preset_name != "Custom" else []
-        default_symbols = preset_symbols or ["AAPL", "MSFT", "TSLA", "NVDA", "SPY"]
-        universe_options = sorted({*available_symbols, *default_symbols})
-        selected_symbols = st.multiselect(
-            "Universe",
-            options=universe_options,
-            default=[symbol for symbol in default_symbols if symbol in universe_options],
-            help=CONTROL_HELP["universe"],
-        )
-        show_3d_surface = st.checkbox("3D surface", value=True, help=CONTROL_HELP["show_3d_surface"])
-        surface_x_axis = st.selectbox(
-            "Surface x-axis",
-            options=["Strike", "Moneyness", "Log-moneyness", "Call delta"],
-            index=0,
-            help=CONTROL_HELP["surface_x_axis"],
-        )
-        selected_fit_mode = st.selectbox(
-            "Fit Mode",
-            options=list(FIT_MODE_CHOICES),
-            index=0,
-            help="Select the dashboard view for fitted, prior-assisted, ML research, or diagnostic raw surface context.",
-        )
-        show_reliability_overlay = st.checkbox(
-            "Reliability overlay",
-            value=True,
-            help="Color and size raw quote points by deterministic fit weight/reliability metadata.",
-        )
-        show_correlations = st.checkbox("Realized correlation", value=True, help=CONTROL_HELP["show_correlations"])
-        show_chain = st.checkbox("Option chain", value=True, help=CONTROL_HELP["show_chain"])
-        auto_refresh = st.checkbox("Auto refresh", value=False, help=CONTROL_HELP["auto_refresh"])
-        refresh_interval = st.slider(
-            "Refresh interval seconds",
-            15,
-            180,
-            60,
-            15,
-            help=CONTROL_HELP["refresh_interval"],
-        )
-        st.markdown("### Chain Display Filters")
-        max_spread_pct = st.slider(
-            "Max spread percent",
-            0.05,
-            1.50,
-            0.75,
-            0.05,
-            help=CONTROL_HELP["max_spread_pct"],
-        )
-        min_open_interest = st.number_input(
-            "Min open interest",
-            min_value=0,
-            value=0,
-            step=10,
-            help=CONTROL_HELP["min_open_interest"],
-        )
-        min_volume = st.number_input(
-            "Min volume",
-            min_value=0,
-            value=0,
-            step=5,
-            help=CONTROL_HELP["min_volume"],
-        )
-        max_quote_age_days = st.number_input(
-            "Max quote age days",
-            min_value=0,
-            value=5,
-            step=1,
-            help=CONTROL_HELP["max_quote_age_days"],
-        )
-        option_price_source = st.selectbox(
-            "IV price source",
-            options=["mark", "midpoint", "last"],
-            index=0,
-            help=CONTROL_HELP["option_price_source"],
-        )
-        pricing_model = st.selectbox(
-            "Pricing model",
-            options=list(MODEL_CHOICES),
-            index=1,
-            help=CONTROL_HELP["pricing_model"],
-        )
-        fit_presets = {
-            "Standard": {
-                "max_bid_ask_spread_pct": 0.75,
-                "max_quote_age_days": 5,
-                "min_volume": 0,
-                "min_open_interest": 0,
-                "moneyness": (0.50, 2.00),
-                "max_raw_iv": 2.00,
-                "no_arbitrage_policy": "exclude",
-                "last_only_policy": "allow_penalized",
-            },
-            "Strict": {
-                "max_bid_ask_spread_pct": 0.35,
-                "max_quote_age_days": 2,
-                "min_volume": 10,
-                "min_open_interest": 50,
-                "moneyness": (0.70, 1.35),
-                "max_raw_iv": 1.50,
-                "no_arbitrage_policy": "exclude",
-                "last_only_policy": "exclude",
-            },
-            "Diagnostic Raw": {
-                "max_bid_ask_spread_pct": 1.50,
-                "max_quote_age_days": 0,
-                "min_volume": 0,
-                "min_open_interest": 0,
-                "moneyness": (0.35, 2.50),
-                "max_raw_iv": 5.00,
-                "no_arbitrage_policy": "allow",
-                "last_only_policy": "allow",
-            },
-        }
-        st.markdown("### Fit Controls")
-        fit_preset = st.selectbox(
-            "Fit preset",
-            options=list(fit_presets),
-            index=0,
-            help=CONTROL_HELP["fit_preset"],
-        )
-        fit_defaults = fit_presets[fit_preset]
-        fit_preset_key = fit_preset.lower().replace(" ", "_")
-        fit_max_spread_pct = st.slider(
-            "Fit max spread percent",
-            0.05,
-            1.50,
-            float(fit_defaults["max_bid_ask_spread_pct"]),
-            0.05,
-            key=f"fit_max_spread_pct_{fit_preset_key}",
-            help=CONTROL_HELP["fit_max_spread_pct"],
-        )
-        fit_max_quote_age_days = st.number_input(
-            "Fit max quote age days",
-            min_value=0,
-            value=int(fit_defaults["max_quote_age_days"]),
-            step=1,
-            key=f"fit_max_quote_age_days_{fit_preset_key}",
-            help=CONTROL_HELP["fit_max_quote_age_days"],
-        )
-        fit_min_volume = st.number_input(
-            "Fit min volume",
-            min_value=0,
-            value=int(fit_defaults["min_volume"]),
-            step=5,
-            key=f"fit_min_volume_{fit_preset_key}",
-            help=CONTROL_HELP["fit_min_volume"],
-        )
-        fit_min_open_interest = st.number_input(
-            "Fit min open interest",
-            min_value=0,
-            value=int(fit_defaults["min_open_interest"]),
-            step=10,
-            key=f"fit_min_open_interest_{fit_preset_key}",
-            help=CONTROL_HELP["fit_min_open_interest"],
-        )
-        fit_moneyness_band = st.slider(
-            "Fit moneyness",
-            0.35,
-            2.50,
-            fit_defaults["moneyness"],
-            0.05,
-            key=f"fit_moneyness_{fit_preset_key}",
-            help=CONTROL_HELP["fit_moneyness"],
-        )
-        fit_max_raw_iv = st.slider(
-            "Fit max raw IV",
-            0.50,
-            5.00,
-            float(fit_defaults["max_raw_iv"]),
-            0.05,
-            format="%.2f",
-            key=f"fit_max_raw_iv_{fit_preset_key}",
-            help=CONTROL_HELP["fit_max_raw_iv"],
-        )
-        fit_no_arbitrage_policy = st.selectbox(
-            "Fit no-arb policy",
-            options=["exclude", "penalize", "allow"],
-            index=["exclude", "penalize", "allow"].index(str(fit_defaults["no_arbitrage_policy"])),
-            key=f"fit_no_arbitrage_policy_{fit_preset_key}",
-            help=CONTROL_HELP["fit_no_arbitrage_policy"],
-        )
-        fit_last_only_policy = st.selectbox(
-            "Fit last-only policy",
-            options=["allow_penalized", "exclude", "allow"],
-            index=["allow_penalized", "exclude", "allow"].index(str(fit_defaults["last_only_policy"])),
-            key=f"fit_last_only_policy_{fit_preset_key}",
-            help=CONTROL_HELP["fit_last_only_policy"],
-        )
-        if st.button("Refresh data", width="stretch"):
-            result = connector.trigger_data_refresh()
-            st.cache_data.clear()
-            if result.get("status") == "success":
-                st.success(result.get("message", "Data refreshed"))
-            else:
-                st.error(result.get("message", "Refresh failed"))
+    rail_state = render_command_rail(
+        st,
+        available_symbols=available_symbols,
+        watchlist_presets=watchlist_presets,
+        connector=connector,
+        control_help=CONTROL_HELP,
+        model_choices=MODEL_CHOICES,
+    )
+    selected_symbols = rail_state["selected_symbols"]
+    surface_symbol = rail_state["surface_symbol"]
+    show_3d_surface = rail_state["show_3d_surface"]
+    surface_x_axis = rail_state["surface_x_axis"]
+    selected_fit_mode = rail_state["selected_fit_mode"]
+    show_reliability_overlay = rail_state["show_reliability_overlay"]
+    show_correlations = rail_state["show_correlations"]
+    show_chain = rail_state["show_chain"]
+    auto_refresh = rail_state["auto_refresh"]
+    refresh_interval = rail_state["refresh_interval"]
+    max_spread_pct = rail_state["max_spread_pct"]
+    min_open_interest = rail_state["min_open_interest"]
+    min_volume = rail_state["min_volume"]
+    max_quote_age_days = rail_state["max_quote_age_days"]
+    option_price_source = rail_state["option_price_source"]
+    pricing_model = rail_state["pricing_model"]
+    fit_preset = rail_state["fit_preset"]
+    fit_max_spread_pct = rail_state["fit_max_spread_pct"]
+    fit_max_quote_age_days = rail_state["fit_max_quote_age_days"]
+    fit_min_volume = rail_state["fit_min_volume"]
+    fit_min_open_interest = rail_state["fit_min_open_interest"]
+    fit_moneyness_band = rail_state["fit_moneyness_band"]
+    fit_max_raw_iv = rail_state["fit_max_raw_iv"]
+    fit_no_arbitrage_policy = rail_state["fit_no_arbitrage_policy"]
+    fit_last_only_policy = rail_state["fit_last_only_policy"]
 
     if not selected_symbols:
-        st.warning("Select at least one symbol from the sidebar to begin analysis.")
+        st.warning("Select at least one symbol from the command rail to begin analysis.")
         st.stop()
-
-    surface_symbol = st.selectbox(
-        "Primary underlying",
-        selected_symbols,
-        index=0,
-        help=CONTROL_HELP["primary_underlying"],
-    )
     data_key = (
         int(min_open_interest),
         int(min_volume),
@@ -1075,6 +1290,7 @@ def run_dashboard() -> None:
     stats = surface_stats(strikes, expiries, vol_surface, current_data["price"])
     term_metrics = stats.get("term_metrics") or {}
     market_status = get_market_status_cached()
+    updated_clock = datetime.now().strftime("%H:%M:%S")
 
     surface_mode = surface_meta.get("surface_mode") or current_data.get("data_mode", "Unknown")
     source_label = surface_meta.get("surface_source") or current_data.get("price_source", "Unknown")
@@ -1099,14 +1315,31 @@ def run_dashboard() -> None:
     if fit_mode_view.get("warning"):
         readiness_detail = f"{readiness_detail} {fit_mode_view['warning']}"
 
+    rail_state["context_slot"].markdown(
+        render_command_rail_context(
+            symbol=surface_symbol,
+            spot=fmt_money(current_data.get("price")),
+            session_state=market_status.get("session_state", "Unknown"),
+            updated=updated_clock,
+            source=source_label,
+        ),
+        unsafe_allow_html=True,
+    )
+
     st.markdown(
         _render_workstation_header(
             symbol=surface_symbol,
             spot=fmt_money(current_data.get("price")),
+            atm_iv=fmt_pct(stats.get("atm_iv")),
+            risk_reversal=fmt_pct(surface_meta.get("front_risk_reversal_25d")),
+            term_spread=fmt_pct(stats.get("term_spread")),
+            surface_points=fmt_int(stats.get("points")),
+            stale_age=f"{fmt_int(surface_meta.get('stale_quote_count'))} stale",
             source=source_label,
             market_state=market_status.get("session_state", "Unknown"),
             market_reason=market_status.get("reason", "unknown"),
-            updated=datetime.now().strftime("%H:%M:%S"),
+            updated=updated_clock,
+            model_label=surface_meta.get("pricing_model_label") or "BSM with dividends",
             readiness_label=readiness_label,
             readiness_detail=readiness_detail,
             status_markup=(

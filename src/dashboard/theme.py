@@ -428,6 +428,39 @@ CSS = """
         color: var(--text-secondary);
         font-family: var(--font-mono);
     }
+    section[data-testid="stSidebar"] details[data-testid="stExpander"] {
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--surface-2);
+        box-shadow: var(--panel-highlight);
+        margin-bottom: var(--s-3);
+        overflow: hidden;
+    }
+    section[data-testid="stSidebar"] details[data-testid="stExpander"] summary {
+        min-height: 34px;
+        color: var(--text-primary);
+        font-size: var(--text-xs);
+        font-weight: 800;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--border-subtle);
+        background: var(--surface-1);
+        padding: 0 var(--s-2);
+    }
+    section[data-testid="stSidebar"] details[data-testid="stExpander"] summary:hover {
+        background: var(--surface-3);
+        color: var(--accent-hover);
+    }
+    section[data-testid="stSidebar"] details[data-testid="stExpander"] > div {
+        padding: var(--s-2) var(--s-2) var(--s-3);
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] button {
+        min-height: 26px;
+        border-radius: var(--r-sm);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        padding: 0 var(--s-2);
+        text-transform: uppercase;
+    }
 
     /* === native Streamlit controls === */
     section[data-testid="stSidebar"] h3,
