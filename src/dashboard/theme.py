@@ -441,6 +441,21 @@ CSS = """
         color: var(--muted);
         font-size: 0.78rem;
     }
+    div[data-testid="stMetricValue"] {
+        color: var(--ink);
+        font-size: 1.08rem !important;
+        line-height: 1.2;
+        overflow-wrap: anywhere !important;
+    }
+    div[data-testid="stMetricValue"], div[data-testid="stMetricValue"] * {
+        overflow: visible !important;
+        text-overflow: clip !important;
+        white-space: normal !important;
+    }
+    div[data-testid="stMetricValue"] * {
+        font-size: inherit !important;
+        line-height: inherit !important;
+    }
     .small-note {
         color: var(--muted);
         font-size: 0.82rem;

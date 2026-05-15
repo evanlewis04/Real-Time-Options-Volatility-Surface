@@ -27,3 +27,9 @@ def test_theme_polishes_workstation_controls_without_large_radius_cards():
 def test_kpi_grid_uses_two_rows_on_desktop():
     assert "grid-template-columns: repeat(5, minmax(0, 1fr))" in CSS
     assert "overflow-wrap: anywhere" in CSS
+
+
+def test_streamlit_metric_values_do_not_ellipsis_truncate():
+    assert 'div[data-testid="stMetricValue"]' in CSS
+    assert "text-overflow: clip" in CSS
+    assert "white-space: normal" in CSS

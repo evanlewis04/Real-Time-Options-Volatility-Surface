@@ -42,6 +42,8 @@ streamlit_*_smoke_*.log
 streamlit_*_smoke_*.err.log
 .streamlit/
 artifacts/dashboard_screenshots/
+artifacts/dashboard_crawler/
+data/alerts/
 data/snapshots/
 reports/
 plots/*.png
