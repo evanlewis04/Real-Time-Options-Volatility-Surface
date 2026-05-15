@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 from src.quant.provenance import (
     CURRENT_ROBUST_FIT_PROVENANCE,
     ML_DENOISED_PROVENANCE,
@@ -9,6 +11,109 @@ from src.quant.provenance import (
 )
 
 FIT_MODE_CHOICES = ("Robust", "Standard", "Prior Assisted", "ML Denoised", "Diagnostic Raw")
+
+
+def _html(value: object) -> str:
+    """Escape a value for dashboard HTML fragments."""
+    return escape("n/a" if value is None else str(value), quote=True)
+
+
+def _render_metric_grid(metrics: list[tuple[str, str, str, str | None]]) -> str:
+    cards = []
+    for label, value, detail, help_text in metrics:
+        detail_markup = f'<div class="metric-card-detail">{_html(detail)}</div>' if detail else ""
+        cards.append(
+            f'<div class="metric-card" title="{_html(help_text or "")}">'
+            f'<div class="metric-card-label">{_html(label)}</div>'
+            f'<div class="metric-card-value">{_html(value)}</div>'
+            f"{detail_markup}</div>"
+        )
+    return f'<div class="metric-grid" data-dashboard-section="kpi-grid">{"".join(cards)}</div>'
+
+
+def _quality_rows(rows: list[tuple[str, str, str | None]]) -> str:
+    return "".join(
+        f'<div class="quality-item"><div class="quality-item-label">{_html(label)}</div>'
+        f'<div class="quality-item-value">{_html(value)}</div>'
+        f'<div class="quality-item-note">{_html(note or "")}</div></div>'
+        for label, value, note in rows
+    )
+
+
+def _bucket_count(value: object) -> int:
+    try:
+        return int(value) if value is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _render_quality_workstation(
+    *,
+    groups: list[tuple[str, list[tuple[str, str, str | None]]]],
+    reason_buckets: dict,
+    alert_level: str,
+    alert_message: str,
+) -> str:
+    chips = "".join(
+        f'<span class="quality-chip">{_html(reason)} <strong>{_html(count)}</strong></span>'
+        for reason, count in sorted(reason_buckets.items(), key=lambda item: (-_bucket_count(item[1]), str(item[0])))
+        if count
+    )
+    if not chips:
+        chips = '<span class="quality-chip quality-chip-muted">no active reason buckets</span>'
+
+    group_markup = "".join(
+        f'<section class="quality-group"><div class="quality-group-title">{_html(title)}</div>'
+        f'<div class="quality-items">{_quality_rows(rows)}</div></section>'
+        for title, rows in groups
+    )
+    return f"""
+    <div class="quality-workstation" data-dashboard-section="quality-summary">
+        <div class="quality-alert quality-alert-{_html(alert_level)}">{_html(alert_message)}</div>
+        <div class="quality-chip-row">{chips}</div>
+        <div class="quality-group-grid">{group_markup}</div>
+    </div>
+    """
+
+
+def _render_workstation_header(
+    *,
+    symbol: str,
+    spot: str,
+    source: str,
+    market_state: str,
+    market_reason: str,
+    updated: str,
+    readiness_label: str,
+    readiness_detail: str,
+    status_markup: str,
+) -> str:
+    return f"""
+    <div class="workstation-header">
+        <div class="workstation-topline">
+            <div>
+                <div class="workstation-kicker">VOL SURFACE // OPTIONS ANALYTICS</div>
+                <div class="workstation-title">Options Volatility Surface Workstation</div>
+            </div>
+            <div class="workstation-symbol-block">
+                <div class="workstation-symbol">{_html(symbol)}</div>
+                <div class="workstation-spot">{_html(spot)}</div>
+            </div>
+        </div>
+        <div class="workstation-tape">
+            <span>Source <strong>{_html(source)}</strong></span>
+            <span>Market <strong>{_html(market_state)}</strong></span>
+            <span>Reason <strong>{_html(market_reason)}</strong></span>
+            <span>Updated <strong>{_html(updated)}</strong></span>
+            <span>Readiness <strong>{_html(readiness_label)}</strong></span>
+        </div>
+        <div class="workstation-readiness">
+            <div class="readiness-title">Surface Readiness</div>
+            <div class="readiness-detail">{_html(readiness_detail)}</div>
+        </div>
+        <div class="status-rail">{status_markup}</div>
+    </div>
+    """
 
 
 def fit_mode_state(selected_mode: str, surface_meta: dict) -> dict:
@@ -899,118 +1004,289 @@ def run_dashboard() -> None:
     source_label = surface_meta.get("surface_source") or current_data.get("price_source", "Unknown")
     quality_score = surface_meta.get("surface_quality_score") or surface_meta.get("data_quality_score")
     reason_buckets = surface_meta.get("quality_reason_buckets") or surface_meta.get("rejection_reasons") or {}
-    reason_bucket_text = ", ".join(
-        f"{reason}: {fmt_int(count)}" for reason, count in sorted(reason_buckets.items()) if count
-    ) or "none"
+    quality_alert = quality_drop_alert_summary(surface_meta)
+    warning_text = " | ".join(str(item) for item in (surface_meta.get("warnings") or [])[:3])
+    readiness_points = stats.get("points") or surface_meta.get("surface_points")
+    readiness_label = "Unavailable"
+    if readiness_points:
+        readiness_label = "Ready"
+        if "fallback" in str(surface_mode).lower():
+            readiness_label = "Fallback ready"
+        elif "synthetic" in str(surface_mode).lower():
+            readiness_label = "Synthetic ready"
+    readiness_detail = (
+        f"{fmt_int(readiness_points)} fitted grid points; "
+        f"{fmt_int(surface_meta.get('fit_eligible_count'))} rows included, "
+        f"{fmt_int(surface_meta.get('fit_excluded_count'))} excluded; "
+        f"estimate label {fit_mode_view['provenance']}."
+    )
+    if fit_mode_view.get("warning"):
+        readiness_detail = f"{readiness_detail} {fit_mode_view['warning']}"
 
     st.markdown(
-        f"""
-    <div class="workstation-header">
-        <div class="workstation-title">Options Volatility Surface Workstation</div>
-        <div class="workstation-subtitle">
-            {surface_symbol} | Spot {fmt_money(current_data.get("price"))} |
-            Source {source_label} | Market {market_status.get("session_state", "Unknown")} |
-            Updated {datetime.now().strftime("%H:%M:%S")}
-        </div>
-        <div style="margin-top:0.55rem;">
-            {status_pill("Surface", surface_mode)}
-            {status_pill("Price", current_data.get("data_mode", "Unknown"))}
-            {status_pill("IV", current_data.get("iv_source", "Unknown"))}
-            {status_pill("Model", surface_meta.get("pricing_model_label") or "BSM with dividends")}
-            {status_pill("Fit View", fit_mode_view["selected_mode"])}
-            {status_pill("Market", market_status.get("session_state", "Unknown"))}
-        </div>
-    </div>
-    """,
+        _render_workstation_header(
+            symbol=surface_symbol,
+            spot=fmt_money(current_data.get("price")),
+            source=source_label,
+            market_state=market_status.get("session_state", "Unknown"),
+            market_reason=market_status.get("reason", "unknown"),
+            updated=datetime.now().strftime("%H:%M:%S"),
+            readiness_label=readiness_label,
+            readiness_detail=readiness_detail,
+            status_markup=(
+                status_pill("Surface", surface_mode)
+                + status_pill("Price", current_data.get("data_mode", "Unknown"))
+                + status_pill("IV", current_data.get("iv_source", "Unknown"))
+                + status_pill("Model", surface_meta.get("pricing_model_label") or "BSM with dividends")
+                + status_pill("Fit View", fit_mode_view["selected_mode"])
+                + status_pill("Market", market_status.get("session_state", "Unknown"))
+            ),
+        ),
         unsafe_allow_html=True,
     )
 
-    kpi_cols = st.columns(10)
     kpis = [
-        ("Spot", fmt_money(current_data.get("price")), current_data.get("price_source", "")),
-        ("ATM IV", fmt_pct(stats.get("atm_iv")), "nearest strike"),
-        ("ATM dIV", fmt_pct(surface_meta.get("atm_iv_change")), "vs previous snapshot"),
-        ("Exp Move", fmt_money(surface_meta.get("front_expected_move")), fmt_pct(surface_meta.get("front_expected_move_pct"))),
-        ("IV Rank", fmt_pct(surface_meta.get("iv_rank")), "stored snapshots"),
-        ("IV Percentile", fmt_pct(surface_meta.get("iv_percentile")), "stored snapshots"),
-        ("Term Spread", fmt_pct(stats.get("term_spread")), "back minus front"),
-        ("Surface Points", fmt_int(stats.get("points")), surface_mode),
-        ("Contracts", fmt_int(surface_meta.get("valid_rows") or current_data.get("contracts")), "valid rows"),
-        ("Quality Score", f"{quality_score:.1f}/100" if quality_score is not None else "n/a", "surface"),
+        ("Spot", fmt_money(current_data.get("price")), current_data.get("price_source", ""), KPI_HELP.get("Spot")),
+        ("ATM IV", fmt_pct(stats.get("atm_iv")), "nearest strike", KPI_HELP.get("ATM IV")),
+        ("ATM dIV", fmt_pct(surface_meta.get("atm_iv_change")), "vs previous snapshot", KPI_HELP.get("ATM dIV")),
+        (
+            "Exp Move",
+            fmt_money(surface_meta.get("front_expected_move")),
+            fmt_pct(surface_meta.get("front_expected_move_pct")),
+            KPI_HELP.get("Exp Move"),
+        ),
+        ("IV Rank", fmt_pct(surface_meta.get("iv_rank")), "stored snapshots", KPI_HELP.get("IV Rank")),
+        (
+            "IV Percentile",
+            fmt_pct(surface_meta.get("iv_percentile")),
+            "stored snapshots",
+            KPI_HELP.get("IV Percentile"),
+        ),
+        ("Term Spread", fmt_pct(stats.get("term_spread")), "back minus front", KPI_HELP.get("Term Spread")),
+        ("Surface Points", fmt_int(stats.get("points")), surface_mode, KPI_HELP.get("Surface Points")),
+        (
+            "Contracts",
+            fmt_int(surface_meta.get("valid_rows") or current_data.get("contracts")),
+            "valid rows",
+            KPI_HELP.get("Contracts"),
+        ),
+        (
+            "Quality Score",
+            f"{quality_score:.1f}/100" if quality_score is not None else "n/a",
+            "surface",
+            KPI_HELP.get("Quality Score"),
+        ),
     ]
-    for col, (label, value, delta) in zip(kpi_cols, kpis):
-        with col:
-            st.metric(label, value, delta=delta if delta else None, help=KPI_HELP.get(label))
+    st.markdown(_render_metric_grid(kpis), unsafe_allow_html=True)
 
     st.markdown(
-        f"""
-    <div class="quality-row">
-        <strong>Data quality:</strong>
-        score {f"{quality_score:.1f}/100" if quality_score is not None else "n/a"};
-        raw rows {fmt_int(surface_meta.get("raw_rows"))};
-        valid rows {fmt_int(surface_meta.get("valid_rows"))};
-        rejected rows {fmt_int(surface_meta.get("rejected_rows"))};
-        reason buckets {reason_bucket_text};
-        liquidity rejects {fmt_int(surface_meta.get("liquidity_filtered_count"))};
-        cache age {fmt_int(surface_meta.get("cache_age_seconds"))}s;
-        market {market_status.get("reason", "unknown")};
-        delay {fmt_int(market_status.get("data_delay_minutes"))} min;
-        fallback reason {surface_meta.get("fallback_reason") or "none"}.
-        risk-free curve {surface_meta.get("risk_free_rate_source") or "unknown"};
-        30D rate {fmt_pct(surface_meta.get("risk_free_rate_30d"))};
-        dividend source {surface_meta.get("dividend_source") or "unknown"};
-        30D dividend yield {fmt_pct(surface_meta.get("effective_dividend_yield_30d"))};
-        corporate actions {fmt_int(surface_meta.get("corporate_action_warning_count"))} warning(s).
-        stale quotes {fmt_int(surface_meta.get("stale_quote_count"))};
-        last-only quotes {fmt_int(surface_meta.get("last_only_quote_count"))};
-        crossed/locked markets {fmt_int(surface_meta.get("crossed_locked_rejected_count"))};
-        parity violations {fmt_int(surface_meta.get("parity_violation_count"))};
-        no-arb violations {fmt_int(surface_meta.get("no_arbitrage_violation_count"))};
-        no-arb excluded {fmt_int(surface_meta.get("no_arbitrage_excluded_count"))};
-        filters OI >= {fmt_int(surface_meta.get("min_open_interest"))},
-        volume >= {fmt_int(surface_meta.get("min_volume"))},
-        spread <= {fmt_pct(surface_meta.get("max_bid_ask_spread_pct"), 0)},
-        quote age <= {fmt_int(surface_meta.get("max_quote_age_days"))}d;
-        fit preset {surface_meta.get("fit_filter_preset") or "Standard"};
-        fit rows {fmt_int(surface_meta.get("fit_eligible_count"))} included,
-        {fmt_int(surface_meta.get("fit_excluded_count"))} excluded;
-        fit spread <= {fmt_pct(surface_meta.get("fit_max_bid_ask_spread_pct"), 0)},
-        age <= {fmt_int(surface_meta.get("fit_max_quote_age_days"))}d,
-        volume >= {fmt_int(surface_meta.get("fit_min_volume"))},
-        OI >= {fmt_int(surface_meta.get("fit_min_open_interest"))},
-        moneyness {surface_meta.get("fit_moneyness_min", "n/a")}-
-        {surface_meta.get("fit_moneyness_max", "n/a")},
-        raw IV <= {fmt_pct(surface_meta.get("fit_max_raw_iv"), 0)};
-        fit no-arb {surface_meta.get("fit_no_arbitrage_policy") or "exclude"};
-        fit last-only {surface_meta.get("fit_last_only_policy") or "allow_penalized"};
-        IV price source {surface_meta.get("option_price_source") or "mark"};
-        pricing model {surface_meta.get("pricing_model_label") or "BSM with dividends"};
-        model Greeks {fmt_int(surface_meta.get("contract_greeks_count"))};
-        computed IV {fmt_int(surface_meta.get("computed_iv_count"))}.
-        forward median {fmt_money(surface_meta.get("forward_price_median"))};
-        discount median {surface_meta.get("discount_factor_median") if surface_meta.get("discount_factor_median") is not None else "n/a"}.
-        SVI expiries {fmt_int((surface_meta.get("fit_diagnostics") or {}).get("fitted_expiries"))};
-        SVI RMSE {fmt_pct((surface_meta.get("fit_diagnostics") or {}).get("rmse"))}.
-        SSVI expiries {fmt_int((surface_meta.get("global_fit_diagnostics") or {}).get("fitted_expiries"))};
-        SSVI RMSE {fmt_pct((surface_meta.get("global_fit_diagnostics") or {}).get("rmse"))};
-        SSVI constraints {(surface_meta.get("global_fit_diagnostics") or {}).get("constraints_passed")}.
-        Heston research {surface_meta.get("heston_research_status") or "n/a"};
-        Heston RMSE {fmt_pct(surface_meta.get("heston_research_rmse"))};
-        SABR {surface_meta.get("sabr_status") or "n/a"};
-        SABR RMSE {fmt_pct(surface_meta.get("sabr_rmse"))}.
-        IV rank {fmt_pct(surface_meta.get("iv_rank"))};
-        IV percentile {fmt_pct(surface_meta.get("iv_percentile"))};
-        IV history snapshots {fmt_int(surface_meta.get("iv_history_observations"))}.
-        Snapshot change points {fmt_int(surface_meta.get("surface_change_points"))};
-        tape snapshots {fmt_int(surface_meta.get("surface_tape_snapshots"))};
-        ATM dIV {fmt_pct(surface_meta.get("atm_iv_change"))};
-        vol-of-vol {fmt_pct(surface_meta.get("snapshot_vol_of_vol"))}.
-        rich/cheap candidates {fmt_int(surface_meta.get("rich_cheap_candidates"))}.
-        Front expected move {fmt_money(surface_meta.get("front_expected_move"))}
-        ({fmt_pct(surface_meta.get("front_expected_move_pct"))})
-        by {surface_meta.get("front_expected_move_method") or "n/a"}.
-    </div>
-    """,
+        _render_quality_workstation(
+            groups=[
+                (
+                    "Chain Quality",
+                    [
+                        ("Score", f"{quality_score:.1f}/100" if quality_score is not None else "n/a", "surface quality"),
+                        ("Raw Rows", fmt_int(surface_meta.get("raw_rows")), "provider-normalized"),
+                        ("Valid Rows", fmt_int(surface_meta.get("valid_rows")), "display eligible"),
+                        ("Rejected Rows", fmt_int(surface_meta.get("rejected_rows")), "normalization"),
+                        ("Liquidity Rejects", fmt_int(surface_meta.get("liquidity_filtered_count")), "chain filters"),
+                    ],
+                ),
+                (
+                    "Provenance",
+                    [
+                        ("Surface Source", surface_meta.get("surface_source") or source_label, "provider path"),
+                        ("Surface Mode", surface_mode, "live/delayed/synthetic/fallback"),
+                        ("Estimate Label", fit_mode_view["provenance"], "not a market observation"),
+                        ("Fallback Reason", surface_meta.get("fallback_reason") or "none", "shown when applicable"),
+                        ("Warnings", warning_text or "none", "latest metadata warnings"),
+                    ],
+                ),
+                (
+                    "Fit Diagnostics",
+                    [
+                        ("Fit Preset", surface_meta.get("fit_filter_preset") or "Standard", "row eligibility"),
+                        (
+                            "Fit Rows",
+                            f"{fmt_int(surface_meta.get('fit_eligible_count'))} in / {fmt_int(surface_meta.get('fit_excluded_count'))} out",
+                            "included vs excluded",
+                        ),
+                        (
+                            "Fit Filters",
+                            (
+                                f"spread <= {fmt_pct(surface_meta.get('fit_max_bid_ask_spread_pct'), 0)}, "
+                                f"age <= {fmt_int(surface_meta.get('fit_max_quote_age_days'))}d"
+                            ),
+                            "surface fit",
+                        ),
+                        (
+                            "SVI",
+                            (
+                                f"{fmt_int((surface_meta.get('fit_diagnostics') or {}).get('fitted_expiries'))} exp, "
+                                f"RMSE {fmt_pct((surface_meta.get('fit_diagnostics') or {}).get('rmse'))}"
+                            ),
+                            "smile fit",
+                        ),
+                        (
+                            "SSVI",
+                            (
+                                f"{fmt_int((surface_meta.get('global_fit_diagnostics') or {}).get('fitted_expiries'))} exp, "
+                                f"RMSE {fmt_pct((surface_meta.get('global_fit_diagnostics') or {}).get('rmse'))}"
+                            ),
+                            f"constraints {(surface_meta.get('global_fit_diagnostics') or {}).get('constraints_passed')}",
+                        ),
+                    ],
+                ),
+                (
+                    "Market Integrity",
+                    [
+                        ("Market", market_status.get("reason", "unknown"), market_status.get("session_state", "Unknown")),
+                        (
+                            "Delay / Cache",
+                            (
+                                f"{fmt_int(market_status.get('data_delay_minutes'))} min / "
+                                f"{fmt_int(surface_meta.get('cache_age_seconds'))}s"
+                            ),
+                            "provider timing",
+                        ),
+                        (
+                            "Quote Flags",
+                            (
+                                f"stale {fmt_int(surface_meta.get('stale_quote_count'))}, "
+                                f"last-only {fmt_int(surface_meta.get('last_only_quote_count'))}"
+                            ),
+                            "row quality",
+                        ),
+                        (
+                            "Static Checks",
+                            (
+                                f"crossed/locked {fmt_int(surface_meta.get('crossed_locked_rejected_count'))}, "
+                                f"parity {fmt_int(surface_meta.get('parity_violation_count'))}, "
+                                f"no-arb {fmt_int(surface_meta.get('no_arbitrage_violation_count'))}"
+                            ),
+                            f"excluded {fmt_int(surface_meta.get('no_arbitrage_excluded_count'))}",
+                        ),
+                        (
+                            "Expected Move",
+                            (
+                                f"{fmt_money(surface_meta.get('front_expected_move'))} "
+                                f"({fmt_pct(surface_meta.get('front_expected_move_pct'))})"
+                            ),
+                            surface_meta.get("front_expected_move_method") or "n/a",
+                        ),
+                    ],
+                ),
+                (
+                    "Model Inputs",
+                    [
+                        ("IV Price Source", surface_meta.get("option_price_source") or "mark", "selected market price"),
+                        ("Pricing Model", surface_meta.get("pricing_model_label") or "BSM with dividends", "contract analytics"),
+                        (
+                            "Rates",
+                            f"{surface_meta.get('risk_free_rate_source') or 'unknown'} / {fmt_pct(surface_meta.get('risk_free_rate_30d'))}",
+                            "30D risk-free",
+                        ),
+                        (
+                            "Dividends",
+                            (
+                                f"{surface_meta.get('dividend_source') or 'unknown'} / "
+                                f"{fmt_pct(surface_meta.get('effective_dividend_yield_30d'))}"
+                            ),
+                            "30D effective yield",
+                        ),
+                        (
+                            "Model Counts",
+                            (
+                                f"Greeks {fmt_int(surface_meta.get('contract_greeks_count'))}, "
+                                f"computed IV {fmt_int(surface_meta.get('computed_iv_count'))}"
+                            ),
+                            f"corp actions {fmt_int(surface_meta.get('corporate_action_warning_count'))}",
+                        ),
+                    ],
+                ),
+                (
+                    "Surface Tape",
+                    [
+                        (
+                            "Filter Guardrails",
+                            (
+                                f"OI >= {fmt_int(surface_meta.get('min_open_interest'))}, "
+                                f"volume >= {fmt_int(surface_meta.get('min_volume'))}, "
+                                f"spread <= {fmt_pct(surface_meta.get('max_bid_ask_spread_pct'), 0)}, "
+                                f"age <= {fmt_int(surface_meta.get('max_quote_age_days'))}d"
+                            ),
+                            "chain display",
+                        ),
+                        (
+                            "Fit Guardrails",
+                            (
+                                f"volume >= {fmt_int(surface_meta.get('fit_min_volume'))}, "
+                                f"OI >= {fmt_int(surface_meta.get('fit_min_open_interest'))}, "
+                                f"moneyness {surface_meta.get('fit_moneyness_min', 'n/a')}-"
+                                f"{surface_meta.get('fit_moneyness_max', 'n/a')}"
+                            ),
+                            f"raw IV <= {fmt_pct(surface_meta.get('fit_max_raw_iv'), 0)}",
+                        ),
+                        (
+                            "Fit Policies",
+                            (
+                                f"no-arb {surface_meta.get('fit_no_arbitrage_policy') or 'exclude'}, "
+                                f"last-only {surface_meta.get('fit_last_only_policy') or 'allow_penalized'}"
+                            ),
+                            "diagnostic honesty",
+                        ),
+                        (
+                            "Snapshot History",
+                            (
+                                f"rank {fmt_pct(surface_meta.get('iv_rank'))}, "
+                                f"percentile {fmt_pct(surface_meta.get('iv_percentile'))}, "
+                                f"history {fmt_int(surface_meta.get('iv_history_observations'))}"
+                            ),
+                            "local snapshots",
+                        ),
+                        (
+                            "Tape Change",
+                            (
+                                f"points {fmt_int(surface_meta.get('surface_change_points'))}, "
+                                f"tape {fmt_int(surface_meta.get('surface_tape_snapshots'))}, "
+                                f"ATM dIV {fmt_pct(surface_meta.get('atm_iv_change'))}, "
+                                f"vol-of-vol {fmt_pct(surface_meta.get('snapshot_vol_of_vol'))}"
+                            ),
+                            f"rich/cheap {fmt_int(surface_meta.get('rich_cheap_candidates'))}",
+                        ),
+                    ],
+                ),
+                (
+                    "Research Fits",
+                    [
+                        (
+                            "Forward / Discount",
+                            (
+                                f"{fmt_money(surface_meta.get('forward_price_median'))} / "
+                                f"{surface_meta.get('discount_factor_median') if surface_meta.get('discount_factor_median') is not None else 'n/a'}"
+                            ),
+                            "median inputs",
+                        ),
+                        (
+                            "Heston",
+                            (
+                                f"{surface_meta.get('heston_research_status') or 'n/a'} / "
+                                f"RMSE {fmt_pct(surface_meta.get('heston_research_rmse'))}"
+                            ),
+                            "research diagnostic",
+                        ),
+                        (
+                            "SABR",
+                            f"{surface_meta.get('sabr_status') or 'n/a'} / RMSE {fmt_pct(surface_meta.get('sabr_rmse'))}",
+                            "research diagnostic",
+                        ),
+                    ],
+                ),
+            ],
+            reason_buckets=reason_buckets,
+            alert_level=quality_alert["level"],
+            alert_message=quality_alert["message"],
+        ),
         unsafe_allow_html=True,
     )
 
@@ -1299,6 +1575,10 @@ def run_dashboard() -> None:
             rows=max(3, min(len(selected_symbols), 8)),
         ),
         build_market_snapshot,
+    )
+    st.markdown(
+        '<div class="dashboard-ready-marker" data-dashboard-state="ready">dashboard ready</div>',
+        unsafe_allow_html=True,
     )
 
     page_registry = default_page_registry()

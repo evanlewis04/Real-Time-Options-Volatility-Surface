@@ -15,7 +15,9 @@ def test_render_loading_state_includes_dense_skeleton_markup():
     assert "option chain" in html
     assert "skeleton-line" in html
     assert html.count("skeleton-line") >= 5
-    assert "FETCH" in html
+    assert "SYNC" in html
+    assert "loading-progress" in html
+    assert "deterministic fetch in progress" in html
 
 
 def test_render_loading_state_escapes_user_supplied_text():

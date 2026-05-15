@@ -21,9 +21,12 @@ def test_dashboard_default_state_renders_key_sections():
     at.run(timeout=90)
 
     assert not at.exception
-    assert len(at.metric) >= 10
-    assert any(metric.label == "ATM dIV" for metric in at.metric)
-    assert any(metric.label == "Exp Move" for metric in at.metric)
+    markdown = "\n".join(item.value for item in at.markdown)
+    assert 'data-dashboard-section="kpi-grid"' in markdown
+    assert "ATM dIV" in markdown
+    assert "Exp Move" in markdown
+    assert "Surface Readiness" in markdown
+    assert 'data-dashboard-state="ready"' in markdown
     assert len(at.tabs) == 10
     assert [tab.label for tab in at.tabs] == [
         "SurfaceWorkspace",
@@ -85,3 +88,12 @@ def test_visual_regression_viewports_cover_desktop_tablet_mobile():
     assert VIEWPORTS["desktop"] == (1440, 1000)
     assert VIEWPORTS["tablet"][0] == 1024
     assert VIEWPORTS["mobile"][0] < 640
+
+
+def test_visual_regression_script_waits_for_ready_marker():
+    from scripts import dashboard_visual_regression as regression
+
+    names = regression._wait_for_dashboard_settled.__code__.co_names
+
+    assert "locator" in names
+    assert "wait_for_load_state" in names

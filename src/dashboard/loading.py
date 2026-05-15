@@ -18,11 +18,13 @@ class LoadingState:
     detail: str
     stage: str
     rows: int = 3
+    progress: int = 68
 
 
 def render_loading_state(state: LoadingState) -> str:
     """Return dense skeleton markup for a slow data fetch."""
     rows = max(1, min(int(state.rows), 8))
+    progress = max(5, min(int(state.progress), 95))
     bars = "\n".join(
         f'<div class="skeleton-line skeleton-line-{(index % 4) + 1}"></div>'
         for index in range(rows)
@@ -35,8 +37,12 @@ def render_loading_state(state: LoadingState) -> str:
                 <div class="loading-title">{escape(state.title)}</div>
                 <div class="loading-detail">{escape(state.detail)}</div>
             </div>
-            <div class="loading-pulse">FETCH</div>
+            <div class="loading-pulse">SYNC</div>
         </div>
+        <div class="loading-progress" aria-label="Loading progress">
+            <div class="loading-progress-fill" style="width:{progress}%"></div>
+        </div>
+        <div class="loading-progress-text">{progress}% / deterministic fetch in progress</div>
         <div class="skeleton-grid">
             {bars}
         </div>

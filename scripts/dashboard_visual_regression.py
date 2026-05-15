@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib.util
 import socket
 import subprocess
 import sys
@@ -73,6 +74,40 @@ def _start_streamlit(port: int, cwd: Path) -> subprocess.Popen:
     )
 
 
+def _has_playwright() -> bool:
+    try:
+        return importlib.util.find_spec("playwright.sync_api") is not None
+    except ModuleNotFoundError:
+        return False
+
+
+def _delegate_to_repo_venv(root: Path) -> int | None:
+    """Use the repo virtualenv for Playwright when the active interpreter lacks it."""
+    venv_python = root / "venv" / "Scripts" / "python.exe"
+    if not venv_python.exists() or Path(sys.executable).resolve() == venv_python.resolve():
+        return None
+    probe = subprocess.run(
+        [str(venv_python), "-c", "import playwright.sync_api"],
+        cwd=str(root),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if probe.returncode != 0:
+        return None
+    return subprocess.call([str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]], cwd=str(root))
+
+
+def _wait_for_dashboard_settled(page) -> None:
+    """Wait until Streamlit has rendered the workstation and cleared loaders."""
+    page.get_by_text("Options Volatility Surface Workstation").wait_for(timeout=90_000)
+    page.locator('[data-dashboard-section="kpi-grid"]').wait_for(state="visible", timeout=90_000)
+    page.get_by_text("Surface Readiness").wait_for(timeout=90_000)
+    page.locator(".dashboard-ready-marker").wait_for(state="attached", timeout=90_000)
+    page.locator(".loading-panel").wait_for(state="detached", timeout=90_000)
+    page.wait_for_load_state("networkidle", timeout=90_000)
+
+
 def capture_screenshots(url: str, output_dir: Path, viewports: Iterable[str]) -> list[Path]:
     """Capture dashboard screenshots for the requested viewport names."""
     try:
@@ -91,9 +126,9 @@ def capture_screenshots(url: str, output_dir: Path, viewports: Iterable[str]) ->
                 width, height = VIEWPORTS[name]
                 page.set_viewport_size({"width": width, "height": height})
                 page.goto(url, wait_until="networkidle", timeout=90_000)
-                page.get_by_text("Options Volatility Surface Workstation").wait_for(timeout=90_000)
+                _wait_for_dashboard_settled(page)
                 path = output_dir / f"dashboard_{name}.png"
-                page.screenshot(path=str(path), full_page=True)
+                page.screenshot(path=str(path), full_page=True, animations="disabled")
                 paths.append(path)
         finally:
             browser.close()
@@ -108,6 +143,10 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
+    if not _has_playwright():
+        delegated = _delegate_to_repo_venv(root)
+        if delegated is not None:
+            return delegated
     port = _pick_port(args.port)
     url = f"http://127.0.0.1:{port}"
     proc = _start_streamlit(port, root)
