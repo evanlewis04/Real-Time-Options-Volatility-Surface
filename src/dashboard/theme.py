@@ -666,6 +666,27 @@ CSS = """
         gap: var(--s-1);
         color: var(--text-tertiary);
     }
+    .panel-card-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 24px;
+        height: 24px;
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-tertiary);
+        font-family: var(--font-mono);
+        font-size: var(--text-xs);
+        font-weight: 800;
+        padding: 0 var(--s-1);
+        text-transform: uppercase;
+    }
+    .panel-card-action:hover {
+        border-color: rgba(245,165,36,0.55);
+        color: var(--accent-hover);
+        background: var(--accent-muted);
+    }
     .panel-card-body {
         padding: var(--s-3);
     }

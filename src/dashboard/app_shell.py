@@ -764,12 +764,13 @@ def run_dashboard() -> None:
     import numpy as np
     import plotly.graph_objects as go
     import streamlit as st
+    from src.dashboard.components import card
     from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
     from src.dashboard.loading import LoadingState, load_with_status, render_empty_state
     from src.dashboard.pages import default_page_registry, page_titles
     from src.dashboard.state import DashboardStateService
     from src.dashboard.surface_view import extract_smile, surface_axis, surface_stats
-    from src.dashboard.tables import dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
+    from src.dashboard.tables import add_freshness_column, dataframe_to_csv_bytes, filter_market_snapshot, filter_option_chain
     from src.dashboard.theme import apply_chart_layout, inject_theme, status_pill
     from src.dashboard.tooltips import COLUMN_HELP, CONTROL_HELP, KPI_HELP
     from src.quant.model_selection import MODEL_CHOICES
@@ -1992,7 +1993,8 @@ def run_dashboard() -> None:
                 margin=dict(l=0, r=0, t=45, b=0),
                 height=620,
             )
-            st.plotly_chart(apply_chart_layout(fig_3d, 620), width="stretch")
+            with card(st, title="Implied Volatility Surface", kicker="Surface", actions=["R", "EXP", "i"]):
+                st.plotly_chart(apply_chart_layout(fig_3d, 620), width="stretch")
 
         fig_heatmap = go.Figure(
             data=[
@@ -2040,12 +2042,13 @@ def run_dashboard() -> None:
             xaxis_title=axis_title,
             yaxis_title="Days to expiry",
         )
-        st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
-        st.caption(
-            f"Selected fit view {fit_mode_view['selected_mode']}; "
-            f"provenance {display_provenance_label(fit_mode_view['provenance'])}. "
-            "Prior-assisted, ML-denoised, repaired, and diagnostic raw values are estimates or overlays, not market observations."
-        )
+        with card(st, title="Surface Heatmap", kicker="Surface", actions=["EXP", "i"]):
+            st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
+            st.caption(
+                f"Selected fit view {fit_mode_view['selected_mode']}; "
+                f"provenance {display_provenance_label(fit_mode_view['provenance'])}. "
+                "Prior-assisted, ML-denoised, repaired, and diagnostic raw values are estimates or overlays, not market observations."
+            )
 
         prior_comparison = surface_meta.get("surface_prior_comparison") or []
         if prior_comparison:
@@ -2403,6 +2406,10 @@ def run_dashboard() -> None:
                 "fitHardRejectionReasons",
             ]
             display_cols = [col for col in display_cols if col in filtered.columns]
+            chain_display = add_freshness_column(
+                filtered[display_cols],
+                max_quote_age_days=max_quote_age_days,
+            )
             st.download_button(
                 "Export chain CSV",
                 dataframe_to_csv_bytes(filtered[display_cols]),
@@ -2410,10 +2417,11 @@ def run_dashboard() -> None:
                 mime="text/csv",
             )
             st.dataframe(
-                filtered[display_cols],
+                chain_display,
                 width="stretch",
                 hide_index=True,
                 column_config={
+                    "Freshness": st.column_config.TextColumn("Fresh", help="OK when quote age is within the display threshold; STALE otherwise."),
                     "type": st.column_config.TextColumn("Type", help=COLUMN_HELP["type"]),
                     "expiration": st.column_config.DateColumn("Expiration", help=COLUMN_HELP["expiration"]),
                     "daysToExpiration": st.column_config.NumberColumn(
@@ -4172,11 +4180,12 @@ def run_dashboard() -> None:
     with diagnostics_tab:
         st.markdown('<div class="section-header">Diagnostics And Data Provenance</div>', unsafe_allow_html=True)
         health = connector.get_system_health()
-        col1, col2 = st.columns(2)
-        with col1:
-            st.json(health.get("overall", {}))
-        with col2:
-            st.json(health.get("data_contract", {}))
+        with card(st, title="System Health", kicker="Diagnostics", actions=["R", "i"]):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.json(health.get("overall", {}))
+            with col2:
+                st.json(health.get("data_contract", {}))
 
         report_cols = st.columns([1, 1, 1])
         with report_cols[0]:

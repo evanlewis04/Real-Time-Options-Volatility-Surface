@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Callable, TypeVar
 
+from src.dashboard.icons import ACTIVITY, CIRCLE_MINUS
 
 T = TypeVar("T")
 
@@ -32,7 +33,8 @@ def render_loading_state(state: LoadingState) -> str:
     return f"""
     <div class="loading-panel" role="status" aria-live="polite">
         <div class="loading-panel-top">
-            <div>
+            {ACTIVITY}
+            <div class="loading-copy">
                 <div class="loading-stage">{escape(state.stage)}</div>
                 <div class="loading-title">{escape(state.title)}</div>
                 <div class="loading-detail">{escape(state.detail)}</div>
@@ -55,8 +57,13 @@ def render_empty_state(title: str, detail: str, action: str | None = None) -> st
     action_markup = f'<div class="empty-action">{escape(action)}</div>' if action else ""
     return f"""
     <div class="empty-panel">
-        <div class="empty-title">{escape(title)}</div>
-        <div class="empty-detail">{escape(detail)}</div>
+        <div class="empty-panel-top">
+            {CIRCLE_MINUS}
+            <div class="empty-copy">
+                <div class="empty-title">{escape(title)}</div>
+                <div class="empty-detail">{escape(detail)}</div>
+            </div>
+        </div>
         {action_markup}
     </div>
     """

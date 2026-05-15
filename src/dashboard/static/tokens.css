@@ -1,0 +1,5 @@
+/*
+Dashboard design tokens live in src/dashboard/theme.py so Streamlit can inject
+one CSS payload. This file documents the static asset boundary for future
+self-hosted fonts or extracted token delivery.
+*/

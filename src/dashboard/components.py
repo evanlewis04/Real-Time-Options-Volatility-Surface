@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+from html import escape
+from typing import Iterator
 
 
 @dataclass(frozen=True)
@@ -137,3 +140,37 @@ PHASE6_COMPONENTS: tuple[DashboardComponentSpec, ...] = (
 def phase6_component_titles() -> list[str]:
     """Return Phase 6 component titles in implementation order."""
     return [component.title for component in PHASE6_COMPONENTS]
+
+
+@contextmanager
+def card(
+    st_module,
+    *,
+    title: str,
+    kicker: str | None = None,
+    actions: list[str] | None = None,
+) -> Iterator[None]:
+    """Render the shared workstation card chrome around Streamlit content."""
+    action_markup = "".join(
+        f'<span class="panel-card-action" title="{escape(action)}">{escape(action)}</span>'
+        for action in (actions or [])
+    )
+    kicker_markup = f'<div class="panel-card-kicker">{escape(kicker)}</div>' if kicker else ""
+    st_module.markdown(
+        f"""
+        <section class="panel-card">
+            <header class="panel-card-header">
+                <div>
+                    {kicker_markup}
+                    <div class="panel-card-title">{escape(title)}</div>
+                </div>
+                <div class="panel-card-actions">{action_markup}</div>
+            </header>
+            <div class="panel-card-body">
+        """,
+        unsafe_allow_html=True,
+    )
+    try:
+        yield
+    finally:
+        st_module.markdown("</div></section>", unsafe_allow_html=True)

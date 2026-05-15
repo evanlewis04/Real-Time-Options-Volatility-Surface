@@ -87,3 +87,22 @@ def filter_option_chain(
 def dataframe_to_csv_bytes(frame: pd.DataFrame) -> bytes:
     """Serialize a DataFrame for Streamlit download buttons."""
     return frame.to_csv(index=False).encode("utf-8")
+
+
+def add_freshness_column(
+    frame: pd.DataFrame,
+    *,
+    quote_age_column: str = "quoteAgeSeconds",
+    max_quote_age_days: int | None = None,
+) -> pd.DataFrame:
+    """Inject a compact freshness state column derived from quote age."""
+    if frame.empty or "Freshness" in frame:
+        return frame.copy()
+    out = frame.copy()
+    if quote_age_column not in out or max_quote_age_days is None:
+        out.insert(0, "Freshness", "OK")
+        return out
+    max_age_seconds = max_quote_age_days * 24 * 60 * 60
+    quote_age = pd.to_numeric(out[quote_age_column], errors="coerce")
+    out.insert(0, "Freshness", quote_age.map(lambda value: "STALE" if pd.notna(value) and value > max_age_seconds else "OK"))
+    return out
