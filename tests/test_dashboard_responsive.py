@@ -29,7 +29,9 @@ def test_theme_polishes_workstation_controls_without_large_radius_cards():
     assert ".metric-grid" in CSS
     assert ".quality-group-grid" in CSS
     assert ".dashboard-ready-marker" in CSS
-    assert "border-radius: 8px" in CSS
+    assert "--r-lg: 8px" in CSS
+    assert "--surface-0: #0B0D10" in CSS
+    assert "--accent: #F5A524" in CSS
 
 
 def test_kpi_grid_uses_two_rows_on_desktop():
@@ -49,7 +51,8 @@ def test_theme_styles_finance_grade_controls_and_tabs():
     assert 'div[data-testid="stSlider"] [role="slider"]' in CSS
     assert 'div[data-testid="stTabs"] button[aria-label]' in CSS
     assert 'div[data-baseweb="popover"] [role="listbox"]' in CSS
-    assert "var(--focus)" in CSS
+    assert "var(--accent)" in CSS
+    assert "font-variant-numeric: tabular-nums" in CSS
 
 
 def test_plotly_3d_scene_uses_dark_workstation_theme():
@@ -58,10 +61,11 @@ def test_plotly_3d_scene_uses_dark_workstation_theme():
 
     themed = apply_chart_layout(fig, 620)
 
-    assert themed.layout.paper_bgcolor == "#181b20"
-    assert themed.layout.scene.xaxis.backgroundcolor == "#14171b"
-    assert themed.layout.scene.yaxis.gridcolor == "#2a3038"
-    assert themed.data[0].colorbar.bgcolor == "#14171b"
+    assert themed.layout.paper_bgcolor == "#11141A"
+    assert themed.layout.plot_bgcolor == "#0B0D10"
+    assert themed.layout.scene.xaxis.backgroundcolor == "#0B0D10"
+    assert themed.layout.scene.yaxis.gridcolor == "rgba(255,255,255,0.08)"
+    assert themed.data[0].colorbar.bgcolor == "#11141A"
 
 
 def test_streamlit_native_components_use_dark_theme():
@@ -69,5 +73,5 @@ def test_streamlit_native_components_use_dark_theme():
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
 
     assert config["theme"]["base"] == "dark"
-    assert config["theme"]["secondaryBackgroundColor"] == "#181b20"
-    assert config["theme"]["primaryColor"] == "#d89a2b"
+    assert config["theme"]["secondaryBackgroundColor"] == "#11141A"
+    assert config["theme"]["primaryColor"] == "#F5A524"
