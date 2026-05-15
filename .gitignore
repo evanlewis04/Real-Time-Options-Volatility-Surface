@@ -40,9 +40,11 @@ Thumbs.db
 *.pid
 streamlit_*_smoke_*.log
 streamlit_*_smoke_*.err.log
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml
 artifacts/dashboard_screenshots/
 artifacts/dashboard_crawler/
+artifacts/dashboard_crawler_online/
 data/alerts/
 data/snapshots/
 reports/

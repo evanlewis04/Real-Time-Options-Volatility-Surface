@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from html import escape
 
+import pandas as pd
+
+from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
 from src.quant.provenance import (
     CURRENT_ROBUST_FIT_PROVENANCE,
     ML_DENOISED_PROVENANCE,
@@ -11,11 +14,85 @@ from src.quant.provenance import (
 )
 
 FIT_MODE_CHOICES = ("Robust", "Standard", "Prior Assisted", "ML Denoised", "Diagnostic Raw")
+SCANNER_NUMERIC_COLUMNS = [
+    "dte",
+    "strike",
+    "market_iv",
+    "fitted_iv",
+    "surface_residual",
+    "residual_z_score",
+    "liquidity_score",
+    "bid_ask_spread_pct",
+    "volume",
+    "open_interest",
+]
+SCANNER_PERCENT_COLUMNS = ["market_iv", "fitted_iv", "surface_residual", "bid_ask_spread_pct"]
+PROVENANCE_DISPLAY_LABELS = {
+    CURRENT_ROBUST_FIT_PROVENANCE: "Robust Fit Estimate",
+    STANDARD_SVI_FIT_PROVENANCE: "Standard SVI Fit Estimate",
+    PRIOR_ASSISTED_FIT_PROVENANCE: "Prior Assisted Fit Estimate",
+    ML_DENOISED_PROVENANCE: "ML Denoised Research Estimate",
+    RAW_QUOTE_DIAGNOSTIC_PROVENANCE: "Raw Quote Diagnostic Overlay",
+    "current_fit_estimate_not_market_observation": "Current Fit Estimate",
+    "historical_prior_estimate_not_market_observation": "Historical Prior Estimate",
+    "synthetic_surface_estimate": "Synthetic Surface Estimate",
+}
 
 
 def _html(value: object) -> str:
     """Escape a value for dashboard HTML fragments."""
     return escape("n/a" if value is None else str(value), quote=True)
+
+
+def display_provenance_label(value: object) -> str:
+    """Return human-readable provenance copy without changing underlying metadata."""
+    raw = "" if value is None else str(value)
+    if not raw:
+        return "n/a"
+    if raw in PROVENANCE_DISPLAY_LABELS:
+        return PROVENANCE_DISPLAY_LABELS[raw]
+    cleaned = raw.replace("_not_market_observation", "").replace("_", " ").strip()
+    return cleaned.title() if cleaned else raw
+
+
+def coerce_table_numeric_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Coerce object-like numeric columns so Streamlit column formats apply."""
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    for column in columns:
+        if column in out:
+            out[column] = pd.to_numeric(out[column], errors="coerce")
+    return out
+
+
+def format_scanner_table_for_display(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return scanner rows with display-safe precision for the Streamlit grid."""
+    table = coerce_table_numeric_columns(frame, SCANNER_NUMERIC_COLUMNS)
+    if table.empty:
+        return table
+    out = table.copy()
+    for column in SCANNER_PERCENT_COLUMNS:
+        if column in out:
+            out[column] = out[column].map(lambda value: fmt_pct(value, 2))
+    if "strike" in out:
+        out["strike"] = out["strike"].map(fmt_money)
+    for column in ("dte", "volume", "open_interest"):
+        if column in out:
+            out[column] = out[column].map(fmt_int)
+    for column in ("residual_z_score", "liquidity_score"):
+        if column in out:
+            out[column] = out[column].map(lambda value: fmt_decimal(value, 2))
+    return out
+
+
+def fmt_decimal(value: object, digits: int = 3) -> str:
+    try:
+        if value is None or pd.isna(value):
+            return "n/a"
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return "n/a"
 
 
 def _render_metric_grid(metrics: list[tuple[str, str, str, str | None]]) -> str:
@@ -179,7 +256,7 @@ def fit_comparison_display_rows(surface_meta: dict) -> list[dict]:
                 "prior_weight": row.get("prior_weight", surface_meta.get("surface_prior_blend_weight")),
                 "ml_uncertainty": row.get("uncertainty"),
                 "timestamp": timestamp,
-                "provenance": row.get("provenance") or surface_meta.get("surface_source"),
+                "provenance": display_provenance_label(row.get("provenance") or surface_meta.get("surface_source")),
             }
         )
     return rows
@@ -294,7 +371,6 @@ def run_dashboard() -> None:
     from typing import Any, Dict, Iterable, Tuple
 
     import numpy as np
-    import pandas as pd
     import plotly.graph_objects as go
     import streamlit as st
     from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
@@ -1018,7 +1094,7 @@ def run_dashboard() -> None:
         f"{fmt_int(readiness_points)} fitted grid points; "
         f"{fmt_int(surface_meta.get('fit_eligible_count'))} rows included, "
         f"{fmt_int(surface_meta.get('fit_excluded_count'))} excluded; "
-        f"estimate label {fit_mode_view['provenance']}."
+        f"estimate label {display_provenance_label(fit_mode_view['provenance'])}."
     )
     if fit_mode_view.get("warning"):
         readiness_detail = f"{readiness_detail} {fit_mode_view['warning']}"
@@ -1097,7 +1173,11 @@ def run_dashboard() -> None:
                     [
                         ("Surface Source", surface_meta.get("surface_source") or source_label, "provider path"),
                         ("Surface Mode", surface_mode, "live/delayed/synthetic/fallback"),
-                        ("Estimate Label", fit_mode_view["provenance"], "not a market observation"),
+                        (
+                            "Estimate Label",
+                            display_provenance_label(fit_mode_view["provenance"]),
+                            "not a market observation",
+                        ),
                         ("Fallback Reason", surface_meta.get("fallback_reason") or "none", "shown when applicable"),
                         ("Warnings", warning_text or "none", "latest metadata warnings"),
                     ],
@@ -1263,7 +1343,7 @@ def run_dashboard() -> None:
                             "Forward / Discount",
                             (
                                 f"{fmt_money(surface_meta.get('forward_price_median'))} / "
-                                f"{surface_meta.get('discount_factor_median') if surface_meta.get('discount_factor_median') is not None else 'n/a'}"
+                                f"{fmt_decimal(surface_meta.get('discount_factor_median'), 5)}"
                             ),
                             "median inputs",
                         ),
@@ -1679,7 +1759,7 @@ def run_dashboard() -> None:
                 margin=dict(l=0, r=0, t=45, b=0),
                 height=620,
             )
-            st.plotly_chart(fig_3d, width="stretch")
+            st.plotly_chart(apply_chart_layout(fig_3d, 620), width="stretch")
 
         fig_heatmap = go.Figure(
             data=[
@@ -1729,7 +1809,8 @@ def run_dashboard() -> None:
         )
         st.plotly_chart(apply_chart_layout(fig_heatmap, 430), width="stretch")
         st.caption(
-            f"Selected fit view {fit_mode_view['selected_mode']}; provenance {fit_mode_view['provenance']}. "
+            f"Selected fit view {fit_mode_view['selected_mode']}; "
+            f"provenance {display_provenance_label(fit_mode_view['provenance'])}. "
             "Prior-assisted, ML-denoised, repaired, and diagnostic raw values are estimates or overlays, not market observations."
         )
 
@@ -2431,30 +2512,32 @@ def run_dashboard() -> None:
                     "reason",
                 ]
                 scanner_cols = [col for col in scanner_cols if col in scanner_display.columns]
+                scanner_table = coerce_table_numeric_columns(scanner_display[scanner_cols], SCANNER_NUMERIC_COLUMNS)
+                scanner_display_table = format_scanner_table_for_display(scanner_display[scanner_cols])
                 st.download_button(
                     "Export scanner CSV",
-                    dataframe_to_csv_bytes(scanner_display[scanner_cols]),
+                    dataframe_to_csv_bytes(scanner_table),
                     file_name=f"{surface_symbol}_rich_cheap_scanner.csv",
                     mime="text/csv",
                 )
                 st.dataframe(
-                    scanner_display[scanner_cols],
+                    scanner_display_table,
                     width="stretch",
                     hide_index=True,
                     column_config={
                         "classification": st.column_config.TextColumn("Class"),
                         "type": st.column_config.TextColumn("Type", help=COLUMN_HELP["type"]),
                         "expiration": st.column_config.TextColumn("Expiration"),
-                        "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
-                        "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
-                        "market_iv": st.column_config.NumberColumn("Market IV", format="%.2%"),
-                        "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
-                        "surface_residual": st.column_config.NumberColumn("Residual", format="%.2%"),
-                        "residual_z_score": st.column_config.NumberColumn("Z-score", format="%.2f"),
-                        "liquidity_score": st.column_config.NumberColumn("Liquidity", format="%.2f"),
-                        "bid_ask_spread_pct": st.column_config.NumberColumn("Spread", format="%.2%"),
-                        "volume": st.column_config.NumberColumn("Volume", format="%.0f"),
-                        "open_interest": st.column_config.NumberColumn("Open Interest", format="%.0f"),
+                        "dte": st.column_config.TextColumn("DTE"),
+                        "strike": st.column_config.TextColumn("Strike"),
+                        "market_iv": st.column_config.TextColumn("Market IV"),
+                        "fitted_iv": st.column_config.TextColumn("Fitted IV"),
+                        "surface_residual": st.column_config.TextColumn("Residual"),
+                        "residual_z_score": st.column_config.TextColumn("Z-score"),
+                        "liquidity_score": st.column_config.TextColumn("Liquidity"),
+                        "bid_ask_spread_pct": st.column_config.TextColumn("Spread"),
+                        "volume": st.column_config.TextColumn("Volume"),
+                        "open_interest": st.column_config.TextColumn("Open Interest"),
                         "reason": st.column_config.TextColumn("Reason"),
                     },
                 )
@@ -3045,7 +3128,15 @@ def run_dashboard() -> None:
             penalty_frame = pd.DataFrame(actionability["top_penalty_reasons"])
             if not penalty_frame.empty:
                 st.markdown("#### Top Quality Drivers")
-                st.dataframe(penalty_frame, width="stretch", hide_index=True)
+                st.dataframe(
+                    penalty_frame,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "reason": st.column_config.TextColumn("Reason"),
+                        "count": st.column_config.NumberColumn("Count", format="%d"),
+                    },
+                )
         with action_cols[1]:
             no_arb_summary = actionability["no_arbitrage"]
             st.markdown("#### No-Arbitrage Summary")
@@ -3066,7 +3157,24 @@ def run_dashboard() -> None:
         worst_residuals = pd.DataFrame(actionability["worst_residual_contracts"])
         if not worst_residuals.empty:
             st.markdown("#### Worst Residual Contracts")
-            st.dataframe(worst_residuals, width="stretch", hide_index=True)
+            st.dataframe(
+                worst_residuals,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "contract": st.column_config.TextColumn("Contract"),
+                    "type": st.column_config.TextColumn("Type"),
+                    "expiration": st.column_config.TextColumn("Expiry"),
+                    "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
+                    "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
+                    "observed_iv": st.column_config.NumberColumn("Observed IV", format="%.2%"),
+                    "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
+                    "residual": st.column_config.NumberColumn("Residual", format="%.2%"),
+                    "abs_residual": st.column_config.NumberColumn("Abs Residual", format="%.2%"),
+                    "fit_weight": st.column_config.NumberColumn("Fit Weight", format="%.3f"),
+                    "source": st.column_config.TextColumn("Source"),
+                },
+            )
         st.caption(f"Suggested fit preset: {actionability['suggested_preset']}.")
         expiry_quality = surface_meta.get("expiry_quality") or {}
         if expiry_quality:
@@ -3179,27 +3287,32 @@ def run_dashboard() -> None:
                 "reason",
             ]
             scanner_cols = [col for col in scanner_cols if col in scanner_display.columns]
+            scanner_table = coerce_table_numeric_columns(scanner_display[scanner_cols], SCANNER_NUMERIC_COLUMNS)
+            scanner_display_table = format_scanner_table_for_display(scanner_display[scanner_cols])
             st.download_button(
                 "Export scanner panel CSV",
-                dataframe_to_csv_bytes(scanner_display[scanner_cols]),
+                dataframe_to_csv_bytes(scanner_table),
                 file_name=f"{surface_symbol}_scanner_panel.csv",
                 mime="text/csv",
                 key="scanner_panel_export_csv",
             )
             st.dataframe(
-                scanner_display[scanner_cols],
+                scanner_display_table,
                 width="stretch",
                 hide_index=True,
                 column_config={
                     "classification": st.column_config.TextColumn("Class"),
-                    "dte": st.column_config.NumberColumn("DTE", format="%.0f"),
-                    "strike": st.column_config.NumberColumn("Strike", format="$%.2f"),
-                    "market_iv": st.column_config.NumberColumn("Market IV", format="%.2%"),
-                    "fitted_iv": st.column_config.NumberColumn("Fitted IV", format="%.2%"),
-                    "surface_residual": st.column_config.NumberColumn("Residual", format="%.2%"),
-                    "residual_z_score": st.column_config.NumberColumn("Z-score", format="%.2f"),
-                    "liquidity_score": st.column_config.NumberColumn("Liquidity", format="%.2f"),
-                    "bid_ask_spread_pct": st.column_config.NumberColumn("Spread", format="%.2%"),
+                    "dte": st.column_config.TextColumn("DTE"),
+                    "strike": st.column_config.TextColumn("Strike"),
+                    "market_iv": st.column_config.TextColumn("Market IV"),
+                    "fitted_iv": st.column_config.TextColumn("Fitted IV"),
+                    "surface_residual": st.column_config.TextColumn("Residual"),
+                    "residual_z_score": st.column_config.TextColumn("Z-score"),
+                    "liquidity_score": st.column_config.TextColumn("Liquidity"),
+                    "bid_ask_spread_pct": st.column_config.TextColumn("Spread"),
+                    "volume": st.column_config.TextColumn("Volume"),
+                    "open_interest": st.column_config.TextColumn("Open Interest"),
+                    "reason": st.column_config.TextColumn("Reason"),
                 },
             )
             st.caption(
@@ -3924,7 +4037,20 @@ def run_dashboard() -> None:
                     }
                 )
             st.markdown("#### Expiry Data Quality")
-            st.dataframe(pd.DataFrame(quality_rows), width="stretch", hide_index=True)
+            st.dataframe(
+                pd.DataFrame(quality_rows),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "Expiry": st.column_config.TextColumn("Expiry"),
+                    "Score": st.column_config.NumberColumn("Score", format="%.1f"),
+                    "Raw Quotes": st.column_config.NumberColumn("Raw Quotes", format="%d"),
+                    "Valid Quotes": st.column_config.NumberColumn("Valid Quotes", format="%d"),
+                    "Rejected Quotes": st.column_config.NumberColumn("Rejected Quotes", format="%d"),
+                    "Surface Quotes": st.column_config.NumberColumn("Surface Quotes", format="%d"),
+                    "Reason Buckets": st.column_config.TextColumn("Reason Buckets"),
+                },
+            )
 
         surface_quality = surface_meta.get("surface_quality") or {}
         if surface_quality:

@@ -20,6 +20,11 @@ from pathlib import Path
 from typing import Iterable
 
 
+DATA_MODES = ("offline", "online")
+DEFAULT_OUTPUT_DIRS = {
+    "offline": "artifacts/dashboard_crawler",
+    "online": "artifacts/dashboard_crawler_online",
+}
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -28,7 +33,6 @@ from scripts.dashboard_visual_regression import (  # noqa: E402
     VIEWPORTS,
     _has_playwright,
     _pick_port,
-    _wait_for_dashboard_settled,
     _wait_for_http,
 )
 
@@ -59,6 +63,8 @@ class CrawlResult:
     screenshots: list[Path] = field(default_factory=list)
     interactions: list[str] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
+    data_mode: str = "unknown"
+    data_source: str = "unknown"
     skipped: bool = False
     skip_reason: str = ""
 
@@ -66,8 +72,29 @@ class CrawlResult:
         self.failures.append(message)
 
 
-def _start_streamlit(port: int, cwd: Path) -> subprocess.Popen:
-    """Start Streamlit with the deterministic fallback connector enabled."""
+def _streamlit_env(data_mode: str) -> dict[str, str]:
+    """Return the environment used to launch Streamlit for the requested data mode."""
+    if data_mode not in DATA_MODES:
+        raise ValueError(f"unknown data mode: {data_mode}")
+    env = os.environ.copy()
+    env.setdefault("STREAMLIT_LOG_LEVEL", "error")
+    if data_mode == "offline":
+        env["PYTEST_CURRENT_TEST"] = "scripts.dashboard_ui_crawler::offline_browser_crawl"
+        env["VOL_SURFACE_APPTEST_MODE"] = "synthetic"
+    else:
+        env.pop("PYTEST_CURRENT_TEST", None)
+        env.pop("VOL_SURFACE_APPTEST_MODE", None)
+    return env
+
+
+def _default_output_dir(data_mode: str) -> str:
+    if data_mode not in DATA_MODES:
+        raise ValueError(f"unknown data mode: {data_mode}")
+    return DEFAULT_OUTPUT_DIRS[data_mode]
+
+
+def _start_streamlit(port: int, cwd: Path, data_mode: str) -> subprocess.Popen:
+    """Start Streamlit in deterministic offline mode or explicit online mode."""
     args = [
         sys.executable,
         "-m",
@@ -78,14 +105,10 @@ def _start_streamlit(port: int, cwd: Path) -> subprocess.Popen:
         f"--server.port={port}",
         "--browser.gatherUsageStats=false",
     ]
-    env = os.environ.copy()
-    env.setdefault("PYTEST_CURRENT_TEST", "scripts.dashboard_ui_crawler::offline_browser_crawl")
-    env.setdefault("VOL_SURFACE_APPTEST_MODE", "synthetic")
-    env.setdefault("STREAMLIT_LOG_LEVEL", "error")
     return subprocess.Popen(
         args,
         cwd=str(cwd),
-        env=env,
+        env=_streamlit_env(data_mode),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -122,10 +145,25 @@ def _visible_text(page) -> str:
     return page.locator("body").inner_text(timeout=10_000)
 
 
-def _wait_for_settle(page) -> None:
-    _wait_for_dashboard_settled(page)
+def _wait_for_visible_loaders_gone(page, timeout_ms: int = 90_000) -> None:
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        if page.locator(".loading-panel:visible").count() == 0:
+            return
+        page.wait_for_timeout(500)
+    raise AssertionError("visible loading panels remained after timeout")
+
+
+def _wait_for_settle(page, timeout_ms: int = 90_000) -> None:
+    """Wait for dashboard readiness markers and visible loading panels to clear."""
+    page.get_by_text("Options Volatility Surface Workstation").wait_for(timeout=timeout_ms)
+    page.locator('[data-dashboard-section="kpi-grid"]').wait_for(state="visible", timeout=timeout_ms)
+    page.get_by_text("Surface Readiness").wait_for(timeout=timeout_ms)
+    page.locator(".dashboard-ready-marker").wait_for(state="attached", timeout=timeout_ms)
+    _wait_for_visible_loaders_gone(page, timeout_ms=timeout_ms)
+    page.wait_for_load_state("networkidle", timeout=timeout_ms)
     page.wait_for_timeout(750)
-    page.locator(".loading-panel").wait_for(state="detached", timeout=90_000)
+    _wait_for_visible_loaders_gone(page, timeout_ms=timeout_ms)
 
 
 def _assert_any_text(page, expected: str | tuple[str, ...], context: str) -> None:
@@ -165,6 +203,22 @@ def _assert_kpis_readable(page) -> None:
     bad_values = [value.strip() for value in values if TRUNCATED_KPI_RE.match(value.strip())]
     if bad_values:
         raise AssertionError(f"KPI values look truncated: {bad_values}")
+
+
+def _observe_dashboard_metadata(page) -> tuple[str, str]:
+    status_items = page.locator(".status-pill").all_inner_texts()
+    tape_items = page.locator(".workstation-tape span").all_inner_texts()
+    data_mode = "unknown"
+    data_source = "unknown"
+    for item in status_items:
+        if item.startswith("Surface:"):
+            data_mode = item.split(":", 1)[1].strip()
+            break
+    for item in tape_items:
+        if item.startswith("Source"):
+            data_source = item.removeprefix("Source").strip()
+            break
+    return data_mode, data_source
 
 
 def _assert_provenance_visible(page, context: str) -> None:
@@ -272,6 +326,7 @@ def _run_crawler(url: str, output_dir: Path, viewport_name: str) -> CrawlResult:
                 _assert_no_literal_html(page)
                 _assert_kpis_readable(page)
                 _assert_provenance_visible(page, "initial viewport")
+                result.data_mode, result.data_source = _observe_dashboard_metadata(page)
                 _screenshot(page, output_dir, f"initial_{viewport_name}", result)
 
                 _exercise_controls(page, result)
@@ -288,6 +343,8 @@ def _print_summary(result: CrawlResult) -> None:
         print(f"SKIP dashboard UI crawler: {result.skip_reason}")
         return
     print("Dashboard UI crawler summary")
+    print(f"Observed data mode: {result.data_mode}")
+    print(f"Observed data source: {result.data_source}")
     print(f"Interactions: {len(result.interactions)}")
     for item in result.interactions:
         print(f" - {item}")
@@ -305,8 +362,9 @@ def _print_summary(result: CrawlResult) -> None:
 def main(argv: Iterable[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run an interactive Streamlit dashboard UI crawl.")
     parser.add_argument("--port", type=int, default=8501)
-    parser.add_argument("--output-dir", default="artifacts/dashboard_crawler")
+    parser.add_argument("--output-dir")
     parser.add_argument("--viewport", choices=sorted(VIEWPORTS), default="desktop")
+    parser.add_argument("--data-mode", choices=DATA_MODES, default="offline")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if not _has_playwright():
@@ -316,11 +374,14 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     port = _pick_port(args.port)
     url = f"http://127.0.0.1:{port}"
-    proc = _start_streamlit(port, ROOT)
+    if args.data_mode == "online":
+        print("WARNING dashboard UI crawler online mode may fetch live/delayed yfinance data.")
+    output_dir = ROOT / (args.output_dir or _default_output_dir(args.data_mode))
+    proc = _start_streamlit(port, ROOT, args.data_mode)
     try:
-        _wait_for_http(url)
+        _wait_for_http(url, timeout_seconds=150 if args.data_mode == "online" else 75)
         started = time.time()
-        result = _run_crawler(url, ROOT / args.output_dir, args.viewport)
+        result = _run_crawler(url, output_dir, args.viewport)
         elapsed = time.time() - started
         print(f"Crawler elapsed seconds: {elapsed:.1f}")
         _print_summary(result)

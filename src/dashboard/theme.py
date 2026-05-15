@@ -5,6 +5,14 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 
+CHART_BG = "#14171b"
+PANEL_BG = "#181b20"
+GRID_COLOR = "#2a3038"
+LINE_COLOR = "#343a43"
+INK = "#f2f5f8"
+MUTED = "#9aa4af"
+ACCENT = "#d89a2b"
+
 CSS = """
 <style>
     :root {
@@ -255,7 +263,8 @@ CSS = """
         color: var(--ink);
         font-size: 0.78rem;
         font-weight: 750;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
+        word-break: normal;
     }
     .quality-item-note {
         color: var(--muted);
@@ -469,15 +478,105 @@ CSS = """
         font-size: 0.92rem;
         margin-top: 0.7rem;
     }
+    section[data-testid="stSidebar"] div[data-baseweb="select"] > div,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+        background: #101215;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--ink);
+        min-height: 2.35rem;
+        box-shadow: none;
+    }
+    section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover,
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+    div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover {
+        border-color: var(--focus);
+    }
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] span,
+    div[data-baseweb="select"] svg {
+        color: var(--ink);
+        fill: var(--ink);
+    }
+    div[data-baseweb="popover"] [role="listbox"],
+    ul[data-testid="stVirtualDropdown"] {
+        background: #101215;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        box-shadow: 0 14px 35px rgba(0, 0, 0, 0.42);
+    }
+    div[data-baseweb="popover"] [role="option"] {
+        color: var(--ink);
+        font-weight: 650;
+    }
+    div[data-baseweb="popover"] [role="option"]:hover,
+    div[data-baseweb="popover"] [aria-selected="true"] {
+        background: #182824;
+        color: var(--focus);
+    }
+    span[data-baseweb="tag"] {
+        background: #182824;
+        border: 1px solid rgba(77, 189, 116, 0.45);
+        border-radius: 5px;
+        color: var(--ink);
+        font-weight: 700;
+    }
+    span[data-baseweb="tag"] span {
+        color: var(--ink);
+    }
+    span[data-baseweb="tag"] svg {
+        fill: var(--muted);
+    }
+    div[data-testid="stSlider"] [role="slider"] {
+        background: var(--accent);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(216, 154, 43, 0.22);
+    }
+    div[data-testid="stSlider"] [data-baseweb="slider"] div {
+        border-radius: 999px;
+    }
+    div[data-testid="stCheckbox"] label {
+        color: var(--ink);
+    }
     div[data-testid="stTabs"] button {
+        background: #111316;
+        border: 1px solid transparent;
+        border-bottom: 2px solid transparent;
         border-radius: 6px 6px 0 0;
         padding: 0.5rem 0.8rem;
         color: var(--muted);
         font-weight: 650;
+        min-height: 2.45rem;
+    }
+    div[data-testid="stTabs"] button:hover {
+        background: var(--panel);
+        border-color: #2a3038;
+        color: var(--ink);
     }
     div[data-testid="stTabs"] button[aria-selected="true"] {
         color: var(--focus);
+        background: var(--panel);
+        border-color: var(--line);
         border-bottom-color: var(--focus);
+    }
+    div[data-testid="stTabs"] [role="tablist"] {
+        border-bottom: 1px solid #252a31;
+        gap: 0.2rem;
+    }
+    div[data-testid="stTabs"] button[aria-label],
+    div[data-testid="stTabs"] [role="tablist"] ~ button {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--focus);
+        box-shadow: none;
+        min-width: 2rem;
+    }
+    div[data-testid="stTabs"] button[aria-label] svg,
+    div[data-testid="stTabs"] [role="tablist"] ~ button svg {
+        fill: var(--focus);
+        color: var(--focus);
     }
     div[data-testid="stDataFrame"], div[data-testid="stTable"] {
         border: 1px solid var(--line);
@@ -515,17 +614,63 @@ def status_pill(label: str, mode: str) -> str:
     return f'<span class="status-pill {data_mode_class(mode)}">{label}: {mode or "Unknown"}</span>'
 
 
+def _dark_colorbar() -> dict:
+    return {
+        "bgcolor": CHART_BG,
+        "bordercolor": LINE_COLOR,
+        "borderwidth": 1,
+        "tickfont": {"color": MUTED},
+        "title": {"font": {"color": INK}},
+    }
+
+
+def _apply_trace_colorbars(fig: go.Figure) -> None:
+    colorbar_style = _dark_colorbar()
+    for trace in fig.data:
+        colorbar = getattr(trace, "colorbar", None)
+        if colorbar is not None:
+            colorbar.update(colorbar_style)
+        marker = getattr(trace, "marker", None)
+        marker_colorbar = getattr(marker, "colorbar", None)
+        if marker_colorbar is not None:
+            marker_colorbar.update(colorbar_style)
+
+
+def _dark_scene_axis(title: str | None = None) -> dict:
+    axis = {
+        "backgroundcolor": CHART_BG,
+        "gridcolor": GRID_COLOR,
+        "zerolinecolor": LINE_COLOR,
+        "showbackground": True,
+        "tickfont": {"color": MUTED},
+        "title": {"font": {"color": INK}},
+    }
+    if title:
+        axis["title"]["text"] = title
+    return axis
+
+
 def apply_chart_layout(fig: go.Figure, height: int = 420) -> go.Figure:
+    _apply_trace_colorbars(fig)
     fig.update_layout(
         template="plotly_dark",
         height=height,
         margin=dict(l=35, r=25, t=55, b=35),
-        paper_bgcolor="#181b20",
-        plot_bgcolor="#14171b",
-        font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12, color="#f2f5f8"),
-        hoverlabel=dict(bgcolor="#f2f5f8", font_color="#111316"),
+        paper_bgcolor=PANEL_BG,
+        plot_bgcolor=CHART_BG,
+        font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12, color=INK),
+        hoverlabel=dict(bgcolor=INK, font_color="#111316"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
-    fig.update_xaxes(showgrid=True, gridcolor="#2a3038", zeroline=False)
-    fig.update_yaxes(showgrid=True, gridcolor="#2a3038", zeroline=False)
+    fig.update_xaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor=GRID_COLOR, zeroline=False)
+    if getattr(fig.layout, "scene", None):
+        scene = fig.layout.scene
+        fig.update_layout(
+            scene={
+                "xaxis": _dark_scene_axis(getattr(scene.xaxis.title, "text", None)),
+                "yaxis": _dark_scene_axis(getattr(scene.yaxis.title, "text", None)),
+                "zaxis": _dark_scene_axis(getattr(scene.zaxis.title, "text", None)),
+            }
+        )
     return fig
