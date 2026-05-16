@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -6,6 +6,7 @@ from dashboard_connector import DashboardConnector
 from src.data.market_calendar import EASTERN
 from src.data.models import MarketDataSnapshot
 from src.pricing.black_scholes import BlackScholesModel
+from src.quant.corporate_actions import CorporateActionEvent, CorporateActionSnapshot
 from src.quant.events import EventCalendarProvider
 
 
@@ -88,6 +89,27 @@ class StubOptionsProvider:
         return frame, meta
 
 
+class StubCorporateActionProvider:
+    def get(self, symbol: str, force_refresh: bool = False) -> CorporateActionSnapshot:
+        key = symbol.upper()
+        return CorporateActionSnapshot(
+            symbol=key,
+            as_of=datetime(2026, 5, 3, 10, 0, 0),
+            source="fixture corporate actions",
+            mode="Fixture",
+            events=(
+                CorporateActionEvent(
+                    symbol=key,
+                    action_type="dividend",
+                    effective_date=date(2026, 6, 1),
+                    description="Fixture cash dividend",
+                    value=0.26,
+                    source="fixture",
+                ),
+            ),
+        )
+
+
 def _configure_event_provider(connector: DashboardConnector, tmp_path):
     path = tmp_path / "events.csv"
     path.write_text(
@@ -103,12 +125,17 @@ def _configure_event_provider(connector: DashboardConnector, tmp_path):
     connector.event_provider = EventCalendarProvider(local_path=path)
 
 
+def _configure_corporate_action_provider(connector: DashboardConnector):
+    connector.corporate_action_provider = StubCorporateActionProvider()
+
+
 def test_connector_returns_canonical_market_data_snapshot(tmp_path):
     connector = DashboardConnector()
     connector.price_provider = StubPriceProvider()
     connector.options_provider = StubOptionsProvider()
     connector.snapshot_dir = tmp_path
     _configure_event_provider(connector, tmp_path)
+    _configure_corporate_action_provider(connector)
     connector.chain_cache.clear()
 
     snapshot = connector.get_market_data_snapshot("aapl")
@@ -156,6 +183,7 @@ def test_connector_options_chain_snapshot_uses_canonical_model_shape(tmp_path):
     connector.options_provider = StubOptionsProvider()
     connector.snapshot_dir = tmp_path
     _configure_event_provider(connector, tmp_path)
+    _configure_corporate_action_provider(connector)
     connector.chain_cache.clear()
 
     frame, meta = connector.get_options_chain_snapshot("AAPL")
