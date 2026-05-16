@@ -72,6 +72,28 @@ and Diagnostics tab so generated data is never presented as live.
 
 ![Dashboard default AppTest state](docs/assets/dashboard-default-state.svg)
 
+## Dashboard Preview
+
+The workstation-style UI combines ticker selection, data provenance, surface
+quality, and fit diagnostics in one view.
+
+![Dashboard overview with AAPL surface readiness and quality metrics](docs/assets/dashboard-overview.png)
+
+The diagnostics panels show provider provenance, quote quality, model inputs,
+market-integrity checks, and fit guardrails for the current chain.
+
+![Dashboard quality and provenance diagnostics](docs/assets/dashboard-quality-provenance.png)
+
+The surface view renders the fitted implied-volatility surface with quote
+reliability overlays.
+
+![3D implied-volatility surface with reliability overlay](docs/assets/dashboard-surface-3d.png)
+
+The term-structure panel compares ATM implied volatility across expiries and
+marks nearby events against realized-volatility references.
+
+![ATM implied-volatility term structure with event markers](docs/assets/dashboard-term-structure.png)
+
 ## Project Layout
 
 ```text
