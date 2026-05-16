@@ -55,6 +55,14 @@ def test_theme_styles_finance_grade_controls_and_tabs():
     assert "font-variant-numeric: tabular-nums" in CSS
 
 
+def test_keyboard_layer_supports_function_keys_and_number_fallbacks():
+    source = Path("src/dashboard/keyboard.py").read_text(encoding="utf-8")
+
+    assert "event.key.match(/^F([1-9]|10)$/)" in source
+    assert "clickTab(Number(functionKeyMatch[1]) - 1)" in source
+    assert "clickTab(event.key === \"0\" ? 9 : Number(event.key) - 1)" in source
+
+
 def test_plotly_3d_scene_uses_dark_workstation_theme():
     fig = go.Figure(data=[go.Surface(z=[[0.2, 0.3], [0.25, 0.35]], colorbar=dict(title="IV"))])
     fig.update_layout(scene=dict(xaxis_title="Moneyness", yaxis_title="Days", zaxis_title="IV"))

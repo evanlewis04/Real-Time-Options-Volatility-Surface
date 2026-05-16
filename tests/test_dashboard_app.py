@@ -1,5 +1,6 @@
 from streamlit.testing.v1 import AppTest
 import streamlit as st
+import re
 
 from scripts.dashboard_visual_regression import VIEWPORTS
 
@@ -99,3 +100,10 @@ def test_visual_regression_script_waits_for_ready_marker():
 
     assert "locator" in names
     assert "wait_for_load_state" in names
+
+
+def test_dashboard_does_not_shadow_card_context_manager():
+    source = open("src/dashboard/app_shell.py", encoding="utf-8").read()
+
+    assert not re.search(r"^\s*card\s*=", source, flags=re.MULTILINE)
+    assert "event_card = " in source

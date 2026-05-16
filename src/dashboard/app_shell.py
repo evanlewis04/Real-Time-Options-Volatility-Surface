@@ -519,7 +519,7 @@ def render_command_rail(
         st_module.markdown(
             _fragment("""
             <div class="rail-footer">
-                <strong>1-0</strong> tabs &nbsp; <strong>R</strong> refresh &nbsp;
+                <strong>F1-F10</strong> tabs &nbsp; <strong>1-0</strong> tabs &nbsp; <strong>R</strong> refresh &nbsp;
                 <strong>/</strong> symbol &nbsp; <strong>?</strong> help<br>
                 v1.x.y build · <a href="https://github.com/" target="_blank">docs</a>
             </div>
@@ -3775,21 +3775,21 @@ def run_dashboard() -> None:
             lambda: get_earnings_event_cached(surface_symbol, data_key),
         )
         if event_payload.get("available"):
-            card = event_payload.get("event_card") or {}
+            event_card = event_payload.get("event_card") or {}
             event_cols = st.columns(5)
             event_metrics = [
-                ("Event", card.get("event_date") or "n/a", card.get("description")),
-                ("Implied Move", fmt_money(card.get("implied_move")), fmt_pct(card.get("implied_move_pct"))),
-                ("Hist Move", fmt_pct(card.get("historical_avg_abs_move_pct")), "avg abs"),
-                ("Crush", fmt_pct(card.get("post_event_crush")), "ATM term"),
-                ("Expiry", card.get("expiration") or "n/a", f"DTE {fmt_int(card.get('dte'))}"),
+                ("Event", event_card.get("event_date") or "n/a", event_card.get("description")),
+                ("Implied Move", fmt_money(event_card.get("implied_move")), fmt_pct(event_card.get("implied_move_pct"))),
+                ("Hist Move", fmt_pct(event_card.get("historical_avg_abs_move_pct")), "avg abs"),
+                ("Crush", fmt_pct(event_card.get("post_event_crush")), "ATM term"),
+                ("Expiry", event_card.get("expiration") or "n/a", f"DTE {fmt_int(event_card.get('dte'))}"),
             ]
             for col, (label, value, delta) in zip(event_cols, event_metrics):
                 with col:
                     st.metric(label, value, delta=delta if delta else None)
             st.caption(
                 f"Event source: {event_payload.get('source', 'event calendar plus option chain')}; "
-                f"method {card.get('method', 'n/a')}; "
+                f"method {event_card.get('method', 'n/a')}; "
                 f"historical observations {fmt_int(event_payload.get('historical_observations'))}."
             )
         else:

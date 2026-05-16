@@ -91,7 +91,7 @@ def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None
             const list = overlay.querySelector(".vs-palette-list");
             const commands = [
                 ...data.pages.map((label, index) => ({{
-                    label: `${{index === 9 ? 0 : index + 1}} -> ${{label}}`,
+                    label: `F${{index + 1}} / ${{index === 9 ? 0 : index + 1}} -> ${{label}}`,
                     hint: "page",
                     run: () => clickTab(index)
                 }})),
@@ -232,6 +232,12 @@ def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None
                 if (event.key.toLowerCase() === "r" && !editing) {{
                     event.preventDefault();
                     refresh();
+                    return;
+                }}
+                const functionKeyMatch = event.key.match(/^F([1-9]|10)$/);
+                if (functionKeyMatch && !editing) {{
+                    event.preventDefault();
+                    clickTab(Number(functionKeyMatch[1]) - 1);
                     return;
                 }}
                 if (/^[0-9]$/.test(event.key) && !editing) {{
