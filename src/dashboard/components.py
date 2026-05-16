@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from html import escape
+from textwrap import dedent
 from typing import Iterator
 
 
@@ -157,7 +158,7 @@ def card(
     )
     kicker_markup = f'<div class="panel-card-kicker">{escape(kicker)}</div>' if kicker else ""
     st_module.markdown(
-        f"""
+        dedent(f"""
         <section class="panel-card">
             <header class="panel-card-header">
                 <div>
@@ -167,7 +168,7 @@ def card(
                 <div class="panel-card-actions">{action_markup}</div>
             </header>
             <div class="panel-card-body">
-        """,
+        """).strip(),
         unsafe_allow_html=True,
     )
     try:

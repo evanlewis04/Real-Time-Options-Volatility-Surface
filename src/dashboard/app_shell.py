@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from textwrap import dedent
 
 import pandas as pd
 
@@ -74,6 +75,11 @@ PROVENANCE_DISPLAY_LABELS = {
 def _html(value: object) -> str:
     """Escape a value for dashboard HTML fragments."""
     return escape("n/a" if value is None else str(value), quote=True)
+
+
+def _fragment(markup: str) -> str:
+    """Normalize generated HTML so Markdown does not treat it as code."""
+    return "".join(line.strip() for line in dedent(markup).splitlines() if line.strip())
 
 
 def display_provenance_label(value: object) -> str:
@@ -176,13 +182,13 @@ def _render_quality_workstation(
         f'<div class="quality-items">{_quality_rows(rows)}</div></section>'
         for title, rows in groups
     )
-    return f"""
+    return _fragment(f"""
     <div class="quality-workstation" data-dashboard-section="quality-summary">
         <div class="quality-alert quality-alert-{_html(alert_level)}">{_html(alert_message)}</div>
         <div class="quality-chip-row">{chips}</div>
         <div class="quality-group-grid">{group_markup}</div>
     </div>
-    """
+    """)
 
 
 def _data_mode_class(mode: object) -> str:
@@ -228,7 +234,7 @@ def _render_workstation_header(
         f'<span class="function-key-item"><strong>F{index + 1}</strong> {_html(name)}</span>'
         for index, name in enumerate(FUNCTION_KEY_NAMES)
     )
-    return f"""
+    return _fragment(f"""
     <div class="workstation-header">
         <div class="workstation-topline">
             <div class="brand-cluster">
@@ -265,7 +271,7 @@ def _render_workstation_header(
         </div>
         <div class="status-rail">{status_markup}</div>
     </div>
-    """
+    """)
 
 
 def _mode_dot_class(mode: object) -> str:
@@ -277,17 +283,6 @@ def _mode_dot_class(mode: object) -> str:
     if "stale" in lowered:
         return "stale"
     return "live"
-
-
-def _render_symbol_chips(symbols: list[str], active_symbol: str, mode: object) -> str:
-    chips = []
-    dot_class = _mode_dot_class(mode)
-    for symbol in symbols[:12]:
-        active = " active" if symbol == active_symbol else ""
-        chips.append(
-            f'<span class="rail-chip{active}"><span class="rail-dot {dot_class}"></span>{_html(symbol)}</span>'
-        )
-    return f'<div class="rail-chip-row">{"".join(chips)}</div>'
 
 
 def render_command_rail(
@@ -327,31 +322,24 @@ def render_command_rail(
             )
             if selected_suggestion not in default_symbols:
                 default_symbols = [selected_suggestion, *default_symbols]
-        selected_symbols = st_module.multiselect(
-            "Universe",
-            options=universe_options,
-            default=[symbol for symbol in default_symbols if symbol in universe_options],
-            help=control_help["universe"],
-        )
-        selected_symbols = [str(symbol).upper() for symbol in selected_symbols]
+        selected_symbols = [str(symbol).upper() for symbol in default_symbols if symbol in universe_options]
         if selected_symbols:
             active_symbol = str(st_module.session_state.get("active_symbol", selected_symbols[0])).upper()
             if active_symbol not in selected_symbols:
                 active_symbol = selected_symbols[0]
+            active_index = selected_symbols.index(active_symbol)
+            active_symbol = str(
+                st_module.radio(
+                    "Stock",
+                    options=selected_symbols,
+                    index=active_index,
+                    horizontal=True,
+                    help="Click a ticker to make it the active volatility surface.",
+                )
+            ).upper()
             st_module.session_state["active_symbol"] = active_symbol
-            st_module.markdown(
-                _render_symbol_chips(selected_symbols, active_symbol, "live"),
-                unsafe_allow_html=True,
-            )
-            chip_columns = st_module.columns(min(4, len(selected_symbols)))
-            for index, symbol in enumerate(selected_symbols[:8]):
-                with chip_columns[index % len(chip_columns)]:
-                    if st_module.button(symbol, key=f"rail_symbol_{symbol}", width="stretch"):
-                        st_module.session_state["active_symbol"] = symbol
-                        active_symbol = symbol
         else:
             active_symbol = ""
-            st_module.markdown('<div class="rail-chip-row"></div>', unsafe_allow_html=True)
 
         context_slot = st_module.empty()
         context_slot.markdown(
@@ -529,13 +517,13 @@ def render_command_rail(
                     st_module.error(result.get("message", "Refresh failed"))
 
         st_module.markdown(
-            """
+            _fragment("""
             <div class="rail-footer">
                 <strong>1-0</strong> tabs &nbsp; <strong>R</strong> refresh &nbsp;
                 <strong>/</strong> symbol &nbsp; <strong>?</strong> help<br>
                 v1.x.y build · <a href="https://github.com/" target="_blank">docs</a>
             </div>
-            """,
+            """),
             unsafe_allow_html=True,
         )
 
@@ -578,7 +566,7 @@ def render_command_rail_context(
     updated: str,
     source: str,
 ) -> str:
-    return f"""
+    return _fragment(f"""
     <div class="rail-panel rail-context">
         <div class="rail-command-label">Active Context</div>
         <div class="rail-context-symbol">{_html(symbol)}</div>
@@ -586,7 +574,7 @@ def render_command_rail_context(
         <div class="rail-context-meta">Session {_html(session_state)} · Refresh {_html(updated)}</div>
         <div class="rail-context-meta">Source {_html(source)}</div>
     </div>
-    """
+    """)
 
 
 FUNCTION_KEY_NAMES = (
@@ -4444,12 +4432,12 @@ def run_dashboard() -> None:
                 st.dataframe(pd.DataFrame(saved_workspaces[:5]), width="stretch", hide_index=True)
 
     st.markdown(
-        f"""
+        _fragment(f"""
     <div class="small-note">
         Status row generated {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}.
         This app is for research and education, not investment advice.
     </div>
-    """,
+    """),
         unsafe_allow_html=True,
     )
 

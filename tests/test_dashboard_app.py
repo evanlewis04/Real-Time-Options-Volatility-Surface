@@ -43,15 +43,17 @@ def test_dashboard_default_state_renders_key_sections():
     assert len(at.dataframe) >= 2
 
 
-def test_dashboard_no_symbol_state_renders_without_exception(monkeypatch):
+def test_dashboard_stock_picker_is_single_click_control(monkeypatch):
     at = _run_app(monkeypatch)
-    universe = next(widget for widget in at.multiselect if widget.label == "Universe")
 
-    universe.set_value([])
+    assert not any(widget.label == "Universe" for widget in at.multiselect)
+    stock = next(widget for widget in at.radio if widget.label == "Stock")
+    stock.set_value("MSFT")
     at.run(timeout=90)
 
     assert not at.exception
-    assert any("Select at least one symbol" in warning.value for warning in at.warning)
+    markdown = "\n".join(item.value for item in at.markdown)
+    assert '<div class="rail-context-symbol">MSFT</div>' in markdown
 
 
 def test_dashboard_synthetic_mode_renders_with_visible_provenance(monkeypatch):

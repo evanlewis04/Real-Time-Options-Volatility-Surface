@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html import escape
+from textwrap import dedent
 from typing import Callable, TypeVar
 
 from src.dashboard.icons import ACTIVITY, CIRCLE_MINUS
 
 T = TypeVar("T")
+
+
+def _fragment(markup: str) -> str:
+    """Return compact HTML that Markdown will not split into code blocks."""
+    return "".join(line.strip() for line in dedent(markup).splitlines() if line.strip())
 
 
 @dataclass(frozen=True)
@@ -30,7 +36,7 @@ def render_loading_state(state: LoadingState) -> str:
         f'<div class="skeleton-line skeleton-line-{(index % 4) + 1}"></div>'
         for index in range(rows)
     )
-    return f"""
+    return _fragment(f"""
     <div class="loading-panel" role="status" aria-live="polite">
         <div class="loading-panel-top">
             {ACTIVITY}
@@ -49,13 +55,13 @@ def render_loading_state(state: LoadingState) -> str:
             {bars}
         </div>
     </div>
-    """
+    """)
 
 
 def render_empty_state(title: str, detail: str, action: str | None = None) -> str:
     """Return compact empty-state markup with an optional recovery action."""
     action_markup = f'<div class="empty-action">{escape(action)}</div>' if action else ""
-    return f"""
+    return _fragment(f"""
     <div class="empty-panel">
         <div class="empty-panel-top">
             {CIRCLE_MINUS}
@@ -66,7 +72,7 @@ def render_empty_state(title: str, detail: str, action: str | None = None) -> st
         </div>
         {action_markup}
     </div>
-    """
+    """)
 
 
 def load_with_status(st_module, state: LoadingState, loader: Callable[[], T]) -> T:

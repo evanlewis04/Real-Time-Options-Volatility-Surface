@@ -11,6 +11,7 @@ def test_render_loading_state_includes_dense_skeleton_markup():
         )
     )
 
+    assert html.startswith('<div class="loading-panel"')
     assert "AAPL option chain" in html
     assert "option chain" in html
     assert "skeleton-line" in html
@@ -42,6 +43,7 @@ def test_render_empty_state_has_recovery_action():
         "Refresh data or reduce the universe.",
     )
 
+    assert html.startswith('<div class="empty-panel"')
     assert "Correlation matrix unavailable" in html
     assert "Not enough historical closes" in html
     assert "Refresh data or reduce the universe." in html
