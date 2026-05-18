@@ -28,6 +28,8 @@ def test_dashboard_default_state_renders_key_sections():
     assert "Exp Move" in markdown
     assert "Surface Readiness" in markdown
     assert 'data-dashboard-state="ready"' in markdown
+    assert 'data-vs-tab-index="0"' in markdown
+    assert 'aria-label="Open F1 Surface tab"' in markdown
     assert len(at.tabs) == 10
     assert [tab.label for tab in at.tabs] == [
         "F1 Surface",

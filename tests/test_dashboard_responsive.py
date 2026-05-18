@@ -50,6 +50,8 @@ def test_theme_styles_finance_grade_controls_and_tabs():
     assert 'span[data-baseweb="tag"]' in CSS
     assert 'div[data-testid="stSlider"] [role="slider"]' in CSS
     assert 'div[data-testid="stTabs"] button[aria-label]' in CSS
+    assert 'header[data-testid="stHeader"] button[aria-label*="sidebar" i]' in CSS
+    assert "position: sticky" in CSS
     assert 'div[data-baseweb="popover"] [role="listbox"]' in CSS
     assert "var(--accent)" in CSS
     assert "font-variant-numeric: tabular-nums" in CSS
@@ -61,6 +63,8 @@ def test_keyboard_layer_supports_function_keys_and_number_fallbacks():
     assert "event.key.match(/^F([1-9]|10)$/)" in source
     assert "clickTab(Number(functionKeyMatch[1]) - 1)" in source
     assert "clickTab(event.key === \"0\" ? 9 : Number(event.key) - 1)" in source
+    assert "[data-vs-tab-index]" in source
+    assert "syncHeaderTabs" in source
 
 
 def test_plotly_3d_scene_uses_dark_workstation_theme():

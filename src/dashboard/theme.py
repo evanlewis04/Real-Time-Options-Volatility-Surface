@@ -156,15 +156,54 @@ CSS = """
         font-feature-settings: "tnum", "zero";
     }
     header[data-testid="stHeader"] {
-        background: var(--surface-0);
+        background: transparent;
         height: 0;
+        pointer-events: none;
+    }
+    header[data-testid="stHeader"] button,
+    header[data-testid="stHeader"] [role="button"],
+    section[data-testid="stSidebar"] button[aria-label*="sidebar" i],
+    section[data-testid="stSidebar"] [data-testid*="Sidebar" i] button,
+    section[data-testid="stSidebar"] [data-testid*="sidebar" i] button {
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+    }
+    header[data-testid="stHeader"] button[aria-label*="sidebar" i],
+    header[data-testid="stHeader"] [data-testid*="Sidebar" i] button,
+    header[data-testid="stHeader"] [data-testid*="sidebar" i] button {
+        position: fixed;
+        top: var(--s-2);
+        left: var(--s-2);
+        z-index: 1000000;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border-default);
+        border-radius: var(--r-md);
+        background: var(--surface-2);
+        color: var(--accent);
+        box-shadow: var(--panel-highlight);
+    }
+    header[data-testid="stHeader"] button[aria-label*="sidebar" i]:hover,
+    header[data-testid="stHeader"] [data-testid*="Sidebar" i] button:hover,
+    header[data-testid="stHeader"] [data-testid*="sidebar" i] button:hover {
+        border-color: rgba(245,165,36,0.55);
+        background: var(--accent-muted);
     }
     div[data-testid="stToolbar"], #MainMenu, footer {
         visibility: hidden;
         height: 0;
     }
+    section.stMain,
+    section[data-testid="stMain"] {
+        padding-top: 0 !important;
+    }
+    section.stMain > div,
+    section[data-testid="stMain"] > div {
+        padding-top: 0 !important;
+    }
     .block-container {
-        padding: var(--s-3) var(--s-5) var(--s-6);
+        padding: var(--s-1) var(--s-5) var(--s-6);
         max-width: 1540px;
     }
     a, a:visited { color: var(--accent); }
@@ -176,6 +215,9 @@ CSS = """
 
     /* === topbar === */
     .workstation-header {
+        position: sticky;
+        top: 0;
+        z-index: 100;
         border: 1px solid var(--border-default);
         background: var(--surface-1);
         border-radius: var(--r-lg);
@@ -202,9 +244,14 @@ CSS = """
     .brand-mark {
         color: var(--accent);
         font-family: var(--font-mono);
-        font-size: var(--text-md);
+        font-size: var(--text-xs);
         font-weight: 800;
-    }
+        line-height: 1;
+        padding: 5px 7px;
+        border: 1px solid rgba(245,165,36,0.38);
+        border-radius: var(--r-sm);
+        background: var(--accent-muted);
+        }
     .workstation-kicker {
         color: var(--accent);
         font-size: var(--text-xs);
@@ -299,11 +346,17 @@ CSS = """
         overflow-x: auto;
     }
     .function-key-item {
+        appearance: none;
+        -webkit-appearance: none;
         display: inline-flex;
         align-items: center;
         gap: 6px;
+        border: 0;
         border-right: 1px solid var(--border-subtle);
+        border-radius: 0;
+        background: transparent;
         color: var(--text-tertiary);
+        cursor: pointer;
         font-family: var(--font-mono);
         font-size: var(--text-xs);
         font-weight: 800;
@@ -312,7 +365,12 @@ CSS = """
         text-transform: uppercase;
         white-space: nowrap;
     }
-    .function-key-item:first-child {
+    .function-key-item:hover {
+        background: var(--surface-2);
+        color: var(--text-primary);
+    }
+    .function-key-item.active,
+    .function-key-item[aria-current="page"] {
         color: var(--accent);
         box-shadow: inset 0 -2px 0 var(--accent);
     }

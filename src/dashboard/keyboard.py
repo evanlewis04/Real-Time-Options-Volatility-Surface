@@ -129,6 +129,20 @@ def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None
             function clickTab(index) {{
                 const tabs = doc.querySelectorAll('[role="tab"]');
                 tabs[index]?.click();
+                syncHeaderTabs();
+            }}
+            function syncHeaderTabs() {{
+                const tabs = [...doc.querySelectorAll('[role="tab"]')];
+                const selectedIndex = tabs.findIndex((tab) => tab.getAttribute("aria-selected") === "true");
+                doc.querySelectorAll("[data-vs-tab-index]").forEach((item) => {{
+                    const active = Number(item.dataset.vsTabIndex) === selectedIndex;
+                    item.classList.toggle("active", active);
+                    if (active) {{
+                        item.setAttribute("aria-current", "page");
+                    }} else {{
+                        item.removeAttribute("aria-current");
+                    }}
+                }});
             }}
             function refresh() {{
                 [...doc.querySelectorAll("button")]
@@ -201,6 +215,12 @@ def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None
                     command?.run();
                 }}
             }});
+            doc.addEventListener("click", (event) => {{
+                const navItem = event.target.closest("[data-vs-tab-index]");
+                if (!navItem) return;
+                event.preventDefault();
+                clickTab(Number(navItem.dataset.vsTabIndex));
+            }});
             input.addEventListener("input", () => render(input.value));
             input.addEventListener("keydown", (event) => {{
                 if (event.key === "Enter") {{
@@ -245,7 +265,16 @@ def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None
                     clickTab(event.key === "0" ? 9 : Number(event.key) - 1);
                 }}
             }});
+            const observer = new MutationObserver(syncHeaderTabs);
+            observer.observe(doc.body, {{
+                attributes: true,
+                childList: true,
+                subtree: true,
+                attributeFilter: ["aria-selected", "class"]
+            }});
+            window.parent.setInterval(syncHeaderTabs, 1000);
             render();
+            syncHeaderTabs();
         }})();
         </script>
         """,

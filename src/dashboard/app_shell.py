@@ -231,14 +231,15 @@ def _render_workstation_header(
         for label, value in ticker_tiles
     )
     function_keys = "".join(
-        f'<span class="function-key-item"><strong>F{index + 1}</strong> {_html(name)}</span>'
+        f'<button type="button" class="function-key-item" data-vs-tab-index="{index}" '
+        f'aria-label="Open F{index + 1} {_html(name)} tab"><strong>F{index + 1}</strong> {_html(name)}</button>'
         for index, name in enumerate(FUNCTION_KEY_NAMES)
     )
     return _fragment(f"""
     <div class="workstation-header">
         <div class="workstation-topline">
             <div class="brand-cluster">
-                <div class="brand-mark">VS.</div>
+                <div class="brand-mark">VOL SURFACE</div>
                 <div class="workstation-title">Options Volatility Surface Workstation</div>
                 <span class="env-tag">PROD</span>
             </div>
