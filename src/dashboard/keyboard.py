@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 
-import streamlit.components.v1 as components
+import streamlit as st
 
 
 def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None:
     """Inject a small parent-document keyboard controller."""
     payload = json.dumps({"pages": page_labels, "symbols": symbols[:24]})
-    components.html(
+    st.iframe(
         f"""
         <script>
         (() => {{
@@ -278,5 +278,5 @@ def render_keyboard_layer(*, page_labels: list[str], symbols: list[str]) -> None
         }})();
         </script>
         """,
-        height=0,
+        height=1,
     )

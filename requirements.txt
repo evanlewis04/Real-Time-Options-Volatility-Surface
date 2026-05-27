@@ -12,6 +12,7 @@ yfinance>=0.2.18
 # API and web requests (kept for backwards compatibility)
 requests>=2.31.0
 python-dotenv>=0.19.0
+beautifulsoup4>=4.12.0
 
 # Visualization - Core
 matplotlib>=3.7.0
@@ -38,12 +39,19 @@ colorlog>=6.7.0
 
 # Dashboard Framework (Streamlit)
 streamlit>=1.28.0
+starlette>=0.40.0  # Required by Streamlit 1.57+ dashboard tests
 streamlit-aggrid>=0.3.4
 streamlit-option-menu>=0.3.6
 
 # Alternative Financial Data APIs (optional backups)
 alpha-vantage>=2.3.1  # Keep for backwards compatibility
 # Note: yfinance is free and doesn't require API keys!
+
+# Financial filings RAG Phase 1
+voyageai>=0.3.2
+
+# Optional OpenAI answer smoke / future synthesis testing
+openai>=2.38.0
 
 # Async Processing
 aiohttp>=3.8.0

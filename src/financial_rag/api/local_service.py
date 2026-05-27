@@ -1,0 +1,413 @@
+"""API-shaped local service and serializers for the local filings workbench."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+from src.financial_rag.embeddings import DEFAULT_VOYAGE_MODEL, VoyageEmbeddingProvider
+from src.financial_rag.differentiators import (
+    check_local_companyfacts,
+    detect_filing_changes,
+    get_market_context,
+    summarize_language_signals,
+)
+from src.financial_rag.query import QueryPipeline, QueryPipelineResult, build_coverage_report
+from src.financial_rag.query.coverage import CoverageReport
+from src.financial_rag.query.router import KNOWN_TICKERS
+from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever, load_local_retrieval_corpus
+from src.financial_rag.settings import configured_secret, load_environment
+
+
+DEFAULT_PHASE4_QUERY = "How have NVIDIA risk disclosures changed over the last year?"
+MAX_TOP_K = 20
+
+
+@dataclass(frozen=True)
+class QueryRequest:
+    question: str = DEFAULT_PHASE4_QUERY
+    ticker: str = "NVDA"
+    top_k: int = 5
+    per_subquery_k: int = 5
+
+
+class LocalApiError(ValueError):
+    """Structured local API error used by scripts and optional FastAPI routes."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.details = details or {}
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "error": {
+                "code": self.code,
+                "message": self.message,
+                "details": self.details,
+            }
+        }
+
+
+class ConstantQueryEmbedder:
+    """Offline smoke embedder that avoids provider calls."""
+
+    def __init__(self, dimensions: int) -> None:
+        self.dimensions = max(dimensions, 1)
+
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, *([0.0] * (self.dimensions - 1))] for _ in texts]
+
+
+class LocalRagApiService:
+    """Small endpoint-shaped facade over the Phase 3 query pipeline."""
+
+    def __init__(
+        self,
+        *,
+        chunks: list[LocalChunkRecord],
+        retriever: LocalDenseRetriever,
+        root: Path | str = Path("."),
+    ) -> None:
+        self.chunks = chunks
+        self.retriever = retriever
+        self.root = Path(root)
+        self.pipeline = QueryPipeline(retriever=retriever, chunks=chunks)
+
+    def health(self) -> dict[str, Any]:
+        status = "ok" if self.chunks and self.retriever.embeddings else "empty_cache"
+        return {
+            "status": status,
+            "service": "financial_rag_local_api",
+            "chunk_count": len(self.chunks),
+            "embedding_count": len(self.retriever.embeddings),
+        }
+
+    def coverage(self, *, tickers: list[str] | None = None) -> dict[str, Any]:
+        if tickers:
+            for ticker in tickers:
+                _validate_ticker(ticker)
+        return serialize_coverage_report(build_coverage_report(self.chunks, tickers=tickers))
+
+    def query(self, request: QueryRequest) -> dict[str, Any]:
+        _validate_request(request)
+        self._require_cache(require_embeddings=False)
+        result = self.pipeline.run(
+            request.question,
+            default_ticker=request.ticker,
+            top_k=request.top_k,
+            per_subquery_k=request.per_subquery_k,
+        )
+        payload = serialize_query_result(result)
+        if not payload["results"]:
+            raise LocalApiError(
+                status_code=404,
+                code="empty_retrieval_results",
+                message="No local chunks matched the query and filters.",
+                details={"ticker": request.ticker.upper(), "question": request.question},
+            )
+        result_chunks = _chunks_by_id(self.chunks, [item["chunk_id"] for item in payload["results"]])
+        payload["language_signals"] = [
+            summary.to_dict() for summary in summarize_language_signals(result_chunks, group_by="document_id")
+        ]
+        payload["market_context"] = get_market_context(request.ticker).to_dict()
+        return payload
+
+    def get_chunk(self, chunk_id: str) -> dict[str, Any] | None:
+        for chunk in self.chunks:
+            if chunk.chunk_id == chunk_id:
+                return serialize_chunk(chunk)
+        return None
+
+    def require_chunk(self, chunk_id: str) -> dict[str, Any]:
+        payload = self.get_chunk(chunk_id)
+        if payload is None:
+            raise LocalApiError(
+                status_code=404,
+                code="chunk_not_found",
+                message="No local chunk matched the requested chunk id.",
+                details={"chunk_id": chunk_id},
+            )
+        return payload
+
+    def differentiators(self, *, ticker: str, fact_name: str = "Revenues") -> dict[str, Any]:
+        _validate_ticker(ticker)
+        self._require_cache(require_embeddings=False)
+        ticker_chunks = [
+            chunk for chunk in self.chunks if str(chunk.metadata.get("ticker", "")).upper() == ticker.upper()
+        ]
+        facts_path = self.root / "data" / "companyfacts" / f"{ticker.upper()}.json"
+        return {
+            "ticker": ticker.upper(),
+            "changes": [record.to_dict() for record in detect_filing_changes(self.chunks, ticker=ticker)],
+            "language_signals": [
+                summary.to_dict() for summary in summarize_language_signals(ticker_chunks, group_by="item_number")
+            ],
+            "xbrl": check_local_companyfacts(
+                ticker=ticker,
+                fact_name=fact_name,
+                facts_path=facts_path,
+            ).to_dict(),
+            "market_context": get_market_context(ticker).to_dict(),
+        }
+
+    def _require_cache(self, *, require_embeddings: bool) -> None:
+        if not self.chunks:
+            raise LocalApiError(
+                status_code=503,
+                code="missing_local_chunks",
+                message="No local chunks are cached under data/filings/chunks.",
+            )
+        if require_embeddings and not self.retriever.embeddings:
+            raise LocalApiError(
+                status_code=503,
+                code="missing_cached_embeddings",
+                message="No local vector-cache embeddings are available under data/vector_cache.",
+            )
+
+
+def build_local_api_service(
+    *,
+    root: Path | str,
+    use_voyage: bool = True,
+) -> LocalRagApiService:
+    """Build the local service from cached chunks and vectors."""
+
+    load_environment()
+    chunks, embeddings = load_local_retrieval_corpus(root=root)
+    if use_voyage:
+        api_key = configured_secret("VOYAGE_API_KEY")
+        if api_key:
+            embedder = VoyageEmbeddingProvider(api_key=api_key, model=DEFAULT_VOYAGE_MODEL)
+        else:
+            embedder = ConstantQueryEmbedder(1)
+    else:
+        embedder = ConstantQueryEmbedder(1)
+    retriever = LocalDenseRetriever(chunks=chunks, embeddings=embeddings, query_embedder=embedder)
+    return LocalRagApiService(chunks=chunks, retriever=retriever, root=root)
+
+
+def create_fastapi_app(service: LocalRagApiService) -> Any:
+    """Create a FastAPI app when FastAPI is installed.
+
+    The project tests use `LocalRagApiService` directly so Phase 4 does not add
+    a hard FastAPI dependency.
+    """
+
+    try:
+        from fastapi import FastAPI
+        from fastapi.responses import JSONResponse
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise RuntimeError("FastAPI is not installed; use LocalRagApiService directly.") from exc
+
+    app = FastAPI(title="Financial RAG Local Workbench")
+
+    @app.exception_handler(LocalApiError)
+    def local_api_error_handler(_request: Any, exc: LocalApiError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
+
+    @app.get("/health")
+    def health() -> dict[str, Any]:
+        return service.health()
+
+    @app.get("/coverage")
+    def coverage(ticker: str | None = None) -> dict[str, Any]:
+        tickers = [ticker] if ticker else None
+        return service.coverage(tickers=tickers)
+
+    @app.post("/query")
+    def query(request: dict[str, Any]) -> dict[str, Any]:
+        return service.query(_query_request_from_payload(request))
+
+    @app.get("/chunks/{chunk_id}")
+    def chunk(chunk_id: str) -> dict[str, Any]:
+        return service.require_chunk(chunk_id)
+
+    @app.get("/differentiators/{ticker}")
+    def differentiators(ticker: str, fact_name: str = "Revenues") -> dict[str, Any]:
+        return service.differentiators(ticker=ticker, fact_name=fact_name)
+
+    return app
+
+
+def call_local_api_endpoint(
+    service: LocalRagApiService,
+    *,
+    method: str,
+    path: str,
+    query_params: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Exercise endpoint-shaped contracts without requiring FastAPI."""
+
+    params = query_params or {}
+    try:
+        payload = _dispatch_local_api_endpoint(
+            service,
+            method=method.upper(),
+            path=path,
+            query_params=params,
+            body=body or {},
+        )
+    except LocalApiError as exc:
+        return {"status_code": exc.status_code, "payload": exc.to_dict()}
+    return {"status_code": 200, "payload": payload}
+
+
+def api_endpoint_manifest() -> list[dict[str, str]]:
+    return [
+        {"method": "GET", "path": "/health", "description": "Local cache and service status."},
+        {"method": "GET", "path": "/coverage", "description": "Cached ticker/form/source coverage."},
+        {"method": "POST", "path": "/query", "description": "Retrieve evidence chunks for a question."},
+        {"method": "GET", "path": "/chunks/{chunk_id}", "description": "Fetch one local chunk by id."},
+        {"method": "GET", "path": "/differentiators/{ticker}", "description": "Local differentiator payload."},
+    ]
+
+
+def serialize_query_result(result: QueryPipelineResult) -> dict[str, Any]:
+    return {
+        "routed_query": {
+            "question": result.routed_query.question,
+            "query_type": result.routed_query.query_type.value,
+            "filters": asdict(result.routed_query.filters),
+            "trace": result.routed_query.trace,
+        },
+        "subqueries": [
+            {
+                "subquery_id": subquery.subquery_id,
+                "query": subquery.query,
+                "filters": asdict(subquery.filters),
+                "trace": subquery.trace,
+            }
+            for subquery in result.subqueries
+        ],
+        "results": [
+            {
+                "chunk_id": item.chunk_id,
+                "rank": item.rank,
+                "score": item.dense_score,
+                "citation_label": item.citation_label,
+                "source_url": item.source_url,
+                "source_excerpt": item.source_excerpt,
+                "metadata": item.metadata,
+                "subquery_id": item.subquery_id,
+                "trace": item.trace,
+                "parent_context": asdict(item.parent_context) if item.parent_context else None,
+            }
+            for item in result.results
+        ],
+        "citations": {
+            "accepted": [asdict(citation) for citation in result.citation_validation.accepted],
+            "rejected": result.citation_validation.rejected,
+        },
+        "coverage": serialize_coverage_report(result.coverage),
+        "trace": result.trace,
+    }
+
+
+def serialize_coverage_report(report: CoverageReport) -> dict[str, Any]:
+    return {"tickers": {ticker: asdict(coverage) for ticker, coverage in report.tickers.items()}}
+
+
+def serialize_chunk(chunk: LocalChunkRecord) -> dict[str, Any]:
+    return {
+        "chunk_id": chunk.chunk_id,
+        "chunk_text": chunk.chunk_text,
+        "metadata": chunk.metadata,
+    }
+
+
+def _embedding_dimensions(embeddings: dict[str, list[float]]) -> int:
+    for vector in embeddings.values():
+        return len(vector)
+    return 1
+
+
+def _chunks_by_id(chunks: list[LocalChunkRecord], chunk_ids: list[str]) -> list[LocalChunkRecord]:
+    wanted = set(chunk_ids)
+    return [chunk for chunk in chunks if chunk.chunk_id in wanted]
+
+
+def _dispatch_local_api_endpoint(
+    service: LocalRagApiService,
+    *,
+    method: str,
+    path: str,
+    query_params: dict[str, Any],
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    normalized_path = path.rstrip("/") or "/"
+    if method == "GET" and normalized_path == "/health":
+        return service.health()
+    if method == "GET" and normalized_path == "/coverage":
+        ticker = str(query_params.get("ticker", "")).strip()
+        return service.coverage(tickers=[ticker] if ticker else None)
+    if method == "POST" and normalized_path == "/query":
+        return service.query(_query_request_from_payload(body))
+    if method == "GET" and normalized_path.startswith("/chunks/"):
+        return service.require_chunk(normalized_path.removeprefix("/chunks/"))
+    if method == "GET" and normalized_path.startswith("/differentiators/"):
+        ticker = normalized_path.removeprefix("/differentiators/")
+        fact_name = str(query_params.get("fact_name", "Revenues"))
+        return service.differentiators(ticker=ticker, fact_name=fact_name)
+    raise LocalApiError(
+        status_code=404,
+        code="endpoint_not_found",
+        message="No local API endpoint matched the requested method and path.",
+        details={"method": method, "path": path},
+    )
+
+
+def _query_request_from_payload(payload: dict[str, Any]) -> QueryRequest:
+    return QueryRequest(
+        question=str(payload.get("question", DEFAULT_PHASE4_QUERY)),
+        ticker=str(payload.get("ticker", "NVDA")),
+        top_k=int(payload.get("top_k", 5)),
+        per_subquery_k=int(payload.get("per_subquery_k", 5)),
+    )
+
+
+def _validate_request(request: QueryRequest) -> None:
+    if not request.question.strip():
+        raise LocalApiError(
+            status_code=400,
+            code="invalid_question",
+            message="Query question must be a non-empty string.",
+        )
+    _validate_ticker(request.ticker)
+    _validate_k("top_k", request.top_k)
+    _validate_k("per_subquery_k", request.per_subquery_k)
+
+
+def _validate_ticker(ticker: str) -> str:
+    normalized = ticker.strip().upper()
+    if not normalized:
+        raise LocalApiError(status_code=400, code="invalid_ticker", message="Ticker must be non-empty.")
+    if normalized not in KNOWN_TICKERS:
+        raise LocalApiError(
+            status_code=400,
+            code="unsupported_ticker",
+            message="Ticker is outside the configured financial RAG universe.",
+            details={"ticker": normalized, "supported_tickers": sorted(KNOWN_TICKERS)},
+        )
+    return normalized
+
+
+def _validate_k(name: str, value: int) -> None:
+    if value < 1 or value > MAX_TOP_K:
+        raise LocalApiError(
+            status_code=400,
+            code=f"invalid_{name}",
+            message=f"{name} must be between 1 and {MAX_TOP_K}.",
+            details={name: value},
+        )

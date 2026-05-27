@@ -27,6 +27,14 @@ data/raw/*
 data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+data/filings/raw/*
+data/filings/parsed/*
+data/filings/chunks/*
+data/vector_cache/*
+!data/filings/raw/.gitkeep
+!data/filings/parsed/.gitkeep
+!data/filings/chunks/.gitkeep
+!data/vector_cache/.gitkeep
 
 # IDE
 .vscode/
@@ -50,3 +58,5 @@ data/alerts/
 data/snapshots/
 reports/
 plots/*.png
+artifacts/rag_eval/
+storage/minio/

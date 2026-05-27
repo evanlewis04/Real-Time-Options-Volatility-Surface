@@ -1,0 +1,94 @@
+# Initial disclosure universe for the financial filings RAG analyst.
+# CIKs can be filled during Phase 0 from SEC company_tickers.json or FMP.
+
+coverage:
+  quarters_back: 8
+  forms:
+    - 10-K
+    - 10-Q
+    - 8-K
+  exhibit_types:
+    - EX-99
+
+tickers:
+  - ticker: NVDA
+    company_name: NVIDIA Corporation
+    sector: Technology
+    priority: core_demo
+  - ticker: MSFT
+    company_name: Microsoft Corporation
+    sector: Technology
+    priority: core_demo
+  - ticker: AAPL
+    company_name: Apple Inc.
+    sector: Technology
+    priority: core_demo
+  - ticker: AMD
+    company_name: Advanced Micro Devices, Inc.
+    sector: Technology
+    priority: core_demo
+  - ticker: INTC
+    company_name: Intel Corporation
+    sector: Technology
+    priority: core_demo
+  - ticker: GOOGL
+    company_name: Alphabet Inc.
+    sector: Technology
+    priority: standard
+  - ticker: META
+    company_name: Meta Platforms, Inc.
+    sector: Communication Services
+    priority: standard
+  - ticker: AMZN
+    company_name: Amazon.com, Inc.
+    sector: Consumer Discretionary
+    priority: standard
+  - ticker: JPM
+    company_name: JPMorgan Chase & Co.
+    sector: Financials
+    priority: standard
+  - ticker: BAC
+    company_name: Bank of America Corporation
+    sector: Financials
+    priority: standard
+  - ticker: GS
+    company_name: The Goldman Sachs Group, Inc.
+    sector: Financials
+    priority: standard
+  - ticker: WMT
+    company_name: Walmart Inc.
+    sector: Consumer Staples
+    priority: standard
+  - ticker: COST
+    company_name: Costco Wholesale Corporation
+    sector: Consumer Staples
+    priority: standard
+  - ticker: MCD
+    company_name: McDonald's Corporation
+    sector: Consumer Discretionary
+    priority: standard
+  - ticker: UNH
+    company_name: UnitedHealth Group Incorporated
+    sector: Healthcare
+    priority: standard
+  - ticker: JNJ
+    company_name: Johnson & Johnson
+    sector: Healthcare
+    priority: standard
+  - ticker: LLY
+    company_name: Eli Lilly and Company
+    sector: Healthcare
+    priority: standard
+  - ticker: XOM
+    company_name: Exxon Mobil Corporation
+    sector: Energy
+    priority: standard
+  - ticker: CVX
+    company_name: Chevron Corporation
+    sector: Energy
+    priority: standard
+  - ticker: CAT
+    company_name: Caterpillar Inc.
+    sector: Industrials
+    priority: standard
+
