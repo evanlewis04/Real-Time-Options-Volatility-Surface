@@ -328,15 +328,43 @@ def _metadata_relevance_bonus(query: str, metadata: dict[str, Any]) -> float:
 def _domain_phrase_bonus(query: str, text_lower: str) -> float:
     lower = query.lower()
     bonus = 0.0
-    if ("capital allocation" in lower or "shareholder returns" in lower) and any(
-        term in text_lower for term in ("repurchase", "repurchased", "dividend", "shareholders")
-    ):
-        bonus += 1.0
+    if _asks_about_capital_return(lower):
+        if any(
+            term in text_lower
+            for term in ("repurchase", "repurchased", "buyback", "buybacks", "issuer purchases")
+        ):
+            bonus += 1.0
+        elif any(term in text_lower for term in ("dividend", "shareholders")):
+            bonus += 0.5
     if "demand" in lower and "demand" in text_lower:
         bonus += 0.5
     if "inventory" in lower and "inventory" in text_lower:
         bonus += 0.5
     return bonus
+
+
+def _asks_about_capital_return(lower_query: str) -> bool:
+    """Detect capital-return phrasing, including buyback/repurchase wording.
+
+    The original bonus only fired on "capital allocation" / "shareholder
+    returns"; queries phrased as "capital return or buybacks" (common for banks
+    and energy issuers) got no repurchase boost, so issuer-purchase evidence
+    ranked below generic financial-highlights chunks.
+    """
+
+    return any(
+        term in lower_query
+        for term in (
+            "capital allocation",
+            "shareholder returns",
+            "capital return",
+            "buyback",
+            "buybacks",
+            "share repurchase",
+            "share repurchases",
+            "repurchase",
+        )
+    )
 
 
 def _asks_for_operating_risks(query: str) -> bool:

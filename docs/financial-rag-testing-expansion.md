@@ -34,10 +34,12 @@ Useful filters:
 ## Coverage
 
 The expanded fixture set includes 30 retrieval cases and 16 answer-eval cases
-across NVDA, AMD, MSFT, AAPL, JPM, XOM, and an unsupported-ticker case. Local
-cache currently covers NVDA only, so non-NVDA cases are represented as offline
-fixture targets and are expected to surface coverage gaps until more SEC cache
-is ingested.
+across NVDA, AMD, MSFT, AAPL, JPM, XOM, and an unsupported-ticker case. The
+local cache now covers all six of those tickers; EX-99 and CFO-commentary
+coverage still varies by issuer (see
+[financial-rag-eval-baseline.md](financial-rag-eval-baseline.md)), so some
+non-NVDA cases continue to surface coverage gaps until more SEC cache is
+ingested.
 
 Topics include:
 
@@ -80,10 +82,13 @@ query embeddings for retrieval.
 
 ## Known Current Gaps
 
-- The current local cache is NVDA-only.
-- Existing NVDA chunks have sparse SEC item metadata, so Item 1A constraints may
-  fail even when nearby risk text is present.
-- The observed live NVDA risk smoke retrieved valid but weak safe-harbor-style
-  evidence instead of ideal Item 1A risk-factor evidence.
-- Non-NVDA cases are intentionally included to track scale-out readiness before
-  additional local SEC corpora are cached.
+- The local cache covers NVDA, AMD, MSFT, AAPL, JPM, and XOM; EX-99 and
+  CFO-commentary coverage is uneven by issuer (only NVDA has cached CFO
+  commentary; JPM has no cached EX-99 exhibits).
+- Some chunks have sparse SEC item metadata, so Item 1A constraints may fail even
+  when nearby risk text is present.
+- Risk queries can retrieve valid but weak safe-harbor-style evidence instead of
+  ideal Item 1A risk-factor evidence; the retriever down-weights safe-harbor-only
+  chunks for operating-risk queries to mitigate this.
+- Additional non-cached tickers remain as offline fixture targets to track
+  scale-out readiness before more SEC corpora are ingested.
