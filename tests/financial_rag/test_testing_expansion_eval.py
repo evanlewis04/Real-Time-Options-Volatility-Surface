@@ -19,6 +19,7 @@ from src.financial_rag.evaluation import (
     write_csv_rows,
     write_json_report,
 )
+from src.financial_rag.evaluation.gold import GOLD_LABEL_SPECS
 from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever
 from src.financial_rag.synthesis import synthesize_answer_from_query_payload
 
@@ -232,6 +233,46 @@ def test_gold_labels_resolve_to_current_chunk_ids() -> None:
 
     assert "nvda-risk" in nvda_case.relevant_chunk_ids
     assert gold_label_summary(labels)["label_count"] >= 2
+
+
+def test_gold_label_specs_map_to_known_cases_and_cover_companies() -> None:
+    case_ids = {case.case_id for case in EXPANDED_RETRIEVAL_CASES}
+    spec_case_ids = {spec.case_id for spec in GOLD_LABEL_SPECS}
+
+    # Every selector must target a real eval case so resolved labels attach.
+    assert spec_case_ids <= case_ids
+    # Selector set has grown toward the 40-50 target across all six cached tickers.
+    assert len(GOLD_LABEL_SPECS) >= 30
+    assert {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM"} <= {spec.ticker for spec in GOLD_LABEL_SPECS}
+
+
+def test_expanded_coverage_cases_are_present() -> None:
+    case_ids = {case.case_id for case in EXPANDED_RETRIEVAL_CASES}
+
+    for case_id in (
+        "msft-item1a-cybersecurity",
+        "aapl-services",
+        "aapl-press-release-revenue",
+        "aapl-item1a-competition",
+        "jpm-consumer-banking",
+        "jpm-net-interest-income",
+        "xom-press-release-earnings",
+    ):
+        assert case_id in case_ids
+
+
+def test_gold_label_resolution_respects_max_labels() -> None:
+    chunks = [
+        _chunk_record("aapl-s1", "Services revenue grew across the installed base.", ticker="AAPL"),
+        _chunk_record("aapl-s2", "Services revenue reflects subscriptions and the App Store.", ticker="AAPL"),
+        _chunk_record("aapl-s3", "Services revenue continues to expand with paid accounts.", ticker="AAPL"),
+    ]
+
+    labels = [label for label in resolve_gold_labels(chunks) if label.case_id == "aapl-services"]
+
+    # aapl-services uses max_labels=2, so resolution caps even when more match.
+    assert len(labels) == 2
+    assert {label.chunk_id for label in labels} <= {"aapl-s1", "aapl-s2", "aapl-s3"}
 
 
 def test_local_retrieval_suppresses_safe_harbor_for_risk_queries() -> None:
