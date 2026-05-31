@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from src.financial_rag.api import LocalApiError, QueryRequest, build_local_api_service
 from src.financial_rag.evaluation import (
+    CACHED_TICKERS,
     EXPANDED_RETRIEVAL_CASES,
     apply_gold_labels_to_cases,
     build_retrieval_quality_report,
@@ -73,7 +74,7 @@ def main() -> int:
     report["gold_labels"] = gold_label_summary(gold_labels)
     report["gold_label_specs"] = len(gold_labels)
     coverage_tickers = sorted(
-        {ticker for case in cases for ticker in case.tickers if ticker in {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM"}}
+        {ticker for case in cases for ticker in case.tickers if ticker in CACHED_TICKERS}
     )
     report["coverage"] = service.coverage(tickers=coverage_tickers)
     json_path = write_json_report(report, project_root() / args.output)

@@ -76,6 +76,21 @@ GOLD_LABEL_SPECS: tuple[GoldLabelSpec, ...] = (
     GoldLabelSpec("jpm-consumer-banking", "JPM consumer and community banking", "JPM", ("consumer",), max_labels=2),
     GoldLabelSpec("jpm-net-interest-income", "JPM net interest income", "JPM", ("net interest income",), max_labels=2),
     GoldLabelSpec("xom-press-release-earnings", "XOM press release earnings", "XOM", ("earnings",), ("EX-99",), ("exhibit",), ("PRESS_RELEASE",), max_labels=2),
+    GoldLabelSpec("googl-cloud-revenue", "GOOGL Google Cloud revenue", "GOOGL", ("cloud", "revenue"), max_labels=2),
+    GoldLabelSpec("googl-item1a-competition", "GOOGL Item 1A competition risk", "GOOGL", ("competition",), ("10-K",), item_numbers=("1A",), max_labels=1),
+    GoldLabelSpec("meta-advertising-revenue", "META advertising revenue", "META", ("advertising", "revenue"), max_labels=2),
+    GoldLabelSpec("meta-reality-labs", "META Reality Labs", "META", ("reality labs",), max_labels=1),
+    GoldLabelSpec("meta-item1a-regulation", "META Item 1A regulation risk", "META", ("regulation",), ("10-K",), item_numbers=("1A",), max_labels=1),
+    GoldLabelSpec("amzn-aws-revenue", "AMZN AWS revenue", "AMZN", ("aws",), max_labels=2),
+    GoldLabelSpec("bac-item1a-credit-risk", "BAC Item 1A credit risk", "BAC", ("credit", "risk"), ("10-K",), item_numbers=("1A",), max_labels=1),
+    GoldLabelSpec("bac-consumer-banking", "BAC consumer banking", "BAC", ("consumer",), max_labels=2),
+    GoldLabelSpec("gs-item1a-market-risk", "GS Item 1A market risk", "GS", ("market", "risk"), ("10-K",), item_numbers=("1A",), max_labels=1),
+    GoldLabelSpec("gs-trading", "GS trading and global markets", "GS", ("trading",), max_labels=2),
+    # INTC selectors avoid item-number filters: Intel's filing labels live only in
+    # a trailing cross-reference index, so its body chunks carry no item metadata.
+    GoldLabelSpec("intc-data-center", "INTC data center", "INTC", ("data center",), max_labels=2),
+    GoldLabelSpec("intc-manufacturing", "INTC manufacturing and foundry", "INTC", ("manufacturing",), max_labels=2),
+    GoldLabelSpec("intc-competition", "INTC competition", "INTC", ("competition",), max_labels=1),
 )
 
 

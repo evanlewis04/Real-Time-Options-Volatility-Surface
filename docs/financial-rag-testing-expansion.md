@@ -33,13 +33,14 @@ Useful filters:
 
 ## Coverage
 
-The expanded fixture set includes 30 retrieval cases and 16 answer-eval cases
-across NVDA, AMD, MSFT, AAPL, JPM, XOM, and an unsupported-ticker case. The
-local cache now covers all six of those tickers; EX-99 and CFO-commentary
-coverage still varies by issuer (see
-[financial-rag-eval-baseline.md](financial-rag-eval-baseline.md)), so some
-non-NVDA cases continue to surface coverage gaps until more SEC cache is
-ingested.
+The expanded fixture set includes 50 retrieval cases and 16 answer-eval cases
+across all 12 cached issuers (NVDA, AMD, MSFT, AAPL, JPM, XOM, INTC, GOOGL, META,
+AMZN, BAC, GS) plus an unsupported-ticker control. EX-99 and CFO-commentary
+coverage varies by issuer, and INTC chunks carry no item-number metadata (its
+filing labels live only in a trailing cross-reference index), so item-filtered
+INTC queries return empty while non-item topics resolve (see
+[financial-rag-eval-baseline.md](financial-rag-eval-baseline.md)). Some cases
+continue to surface coverage gaps until more SEC cache is ingested.
 
 Topics include:
 

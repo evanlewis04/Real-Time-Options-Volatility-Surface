@@ -11,6 +11,7 @@ from .retrieval_eval import (
 )
 from .reporting import build_retrieval_eval_report, write_retrieval_eval_report
 from .expanded import (
+    CACHED_TICKERS,
     EXPANDED_ANSWER_CASES,
     EXPANDED_RETRIEVAL_CASES,
     AnswerCaseResult,
@@ -37,6 +38,7 @@ from .gold import (
 )
 
 __all__ = [
+    "CACHED_TICKERS",
     "EXPANDED_ANSWER_CASES",
     "EXPANDED_RETRIEVAL_CASES",
     "NVDA_RETRIEVAL_FIXTURES",

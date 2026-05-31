@@ -15,6 +15,23 @@ from src.financial_rag.synthesis import EvidenceAnswer, synthesize_answer_from_q
 
 SAFE_HARBOR_TERMS = ("safe harbor", "forward-looking", "undue reliance", "actual results may differ")
 
+# Tickers with a locally cached SEC corpus. Cases outside this set are treated as
+# unsupported-ticker controls. Keep this in sync with the local cache.
+CACHED_TICKERS: tuple[str, ...] = (
+    "NVDA",
+    "AMD",
+    "MSFT",
+    "AAPL",
+    "JPM",
+    "XOM",
+    "INTC",
+    "GOOGL",
+    "META",
+    "AMZN",
+    "BAC",
+    "GS",
+)
+
 
 @dataclass(frozen=True)
 class SourceConstraint:
@@ -364,6 +381,97 @@ EXPANDED_RETRIEVAL_CASES: tuple[ExpandedEvalCase, ...] = (
         (SourceConstraint("XOM", form_type="EX-99", exhibit_type="PRESS_RELEASE", required_keywords=("earnings",)),),
     ),
     ExpandedEvalCase(
+        "googl-cloud-revenue",
+        "What does Alphabet say about Google Cloud revenue?",
+        ("GOOGL",),
+        "single_doc_lookup",
+        (SourceConstraint("GOOGL", required_keywords=("cloud", "revenue")),),
+    ),
+    ExpandedEvalCase(
+        "googl-item1a-competition",
+        "What competition risks does Alphabet describe in Item 1A?",
+        ("GOOGL",),
+        "single_doc_lookup",
+        (SourceConstraint("GOOGL", form_type="10-K", item_number="1A", required_keywords=("competition",)),),
+    ),
+    ExpandedEvalCase(
+        "meta-advertising-revenue",
+        "What does Meta say about advertising revenue?",
+        ("META",),
+        "single_doc_lookup",
+        (SourceConstraint("META", required_keywords=("advertising", "revenue")),),
+    ),
+    ExpandedEvalCase(
+        "meta-reality-labs",
+        "What does Meta say about Reality Labs?",
+        ("META",),
+        "single_doc_lookup",
+        (SourceConstraint("META", required_keywords=("reality labs",)),),
+    ),
+    ExpandedEvalCase(
+        "meta-item1a-regulation",
+        "What regulatory risks does Meta describe in Item 1A?",
+        ("META",),
+        "single_doc_lookup",
+        (SourceConstraint("META", form_type="10-K", item_number="1A", required_keywords=("regulation",)),),
+    ),
+    ExpandedEvalCase(
+        "amzn-aws-revenue",
+        "What does Amazon say about AWS revenue?",
+        ("AMZN",),
+        "single_doc_lookup",
+        (SourceConstraint("AMZN", required_keywords=("aws",)),),
+    ),
+    ExpandedEvalCase(
+        "bac-item1a-credit-risk",
+        "What credit risks does Bank of America describe in Item 1A?",
+        ("BAC",),
+        "single_doc_lookup",
+        (SourceConstraint("BAC", form_type="10-K", item_number="1A", required_keywords=("credit", "risk")),),
+    ),
+    ExpandedEvalCase(
+        "bac-consumer-banking",
+        "What does Bank of America say about consumer banking?",
+        ("BAC",),
+        "single_doc_lookup",
+        (SourceConstraint("BAC", required_keywords=("consumer",)),),
+    ),
+    ExpandedEvalCase(
+        "gs-item1a-market-risk",
+        "What market risks does Goldman Sachs describe in Item 1A?",
+        ("GS",),
+        "single_doc_lookup",
+        (SourceConstraint("GS", form_type="10-K", item_number="1A", required_keywords=("market", "risk")),),
+    ),
+    ExpandedEvalCase(
+        "gs-trading",
+        "What does Goldman Sachs say about trading or global markets revenue?",
+        ("GS",),
+        "single_doc_lookup",
+        (SourceConstraint("GS", required_keywords=("trading",)),),
+    ),
+    ExpandedEvalCase(
+        "intc-data-center",
+        "What does Intel say about data center revenue?",
+        ("INTC",),
+        "single_doc_lookup",
+        (SourceConstraint("INTC", required_keywords=("data center",)),),
+    ),
+    ExpandedEvalCase(
+        "intc-manufacturing",
+        "What does Intel say about manufacturing or foundry operations?",
+        ("INTC",),
+        "single_doc_lookup",
+        (SourceConstraint("INTC", required_keywords=("manufacturing",)),),
+    ),
+    ExpandedEvalCase(
+        "intc-competition",
+        "What does Intel say about competition in its business?",
+        ("INTC",),
+        "single_doc_lookup",
+        (SourceConstraint("INTC", required_keywords=("competition",)),),
+    ),
+    ExpandedEvalCase(
         "unsupported-tsla-risk",
         "What risks does Tesla describe in Item 1A?",
         ("TSLA",),
@@ -473,7 +581,7 @@ def classify_retrieval_failures(
         failures.append("duplicate_chunks")
     if _safe_harbor_only(results):
         failures.append("safe_harbor_only")
-    if any(ticker not in {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM"} for ticker in case.tickers):
+    if any(ticker not in CACHED_TICKERS for ticker in case.tickers):
         failures.append("unsupported_ticker")
     return sorted(set(failures))
 

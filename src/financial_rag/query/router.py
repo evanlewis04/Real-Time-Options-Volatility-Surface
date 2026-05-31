@@ -20,6 +20,8 @@ COMPANY_TICKERS: dict[str, str] = {
     "META": "META",
     "AMAZON": "AMZN",
     "JPMORGAN": "JPM",
+    "BANK OF AMERICA": "BAC",
+    "GOLDMAN SACHS": "GS",
     "EXXON": "XOM",
     "EXXON MOBIL": "XOM",
 }

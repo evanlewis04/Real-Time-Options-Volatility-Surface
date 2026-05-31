@@ -30,7 +30,7 @@ from src.financial_rag.settings import configured_secret, load_environment, proj
 from src.financial_rag.storage.local_store import LocalRagStore, read_jsonl
 
 
-DEFAULT_TICKERS = "NVDA,AMD,MSFT,AAPL,JPM,XOM"
+DEFAULT_TICKERS = "NVDA,AMD,MSFT,AAPL,JPM,XOM,INTC,GOOGL,META,AMZN,BAC,GS"
 
 
 def parse_args() -> argparse.Namespace:

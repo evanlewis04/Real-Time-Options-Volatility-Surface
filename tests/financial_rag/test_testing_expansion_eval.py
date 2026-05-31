@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from src.financial_rag.evaluation import (
+    CACHED_TICKERS,
     EXPANDED_ANSWER_CASES,
     EXPANDED_RETRIEVAL_CASES,
     ExpandedEvalCase,
@@ -27,9 +28,10 @@ from src.financial_rag.synthesis import synthesize_answer_from_query_payload
 def test_expanded_fixture_scale_and_company_coverage() -> None:
     companies = {ticker for case in EXPANDED_RETRIEVAL_CASES for ticker in case.tickers}
 
-    assert 25 <= len(EXPANDED_RETRIEVAL_CASES) <= 50
+    assert 25 <= len(EXPANDED_RETRIEVAL_CASES) <= 60
     assert 10 <= len(EXPANDED_ANSWER_CASES) <= 25
-    assert {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM"} <= companies
+    expected = {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM", "INTC", "GOOGL", "META", "AMZN", "BAC", "GS"}
+    assert expected <= companies
     assert filter_cases(EXPANDED_RETRIEVAL_CASES, tickers=["NVDA"], max_cases=3)
 
 
@@ -241,9 +243,19 @@ def test_gold_label_specs_map_to_known_cases_and_cover_companies() -> None:
 
     # Every selector must target a real eval case so resolved labels attach.
     assert spec_case_ids <= case_ids
-    # Selector set has grown toward the 40-50 target across all six cached tickers.
-    assert len(GOLD_LABEL_SPECS) >= 30
-    assert {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM"} <= {spec.ticker for spec in GOLD_LABEL_SPECS}
+    # Selector set has grown across all twelve cached issuers with eval cases.
+    assert len(GOLD_LABEL_SPECS) >= 40
+    expected = {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM", "INTC", "GOOGL", "META", "AMZN", "BAC", "GS"}
+    assert expected <= {spec.ticker for spec in GOLD_LABEL_SPECS}
+
+
+def test_cached_ticker_universe_matches_eval_companies() -> None:
+    # The cached-ticker source of truth drives unsupported-ticker classification.
+    assert {"NVDA", "AMD", "MSFT", "AAPL", "JPM", "XOM"} <= set(CACHED_TICKERS)
+    assert {"INTC", "GOOGL", "META", "AMZN", "BAC", "GS"} <= set(CACHED_TICKERS)
+    # Every non-control eval case ticker must be in the cached universe.
+    case_tickers = {ticker for case in EXPANDED_RETRIEVAL_CASES for ticker in case.tickers}
+    assert (case_tickers - {"TSLA"}) <= set(CACHED_TICKERS)
 
 
 def test_expanded_coverage_cases_are_present() -> None:
@@ -252,11 +264,12 @@ def test_expanded_coverage_cases_are_present() -> None:
     for case_id in (
         "msft-item1a-cybersecurity",
         "aapl-services",
-        "aapl-press-release-revenue",
-        "aapl-item1a-competition",
         "jpm-consumer-banking",
-        "jpm-net-interest-income",
-        "xom-press-release-earnings",
+        "googl-cloud-revenue",
+        "meta-advertising-revenue",
+        "amzn-aws-revenue",
+        "bac-item1a-credit-risk",
+        "gs-trading",
     ):
         assert case_id in case_ids
 
