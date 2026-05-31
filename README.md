@@ -191,6 +191,9 @@ OpenAI API-key testing is documented in
 [docs/financial-rag-openai-testing.md](docs/financial-rag-openai-testing.md).
 Expanded retrieval and answer testing is documented in
 [docs/financial-rag-testing-expansion.md](docs/financial-rag-testing-expansion.md).
+The current local retrieval/answer eval baseline (commands, metrics, coverage,
+and known gaps) is recorded in
+[docs/financial-rag-eval-baseline.md](docs/financial-rag-eval-baseline.md).
 Retrieval repair, reingestion behavior, and gold-label maintenance are
 documented in
 [docs/financial-rag-retrieval-repair.md](docs/financial-rag-retrieval-repair.md).
