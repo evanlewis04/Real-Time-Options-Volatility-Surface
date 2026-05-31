@@ -2,7 +2,7 @@
 # (bare excepts, redefined symbols, true/false comparisons) without
 # flagging the existing codebase's style nits. Broaden over time.
 
-target-version = "py310"
+target-version = "py312"
 
 [lint]
 select = [
