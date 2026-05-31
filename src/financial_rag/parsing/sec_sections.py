@@ -6,7 +6,15 @@ import re
 from dataclasses import dataclass
 
 
-SECTION_PARSER_VERSION = "sec_sections_v2"
+SECTION_PARSER_VERSION = "sec_sections_v3"
+
+# Minimum fraction of the document the detected item sections must cover. Some
+# filings (e.g. Intel's 10-K) only carry literal "Item N." labels in a trailing
+# cross-reference index while the body uses bare headings ("Risk Factors").
+# Building sections from those labels would drop the entire body before the
+# first match, so when coverage falls below this floor we fall back to
+# whole-document chunking instead of discarding the body.
+MIN_SECTION_COVERAGE = 0.5
 
 _TENK_Q_ITEM_RE = re.compile(
     r"(?im)(?:^|(?<=\n))[ \t]*(?:part\s+[ivx]+\s+)?item\s+"
@@ -68,7 +76,20 @@ def parse_sec_sections(text: str, *, form_type: str) -> list[ParsedSection]:
                 end_offset=end_offset,
             )
         )
-    return sections or [_fallback_section(text)]
+    if not sections:
+        return [_fallback_section(text)]
+    if _section_coverage(sections, len(text)) < MIN_SECTION_COVERAGE:
+        # The detected headings only cover a small tail of the document (a
+        # trailing cross-reference index or stray labels); keep the body intact.
+        return [_fallback_section(text)]
+    return sections
+
+
+def _section_coverage(sections: list[ParsedSection], total_length: int) -> float:
+    if total_length <= 0:
+        return 1.0
+    captured = sum(len(section.text) for section in sections)
+    return captured / total_length
 
 
 def _dedupe_heading_matches(matches: list[re.Match[str]]) -> list[re.Match[str]]:

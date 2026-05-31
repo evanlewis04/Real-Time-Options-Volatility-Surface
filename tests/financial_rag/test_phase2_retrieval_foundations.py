@@ -63,13 +63,12 @@ def test_ex99_classification_uses_filename_description_and_text_hints() -> None:
 
 def test_item_aware_chunks_are_stable_and_keep_section_metadata() -> None:
     metadata = _metadata(form_type="10-K")
-    text = """
-    Item 1. Business
-    Business overview text.
-
-    Item 1A. Risk Factors
-    Risk factor text. Export controls and demand shifts may affect revenue.
-    """ * 5
+    text = (
+        "Item 1. Business\n"
+        + ("Business overview text. " * 40)
+        + "\n\nItem 1A. Risk Factors\n"
+        + ("Risk factor text. Export controls and demand shifts may affect revenue. " * 40)
+    )
 
     first = chunk_document(text, metadata, max_chars=260, overlap_chars=0)
     second = chunk_document(text, metadata, max_chars=260, overlap_chars=0)
@@ -79,6 +78,42 @@ def test_item_aware_chunks_are_stable_and_keep_section_metadata() -> None:
     risk_chunk = next(chunk for chunk in first if chunk.item_number == "1A")
     assert risk_chunk.section_path == "Item 1A. Risk Factors"
     assert risk_chunk.metadata["item_number"] == "1A"
+
+
+def test_section_parser_falls_back_when_items_only_in_trailing_index() -> None:
+    # Mimics Intel's 10-K: the body uses bare headings while literal "Item N."
+    # labels appear only in a trailing cross-reference index. Building sections
+    # from those labels would drop the entire body before the first match.
+    body = "Risk Factors\n" + ("Supply constraints and demand shifts affect results. " * 100)
+    trailing_index = (
+        "\nItem 1. Business: 5\n"
+        "Item 1A. Risk Factors 37\n"
+        "Item 7. Management's Discussion and Analysis of Financial Condition 50\n"
+    )
+
+    sections = parse_sec_sections(body + trailing_index, form_type="10-K")
+
+    assert len(sections) == 1
+    assert sections[0].item_number == ""  # fell back to a whole-document section
+    assert "Supply constraints and demand shifts" in sections[0].text
+
+
+def test_chunking_preserves_body_when_item_labels_only_in_trailing_index() -> None:
+    metadata = _metadata(form_type="10-K")
+    body = (
+        "Risk Factors\n"
+        + ("Our manufacturing and foundry operations face supply constraints. " * 60)
+        + "\nData center demand and competition affect revenue growth. " * 60
+    )
+    text = body + "\nItem 1. Business: 5\nItem 1A. Risk Factors 37\n"
+
+    chunks = chunk_document(text, metadata, max_chars=400, overlap_chars=0)
+
+    joined = " ".join(chunk.chunk_text for chunk in chunks)
+    assert "manufacturing and foundry operations" in joined
+    assert "Data center demand and competition" in joined
+    # The body must actually chunk, not collapse to a handful of index lines.
+    assert len(chunks) >= 5
 
 
 def test_ex99_speaker_chunks_only_when_obvious_labels_exist() -> None:
