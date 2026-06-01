@@ -95,6 +95,32 @@ def run_api_smoke(
         )
     )
 
+    steps.append(
+        _run_step(
+            "companies",
+            lambda: svc.companies(),
+            lambda payload: isinstance(payload.get("companies"), list)
+            and payload.get("company_count", 0) == len(payload.get("companies", [])),
+        )
+    )
+
+    steps.append(
+        _run_step(
+            "documents",
+            lambda: svc.documents(ticker=ticker),
+            lambda payload: isinstance(payload.get("documents"), list)
+            and payload.get("document_count", 0) == len(payload.get("documents", [])),
+        )
+    )
+
+    steps.append(
+        _run_step(
+            "market_context",
+            lambda: svc.market_context(ticker=ticker),
+            lambda payload: payload.get("ticker") == ticker and "market_context" in payload,
+        )
+    )
+
     readiness = build_readiness_report(svc.chunks, svc.retriever.embeddings, tickers=[ticker], root=root_path)
     steps.append(
         ApiSmokeStep(

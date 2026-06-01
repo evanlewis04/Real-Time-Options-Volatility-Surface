@@ -27,10 +27,14 @@ chunks/vectors only.
 ## Endpoints
 
 - `GET /health`: service status, chunk count, embedding count.
+- `GET /companies`: cached queryable companies with per-ticker coverage summary.
 - `GET /coverage?ticker=NVDA`: local form/source coverage.
+- `GET /documents?ticker=NVDA`: cached filing documents (id, form, accession,
+  filing date, source url, chunk count); the ticker filter is optional.
 - `POST /query`: evidence retrieval payload for a question.
 - `GET /chunks/{chunk_id}`: one local chunk by id.
 - `GET /differentiators/{ticker}`: local Phase 5 differentiator payload.
+- `GET /market-context/{ticker}`: market-data context provenance for one ticker.
 
 Example query body:
 

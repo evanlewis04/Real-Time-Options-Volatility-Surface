@@ -20,10 +20,55 @@ def test_endpoint_manifest_covers_phase7_contracts() -> None:
     endpoints = {(endpoint["method"], endpoint["path"]) for endpoint in api_endpoint_manifest()}
 
     assert ("GET", "/health") in endpoints
+    assert ("GET", "/companies") in endpoints
     assert ("GET", "/coverage") in endpoints
+    assert ("GET", "/documents") in endpoints
     assert ("POST", "/query") in endpoints
     assert ("GET", "/chunks/{chunk_id}") in endpoints
     assert ("GET", "/differentiators/{ticker}") in endpoints
+    assert ("GET", "/market-context/{ticker}") in endpoints
+
+
+def test_companies_documents_and_market_context_success_payloads() -> None:
+    service = _service()
+
+    companies = service.companies()
+    documents = service.documents()
+    nvda_documents = service.documents(ticker="NVDA")
+    market_context = service.market_context(ticker="NVDA")
+
+    assert companies["company_count"] == len(companies["companies"]) == 1
+    nvda = companies["companies"][0]
+    assert nvda["ticker"] == "NVDA"
+    assert nvda["chunk_count"] == 2
+    assert nvda["document_count"] == 1
+    assert {"form_types", "ex99_chunk_count", "has_press_release", "gaps"} <= set(nvda)
+
+    assert documents["document_count"] == 1
+    assert documents["documents"][0]["chunk_count"] == 2
+    assert documents["documents"][0]["ticker"] == "NVDA"
+    assert nvda_documents["documents"] == documents["documents"]
+
+    assert market_context["ticker"] == "NVDA"
+    assert "market_context" in market_context
+
+
+def test_new_read_endpoints_via_framework_neutral_dispatch() -> None:
+    service = _service()
+
+    companies = call_local_api_endpoint(service, method="GET", path="/companies")
+    documents = call_local_api_endpoint(service, method="GET", path="/documents", query_params={"ticker": "NVDA"})
+    market_context = call_local_api_endpoint(service, method="GET", path="/market-context/NVDA")
+    bad_ticker = call_local_api_endpoint(service, method="GET", path="/market-context/ZZZZ")
+    bad_documents = call_local_api_endpoint(service, method="GET", path="/documents", query_params={"ticker": "ZZZZ"})
+
+    assert companies["payload"]["company_count"] == 1
+    assert documents["payload"]["documents"][0]["ticker"] == "NVDA"
+    assert market_context["payload"]["ticker"] == "NVDA"
+    assert bad_ticker["status_code"] == 400
+    assert bad_ticker["payload"]["error"]["code"] == "unsupported_ticker"
+    assert bad_documents["status_code"] == 400
+    assert bad_documents["payload"]["error"]["code"] == "unsupported_ticker"
 
 
 def test_local_api_contract_success_payloads() -> None:
@@ -116,10 +161,13 @@ def test_api_smoke_runs_and_writes_json_artifact(tmp_path: Path) -> None:
     assert report.status in {"pass", "warning"}
     assert {step.name for step in report.steps} >= {
         "health",
+        "companies",
         "coverage",
+        "documents",
         "query",
         "chunk_lookup",
         "differentiators",
+        "market_context",
         "readiness",
         "evidence_quality",
     }

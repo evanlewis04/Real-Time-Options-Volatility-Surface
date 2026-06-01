@@ -161,6 +161,78 @@ class LocalRagApiService:
             "market_context": get_market_context(ticker).to_dict(),
         }
 
+    def companies(self) -> dict[str, Any]:
+        """List the locally cached, queryable companies with coverage summary."""
+
+        self._require_cache(require_embeddings=False)
+        report = build_coverage_report(self.chunks)
+        document_counts = self._document_counts()
+        companies = [
+            {
+                "ticker": ticker,
+                "chunk_count": coverage.chunk_count,
+                "document_count": document_counts.get(ticker, 0),
+                "form_types": coverage.form_types,
+                "ex99_chunk_count": coverage.ex99_chunk_count,
+                "has_press_release": coverage.has_press_release,
+                "has_cfo_commentary": coverage.has_cfo_commentary,
+                "has_prepared_remarks": coverage.has_prepared_remarks,
+                "gaps": coverage.gaps,
+            }
+            for ticker, coverage in report.tickers.items()
+        ]
+        return {"company_count": len(companies), "companies": companies}
+
+    def documents(self, *, ticker: str | None = None) -> dict[str, Any]:
+        """List cached filing documents, optionally filtered by ticker."""
+
+        self._require_cache(require_embeddings=False)
+        wanted = _validate_ticker(ticker) if ticker else None
+        documents: dict[str, dict[str, Any]] = {}
+        for chunk in self.chunks:
+            metadata = chunk.metadata
+            chunk_ticker = str(metadata.get("ticker", "")).upper()
+            if wanted is not None and chunk_ticker != wanted:
+                continue
+            document_id = str(metadata.get("document_id", ""))
+            if not document_id:
+                continue
+            entry = documents.get(document_id)
+            if entry is None:
+                documents[document_id] = {
+                    "document_id": document_id,
+                    "ticker": chunk_ticker,
+                    "form_type": str(metadata.get("form_type", "")),
+                    "accession_number": str(metadata.get("accession_number", "")),
+                    "filing_date": str(metadata.get("filing_date", "")),
+                    "document_role": str(metadata.get("document_role", "")),
+                    "exhibit_type": str(metadata.get("exhibit_type", "")),
+                    "source_url": str(metadata.get("source_url", "")),
+                    "chunk_count": 1,
+                }
+            else:
+                entry["chunk_count"] += 1
+        ordered = sorted(documents.values(), key=lambda item: (item["ticker"], item["filing_date"], item["document_id"]))
+        return {"document_count": len(ordered), "documents": ordered}
+
+    def market_context(self, *, ticker: str) -> dict[str, Any]:
+        """Return market-data context provenance for one queryable ticker."""
+
+        normalized = _validate_ticker(ticker)
+        return {"ticker": normalized, "market_context": get_market_context(normalized).to_dict()}
+
+    def _document_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        seen: set[str] = set()
+        for chunk in self.chunks:
+            document_id = str(chunk.metadata.get("document_id", ""))
+            if not document_id or document_id in seen:
+                continue
+            seen.add(document_id)
+            ticker = str(chunk.metadata.get("ticker", "")).upper()
+            counts[ticker] = counts.get(ticker, 0) + 1
+        return counts
+
     def _require_cache(self, *, require_embeddings: bool) -> None:
         if not self.chunks:
             raise LocalApiError(
@@ -220,10 +292,18 @@ def create_fastapi_app(service: LocalRagApiService) -> Any:
     def health() -> dict[str, Any]:
         return service.health()
 
+    @app.get("/companies")
+    def companies() -> dict[str, Any]:
+        return service.companies()
+
     @app.get("/coverage")
     def coverage(ticker: str | None = None) -> dict[str, Any]:
         tickers = [ticker] if ticker else None
         return service.coverage(tickers=tickers)
+
+    @app.get("/documents")
+    def documents(ticker: str | None = None) -> dict[str, Any]:
+        return service.documents(ticker=ticker)
 
     @app.post("/query")
     def query(request: dict[str, Any]) -> dict[str, Any]:
@@ -236,6 +316,10 @@ def create_fastapi_app(service: LocalRagApiService) -> Any:
     @app.get("/differentiators/{ticker}")
     def differentiators(ticker: str, fact_name: str = "Revenues") -> dict[str, Any]:
         return service.differentiators(ticker=ticker, fact_name=fact_name)
+
+    @app.get("/market-context/{ticker}")
+    def market_context(ticker: str) -> dict[str, Any]:
+        return service.market_context(ticker=ticker)
 
     return app
 
@@ -267,10 +351,13 @@ def call_local_api_endpoint(
 def api_endpoint_manifest() -> list[dict[str, str]]:
     return [
         {"method": "GET", "path": "/health", "description": "Local cache and service status."},
+        {"method": "GET", "path": "/companies", "description": "Cached queryable companies and coverage summary."},
         {"method": "GET", "path": "/coverage", "description": "Cached ticker/form/source coverage."},
+        {"method": "GET", "path": "/documents", "description": "Cached filing documents, optionally filtered by ticker."},
         {"method": "POST", "path": "/query", "description": "Retrieve evidence chunks for a question."},
         {"method": "GET", "path": "/chunks/{chunk_id}", "description": "Fetch one local chunk by id."},
         {"method": "GET", "path": "/differentiators/{ticker}", "description": "Local differentiator payload."},
+        {"method": "GET", "path": "/market-context/{ticker}", "description": "Market-data context provenance for one ticker."},
     ]
 
 
@@ -349,9 +436,14 @@ def _dispatch_local_api_endpoint(
     normalized_path = path.rstrip("/") or "/"
     if method == "GET" and normalized_path == "/health":
         return service.health()
+    if method == "GET" and normalized_path == "/companies":
+        return service.companies()
     if method == "GET" and normalized_path == "/coverage":
         ticker = str(query_params.get("ticker", "")).strip()
         return service.coverage(tickers=[ticker] if ticker else None)
+    if method == "GET" and normalized_path == "/documents":
+        ticker = str(query_params.get("ticker", "")).strip()
+        return service.documents(ticker=ticker or None)
     if method == "POST" and normalized_path == "/query":
         return service.query(_query_request_from_payload(body))
     if method == "GET" and normalized_path.startswith("/chunks/"):
@@ -360,6 +452,8 @@ def _dispatch_local_api_endpoint(
         ticker = normalized_path.removeprefix("/differentiators/")
         fact_name = str(query_params.get("fact_name", "Revenues"))
         return service.differentiators(ticker=ticker, fact_name=fact_name)
+    if method == "GET" and normalized_path.startswith("/market-context/"):
+        return service.market_context(ticker=normalized_path.removeprefix("/market-context/"))
     raise LocalApiError(
         status_code=404,
         code="endpoint_not_found",
