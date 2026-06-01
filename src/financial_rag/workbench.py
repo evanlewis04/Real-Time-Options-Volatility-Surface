@@ -2,9 +2,69 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from src.financial_rag.api import QueryRequest
+
+
+@dataclass(frozen=True)
+class AnswerGate:
+    """Whether an opt-in OpenAI answer may run over retrieved evidence."""
+
+    allowed: bool
+    reasons: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"allowed": self.allowed, "reasons": list(self.reasons)}
+
+
+def evaluate_answer_gate(
+    query_payload: dict[str, Any],
+    *,
+    evidence_quality_status: str,
+    openai_ready: bool,
+    openai_issues: list[str] | None = None,
+) -> AnswerGate:
+    """Decide whether a generated answer may be offered for this query.
+
+    The gate is intentionally conservative and evidence-first: an answer is only
+    offered when there is grounded, quality-passing evidence and OpenAI is
+    configured. It never hides coverage gaps; every block is explained in
+    ``reasons`` so the workbench can show why an answer is unavailable.
+    """
+
+    reasons: list[str] = []
+    if not query_payload.get("results"):
+        reasons.append("No retrieved evidence is available to ground an answer.")
+    if evidence_quality_status != "pass":
+        reasons.append(f"Evidence quality is '{evidence_quality_status}', not 'pass'.")
+    if not openai_ready:
+        reasons.extend(openai_issues or ["OpenAI is not configured (set OPENAI_API_KEY and install openai)."])
+    return AnswerGate(allowed=not reasons, reasons=reasons)
+
+
+def answer_citation_rows(answer_payload: dict[str, Any]) -> list[dict[str, str]]:
+    """Flatten an answer's accepted citations into a source-audit table."""
+
+    return [
+        {
+            "label": str(citation.get("label", "")),
+            "ticker": str(citation.get("ticker", "")),
+            "form_type": str(citation.get("form_type", "")),
+            "filing_date": str(citation.get("filing_date", "")),
+            "accession": str(citation.get("accession", "")),
+            "source_url": str(citation.get("source_url", "")),
+            "chunk_id": str(citation.get("chunk_id", "")),
+        }
+        for citation in answer_payload.get("accepted_citations", [])
+    ]
+
+
+def company_options(companies_payload: dict[str, Any]) -> list[str]:
+    """Return cached, queryable tickers for the workbench ticker selector."""
+
+    return [str(company.get("ticker", "")) for company in companies_payload.get("companies", []) if company.get("ticker")]
 
 
 def evidence_rows(query_payload: dict[str, Any]) -> list[dict[str, Any]]:

@@ -3,7 +3,14 @@ from pathlib import Path
 from src.financial_rag.api import LocalRagApiService, QueryRequest, serialize_chunk
 from src.financial_rag.evaluation import build_retrieval_eval_report, write_retrieval_eval_report
 from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever
-from src.financial_rag.workbench import coverage_rows, evidence_rows, rejected_citation_rows
+from src.financial_rag.workbench import (
+    answer_citation_rows,
+    company_options,
+    coverage_rows,
+    evaluate_answer_gate,
+    evidence_rows,
+    rejected_citation_rows,
+)
 
 
 def test_api_health_coverage_chunk_and_query_payloads() -> None:
@@ -42,6 +49,64 @@ def test_workbench_rows_flatten_evidence_coverage_and_rejected_citations() -> No
     assert coverage[0]["ticker"] == "NVDA"
     assert "10-K" in coverage[0]["forms"]
     assert rejected == [{"label": "S9"}]
+
+
+def test_answer_gate_allows_only_with_evidence_quality_and_openai() -> None:
+    service = _service()
+    payload = service.query(QueryRequest(question="What does NVDA Item 1A say about risk?", top_k=2))
+
+    allowed = evaluate_answer_gate(
+        payload, evidence_quality_status="pass", openai_ready=True, openai_issues=[]
+    )
+    assert allowed.allowed
+    assert allowed.reasons == []
+
+
+def test_answer_gate_blocks_and_explains_each_failure() -> None:
+    no_openai = evaluate_answer_gate(
+        {"results": [{"chunk_id": "risk"}]},
+        evidence_quality_status="pass",
+        openai_ready=False,
+        openai_issues=["OPENAI_API_KEY is missing."],
+    )
+    assert not no_openai.allowed
+    assert "OPENAI_API_KEY is missing." in no_openai.reasons
+
+    weak_quality = evaluate_answer_gate(
+        {"results": [{"chunk_id": "risk"}]},
+        evidence_quality_status="warning",
+        openai_ready=True,
+    )
+    assert not weak_quality.allowed
+    assert any("Evidence quality" in reason for reason in weak_quality.reasons)
+
+    no_evidence = evaluate_answer_gate(
+        {"results": []}, evidence_quality_status="pass", openai_ready=True
+    )
+    assert not no_evidence.allowed
+    assert any("No retrieved evidence" in reason for reason in no_evidence.reasons)
+
+
+def test_answer_citation_rows_and_company_options() -> None:
+    answer_payload = {
+        "accepted_citations": [
+            {
+                "label": "S1",
+                "ticker": "NVDA",
+                "form_type": "10-K",
+                "filing_date": "2026-02-25",
+                "accession": "0001045810-26-000021",
+                "source_url": "https://www.sec.gov/Archives/doc.htm",
+                "chunk_id": "risk",
+            }
+        ]
+    }
+    rows = answer_citation_rows(answer_payload)
+    assert rows[0]["label"] == "S1"
+    assert rows[0]["source_url"].startswith("https://www.sec.gov")
+
+    options = company_options({"companies": [{"ticker": "NVDA"}, {"ticker": "AMD"}, {"ticker": ""}]})
+    assert options == ["NVDA", "AMD"]
 
 
 def test_eval_report_marks_unlabeled_and_writes_ignored_artifact(tmp_path: Path) -> None:
