@@ -87,6 +87,7 @@ pipeline.
 | `.\venv\Scripts\python.exe scripts\financial_rag_expanded_retrieval_eval.py` | Runs expanded offline retrieval-quality evals across multi-company fixtures. |
 | `.\venv\Scripts\python.exe scripts\financial_rag_expanded_answer_eval.py` | Runs expanded dry-run answer evals; add `--live` for opt-in OpenAI calls. |
 | `.\venv\Scripts\python.exe scripts\financial_rag_retrieval_repair.py --tickers NVDA` | Rebuilds SEC-aware local RAG chunks from cached filings without SEC refetch; add `--fetch-sec` to expand the corpus and `--embed` to refresh Voyage vectors. |
+| `.\venv\Scripts\python.exe scripts\financial_rag_market_context_smoke.py` | Builds a cache-only combined brief: cited filing evidence plus options-market provenance for one question/ticker. Add `--live-market` to source metrics from the volatility engine. |
 | `python scripts/verify.py` | Runs lint, compile, pytest, and the dashboard healthcheck. |
 | `python scripts/verify.py --fix` | Applies Ruff formatting/fixes, then runs verification. |
 | `python -m scripts.healthcheck` | Runs project import, pricing, connector, surface, and Streamlit checks. |
@@ -197,6 +198,9 @@ and known gaps) is recorded in
 Retrieval repair, reingestion behavior, and gold-label maintenance are
 documented in
 [docs/financial-rag-retrieval-repair.md](docs/financial-rag-retrieval-repair.md).
+The thin integration that pairs cited filing evidence with options-market
+context is documented in
+[docs/financial-rag-market-context.md](docs/financial-rag-market-context.md).
 Reviewer-facing definitions for IV, DTE, moneyness, skew, risk reversal,
 butterfly, IV rank, SVI, and data provenance modes live in
 [docs/glossary.md](docs/glossary.md).
