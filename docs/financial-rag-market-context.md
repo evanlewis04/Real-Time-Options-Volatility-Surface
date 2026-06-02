@@ -11,16 +11,40 @@ The two data sources are kept explicitly separate. Filing evidence is management
 disclosure with validated citations; market context is options-market-implied
 data with its own provenance. They are never merged into a single claim.
 
-## Command
+## Commands
 
 ```powershell
 .\venv\Scripts\python.exe scripts\financial_rag_market_context_smoke.py
+.\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py
+.\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py
 ```
 
-Cache-only by default: it uses a deterministic offline market snapshot labeled
-`Fallback`. Pass `--live-market` to source metrics from the volatility engine
-instead, and `--use-voyage` for live Voyage query embeddings. The brief is
-written to ignored `artifacts/rag_eval/market_context_brief.json`.
+The first writes the evidence + market-context brief. The second writes the
+unified brief (evidence + optional gated answer + market context). The third
+launches the unified brief view: one screen pairing cited filing evidence with a
+market-context panel, with an opt-in gated answer.
+
+All are cache-only by default: they use a deterministic offline market snapshot
+labeled `Fallback`. Pass `--live-market` to source metrics from the volatility
+engine, `--use-voyage` for live Voyage query embeddings, and `--answer` (smoke)
+to attempt the gated OpenAI answer. Briefs are written under ignored
+`artifacts/rag_eval/`.
+
+## Unified brief
+
+`build_unified_brief` (in `src/financial_rag/integration/brief.py`) composes the
+market-evidence combiner with the Step-6 gated answer path into one structure:
+
+- `filing_evidence`: cited disclosure (source `sec_filings_disclosure`).
+- `market_context`: market-implied panel (source `options_market_implied`).
+- `answer`: an optional citation-validated OpenAI answer, present only when
+  `run_answer` is set and the evidence/readiness gate allows it.
+- `answer_gate`: the gate decision and the reasons for any block.
+- `data_sources` and `notes`: explicit labels keeping disclosure, market data,
+  and any generated answer distinct.
+
+The volatility dashboard is unchanged; market context is attached only through
+the injectable provider seam.
 
 ## Combined brief shape
 

@@ -88,6 +88,8 @@ pipeline.
 | `.\venv\Scripts\python.exe scripts\financial_rag_expanded_answer_eval.py` | Runs expanded dry-run answer evals; add `--live` for opt-in OpenAI calls. |
 | `.\venv\Scripts\python.exe scripts\financial_rag_retrieval_repair.py --tickers NVDA` | Rebuilds SEC-aware local RAG chunks from cached filings without SEC refetch; add `--fetch-sec` to expand the corpus and `--embed` to refresh Voyage vectors. |
 | `.\venv\Scripts\python.exe scripts\financial_rag_market_context_smoke.py` | Builds a cache-only combined brief: cited filing evidence plus options-market provenance for one question/ticker. Add `--live-market` to source metrics from the volatility engine. |
+| `.\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py` | Builds the unified analyst brief (cited filing evidence + optional gated answer + market context). Add `--answer` for the opt-in OpenAI answer and `--live-market` for live market metrics. |
+| `.\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py` | Launches the unified brief view: one screen pairing cited filing evidence with a labeled market-context panel, separate from the volatility dashboard. |
 | `python scripts/verify.py` | Runs lint, compile, pytest, and the dashboard healthcheck. |
 | `python scripts/verify.py --fix` | Applies Ruff formatting/fixes, then runs verification. |
 | `python -m scripts.healthcheck` | Runs project import, pricing, connector, surface, and Streamlit checks. |
