@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -74,6 +75,7 @@ class RetrievalCaseResult:
     retrieved_count: int
     recall_at_k: float
     reciprocal_rank: float
+    ndcg_at_k: float
     source_hit: bool
     metadata_complete: bool
     evidence_quality_status: str
@@ -516,6 +518,7 @@ def build_retrieval_quality_report(
         "companies": sorted({ticker for case in cases for ticker in case.tickers}),
         "mean_recall_at_k": _mean([result.recall_at_k for result in relevant_results]),
         "mrr": _mean([result.reciprocal_rank for result in relevant_results]),
+        "mean_ndcg_at_k": _mean([result.ndcg_at_k for result in relevant_results]),
         "section_source_hit_rate": _rate(result.source_hit for result in results),
         "metadata_completeness_rate": _rate(result.metadata_complete for result in results),
         "evidence_quality_pass_rate": _rate(result.evidence_quality_status == "pass" for result in results),
@@ -533,6 +536,7 @@ def evaluate_retrieval_case(case: ExpandedEvalCase, query_payload: dict[str, Any
             retrieved_count=0,
             recall_at_k=0.0,
             reciprocal_rank=0.0,
+            ndcg_at_k=0.0,
             source_hit=False,
             metadata_complete=False,
             evidence_quality_status="fail",
@@ -546,6 +550,7 @@ def evaluate_retrieval_case(case: ExpandedEvalCase, query_payload: dict[str, Any
     failures = classify_retrieval_failures(case, query_payload, source_hit=source_hit, metadata_complete=metadata_complete)
     recall = _recall_at_k(retrieved_ids, set(case.relevant_chunk_ids), k=k)
     rr = _reciprocal_rank(retrieved_ids, set(case.relevant_chunk_ids))
+    ndcg = _ndcg_at_k(retrieved_ids, set(case.relevant_chunk_ids), k=k)
     status = "pass" if source_hit and metadata_complete and evidence_quality.status == "pass" else "fail"
     return RetrievalCaseResult(
         case_id=case.case_id,
@@ -553,6 +558,7 @@ def evaluate_retrieval_case(case: ExpandedEvalCase, query_payload: dict[str, Any
         retrieved_count=len(results),
         recall_at_k=recall,
         reciprocal_rank=rr,
+        ndcg_at_k=ndcg,
         source_hit=source_hit,
         metadata_complete=metadata_complete,
         evidence_quality_status=evidence_quality.status,
@@ -779,6 +785,19 @@ def _reciprocal_rank(retrieved_ids: Sequence[str], relevant_ids: set[str]) -> fl
         if chunk_id in relevant_ids:
             return 1.0 / index
     return 0.0
+
+
+def _ndcg_at_k(retrieved_ids: Sequence[str], relevant_ids: set[str], *, k: int) -> float:
+    if not relevant_ids:
+        return 0.0
+    dcg = sum(
+        1.0 / math.log2(index + 1)
+        for index, chunk_id in enumerate(retrieved_ids[:k], start=1)
+        if chunk_id in relevant_ids
+    )
+    ideal_hits = min(len(relevant_ids), k)
+    idcg = sum(1.0 / math.log2(index + 1) for index in range(1, ideal_hits + 1))
+    return dcg / idcg if idcg > 0 else 0.0
 
 
 def _failure_counts(results: Sequence[RetrievalCaseResult]) -> dict[str, int]:

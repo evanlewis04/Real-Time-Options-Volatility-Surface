@@ -17,6 +17,7 @@ from src.financial_rag.query import QueryPipeline, QueryPipelineResult, build_co
 from src.financial_rag.query.coverage import CoverageReport
 from src.financial_rag.query.router import KNOWN_TICKERS
 from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever, load_local_retrieval_corpus
+from src.financial_rag.retrieval.rerank import Reranker, build_reranker
 from src.financial_rag.settings import configured_secret, load_environment
 
 
@@ -78,11 +79,13 @@ class LocalRagApiService:
         chunks: list[LocalChunkRecord],
         retriever: LocalDenseRetriever,
         root: Path | str = Path("."),
+        reranker: Reranker | None = None,
     ) -> None:
         self.chunks = chunks
         self.retriever = retriever
         self.root = Path(root)
-        self.pipeline = QueryPipeline(retriever=retriever, chunks=chunks)
+        self.reranker = reranker
+        self.pipeline = QueryPipeline(retriever=retriever, chunks=chunks, reranker=reranker)
 
     def health(self) -> dict[str, Any]:
         status = "ok" if self.chunks and self.retriever.embeddings else "empty_cache"
@@ -252,8 +255,13 @@ def build_local_api_service(
     *,
     root: Path | str,
     use_voyage: bool = True,
+    reranker: str = "none",
 ) -> LocalRagApiService:
-    """Build the local service from cached chunks and vectors."""
+    """Build the local service from cached chunks and vectors.
+
+    ``reranker`` selects the rerank stage: "lexical" (deterministic, offline,
+    default), "none" (dense+lexical baseline), or "voyage" (opt-in online).
+    """
 
     load_environment()
     chunks, embeddings = load_local_retrieval_corpus(root=root)
@@ -266,7 +274,8 @@ def build_local_api_service(
     else:
         embedder = ConstantQueryEmbedder(1)
     retriever = LocalDenseRetriever(chunks=chunks, embeddings=embeddings, query_embedder=embedder)
-    return LocalRagApiService(chunks=chunks, retriever=retriever, root=root)
+    reranker_impl = build_reranker(reranker, chunk_texts=[chunk.chunk_text for chunk in chunks])
+    return LocalRagApiService(chunks=chunks, retriever=retriever, root=root, reranker=reranker_impl)
 
 
 def create_fastapi_app(service: LocalRagApiService) -> Any:

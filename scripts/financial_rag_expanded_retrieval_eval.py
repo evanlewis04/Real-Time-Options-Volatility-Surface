@@ -35,6 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--per-subquery-k", type=int, default=5, help="Per-subquery results.")
     parser.add_argument("--use-voyage", action="store_true", help="Use Voyage query embeddings when configured.")
     parser.add_argument(
+        "--reranker",
+        default="none",
+        help="Rerank stage: 'none' (baseline, default), 'lexical' (offline), or 'voyage'.",
+    )
+    parser.add_argument(
         "--output",
         default="artifacts/rag_eval/expanded_retrieval_eval.json",
         help="Ignored JSON output path.",
@@ -54,7 +59,7 @@ def main() -> int:
     gold_labels = resolve_gold_labels(chunks)
     labeled_cases = apply_gold_labels_to_cases(EXPANDED_RETRIEVAL_CASES, gold_labels)
     cases = filter_cases(labeled_cases, tickers=tickers or None, max_cases=args.max_cases)
-    service = build_local_api_service(root=project_root(), use_voyage=args.use_voyage)
+    service = build_local_api_service(root=project_root(), use_voyage=args.use_voyage, reranker=args.reranker)
     payloads: dict[str, dict[str, Any]] = {}
     for index, case in enumerate(cases, start=1):
         print(f"[{index}/{len(cases)}] {case.case_id}: {case.question}")
@@ -94,8 +99,10 @@ def main() -> int:
     print(f"Metadata completeness rate: {report['metadata_completeness_rate']:.3f}")
     print(f"Evidence-quality pass rate: {report['evidence_quality_pass_rate']:.3f}")
     print(f"Gold labels resolved: {report['gold_labels']['label_count']}")
+    print(f"Reranker: {args.reranker}")
     print(f"Gold Recall@{args.top_k}: {report['mean_recall_at_k']:.3f}")
     print(f"Gold MRR: {report['mrr']:.3f}")
+    print(f"Gold NDCG@{args.top_k}: {report['mean_ndcg_at_k']:.3f}")
     print(f"Failure counts: {report['failure_counts']}")
     print(f"JSON: {json_path}")
     print(f"CSV: {csv_path}")

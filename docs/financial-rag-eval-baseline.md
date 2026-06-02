@@ -109,3 +109,34 @@ New-ticker coverage (added INTC, GOOGL, META, AMZN, BAC, GS):
   resolve and have eval cases.
 - GS, like JPM, has no cached EX-99 narrative (investment-bank disclosure style).
 - META is the only newly added ticker with cached CFO commentary.
+
+## Reranker (opt-in, default off)
+
+A swappable rerank stage exists (`src/financial_rag/retrieval/rerank.py`): a
+deterministic, offline `LexicalRerankerV1` (BM25-lite) and an opt-in online
+`VoyageReranker`, fused with the first stage via Reciprocal Rank Fusion. The eval
+adds NDCG@k and a `--reranker none|lexical|voyage` flag.
+
+The default is `none`: reranking does not beat the domain-tuned first stage on
+this eval. Offline comparison (`--top-k 5 --per-subquery-k 8`):
+
+| Config | Recall@5 | MRR | NDCG@5 | Hit rate |
+| --- | --- | --- | --- | --- |
+| none (baseline) | 0.682 | 0.455 | 0.481 | 0.980 |
+| lexical, wide pool | 0.727 | 0.470 | 0.491 | 0.940 |
+| lexical, protected-set | 0.682 | 0.418 | 0.453 | 0.980 |
+| voyage, protected-set | 0.659 | 0.436 | 0.488 | 0.980 |
+
+No config beats the baseline without a guardrail regression. Two reasons:
+
+1. The first stage is already tuned to these cases (domain bonuses, safe-harbor
+   suppression), so a generic reranker mostly adds noise.
+2. The eval is partly circular: `gold.py` resolves each gold chunk with the
+   first-stage `lexical_relevance_score`, so MRR/NDCG reward agreement with the
+   first stage and penalize any reranker that reorders. A fair rerank measurement
+   needs scorer-independent gold labels first.
+
+The rerank stage ships as opt-in infrastructure (enable with `--reranker lexical`
+or `reranker="voyage"`); it is wired in the protected-set configuration, which
+reorders only the first-stage result set so source-hit and recall cannot regress
+when enabled.
