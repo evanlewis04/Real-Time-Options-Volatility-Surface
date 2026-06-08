@@ -1,36 +1,78 @@
 # Architecture
 
-The dashboard is organized around a provenance-preserving data path. Providers
-produce raw market inputs, normalization converts them into canonical models,
-the quant layer enriches and fits those models, and the Streamlit workstation
-renders both analytics and quality metadata.
+This is one platform with two provenance-preserving layers that meet in a unified
+brief. A **market-intelligence layer** turns option chains into implied-volatility
+analytics, and a **filings-intelligence layer** turns SEC disclosure into cited,
+retrievable evidence. A shared discipline runs through both: every value carries
+its source and mode, and fitted, fallback, synthetic, retrieved, or
+model-derived values are never presented as live market observations.
 
 ```mermaid
 flowchart LR
-    Providers["Market Data Providers<br/>yfinance, demo provider, local snapshots"]
-    Normalize["Normalization And Cleaning<br/>OptionQuote, MarketDataSnapshot, rejection buckets"]
-    Quant["Quant Engine<br/>rates, dividends, IV, Greeks, SVI, surface quality"]
-    State["Dashboard Connector<br/>cache, provenance, fallback routing, timing"]
-    UI["Streamlit Workstation<br/>surface, chain, skew, risk, diagnostics"]
-    Tests["Offline Verification<br/>fixtures, AppTest, healthcheck, CI"]
+    subgraph Market["Market-intelligence layer"]
+        Providers["Providers<br/>yfinance, demo, snapshots"]
+        Normalize["Normalize<br/>OptionQuote, MarketDataSnapshot"]
+        Quant["Quant engine<br/>IV, Greeks, SVI, surface quality"]
+        Connector["Dashboard connector<br/>cache, provenance, fallback"]
+        VolUI["Streamlit workstation"]
+        Providers --> Normalize --> Quant --> Connector --> VolUI
+    end
 
-    Providers --> Normalize
-    Normalize --> Quant
-    Quant --> State
-    State --> UI
-    Normalize --> Tests
-    State --> Tests
-    UI --> Tests
+    subgraph Filings["Filings-intelligence layer"]
+        SEC["SEC EDGAR<br/>10-K/10-Q/8-K/EX-99"]
+        Ingest["Ingestion<br/>idempotent, raw retained"]
+        Parse["Parse + chunk<br/>section/exhibit/speaker aware"]
+        Retrieve["Retrieval<br/>dense + lexical, opt-in rerank"]
+        Synth["Synthesis<br/>citation validation"]
+        API["Cache-only API / workbench"]
+        SEC --> Ingest --> Parse --> Retrieve --> Synth --> API
+    end
+
+    Connector --> Brief["Unified brief<br/>cited evidence + market context"]
+    Synth --> Brief
+    Brief --> Tests["Offline verification<br/>fixtures, evals, healthcheck, CI"]
+    VolUI --> Tests
+    API --> Tests
 ```
 
-## Provenance Contract
+## Market-intelligence layer
 
-Every provider response carries source, mode, timestamp, cache age, fallback
-reason, and row-count metadata. Synthetic and fallback paths remain explicit so
-analytics can be rendered without pretending delayed or generated data is live.
+Providers produce raw market inputs; normalization converts them into canonical
+`OptionQuote` / `MarketDataSnapshot` models with rejection buckets; the quant
+engine fits rates, dividends, IV, Greeks, SVI, and surface quality; and the
+dashboard connector caches results and routes fallbacks while preserving timing
+and provenance. The Streamlit workstation renders analytics beside their quality
+metadata.
 
-## Offline Contract
+## Filings-intelligence layer
 
-Tests use deterministic fixtures and AppTest fallback modes. CI does not require
-network data for the dashboard smoke path; live providers can fail and the app
-must still render a labeled fallback state.
+SEC EDGAR is the citation backbone. Ingestion is idempotent and retains the raw
+payloads; parsing splits filings into sections, exhibits, and speaker turns;
+chunking is section/exhibit/speaker aware. Retrieval is dense + lexical fusion
+(with an opt-in rerank stage), and synthesis validates every inline citation
+against a retrieved chunk, failing closed on hallucinated labels. A cache-only
+service exposes retrieval, coverage, documents, and market-context endpoints.
+
+## The integration
+
+The two layers meet in `src/financial_rag/integration`: the unified brief pairs
+cited filing evidence with an options-market context panel for one question and
+ticker. They are deliberately decoupled — the filings package depends on the
+volatility engine only through an injectable provider, and the brief keeps
+disclosure, market data, and any generated answer explicitly labeled as distinct
+sources.
+
+## Provenance contract
+
+Every market response carries source, mode, timestamp, cache age, fallback
+reason, and row counts. Every retrieval result carries ticker, form type,
+accession, filing date, section, and source URL, and every answer citation maps
+to a retrieved chunk. Synthetic, fallback, fitted, and model-derived values stay
+explicitly labeled.
+
+## Offline contract
+
+The default paths are cache-only and deterministic. Tests use fixtures, AppTest
+fallback modes, and gold-label evals; CI requires no network. Live providers (and
+optional Voyage/OpenAI calls) can be absent or fail, and the system still renders
+a labeled fallback or lexical-retrieval state.

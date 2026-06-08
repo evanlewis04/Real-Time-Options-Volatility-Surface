@@ -30,16 +30,30 @@ something they are not.
 
 ## Demo
 
+The filings corpus is local-only (not committed). Build a small demo corpus once
+— a free SEC fetch; **no paid keys required** (set `SEC_USER_AGENT` in `.env`;
+Voyage embeddings are optional, lexical retrieval works without them):
+
+```bash
+.\venv\Scripts\python.exe scripts\financial_rag_retrieval_repair.py --tickers NVDA --fetch-sec
+```
+
+Then:
+
 ```bash
 # 1) Unified brief: cited filing answer + options-market context (one screen)
 .\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py
 
-# 1b) Headless version (writes a JSON brief, no UI, no API keys needed)
+# 1b) Headless version (writes a JSON brief, no UI)
 .\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py
 
-# 2) Options volatility workstation
+# 2) Options volatility workstation (runs offline on synthetic fallback data)
 .\venv\Scripts\python.exe -m streamlit run app.py
 ```
+
+Add `--embed` to the corpus command (with `VOYAGE_API_KEY`) for dense retrieval,
+and `--answer` to the brief smoke (with `OPENAI_API_KEY`) for the opt-in
+generated answer.
 
 The volatility workstation shows data provenance, surface quality, and fit
 diagnostics in one view:
