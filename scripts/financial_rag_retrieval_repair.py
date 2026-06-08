@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.financial_rag_phase1_smoke import DEFAULT_EMBED_BATCH_SIZE, run_smoke
+from scripts.financial_rag_ingest import DEFAULT_EMBED_BATCH_SIZE, run_smoke
 from src.financial_rag.chunking import chunk_document
 from src.financial_rag.embeddings import (
     DEFAULT_VOYAGE_MODEL,

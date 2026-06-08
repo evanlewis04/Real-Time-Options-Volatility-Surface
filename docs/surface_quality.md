@@ -128,10 +128,3 @@ Validation-derived data:
 `fit_mode_backtest_diagnostic_not_market_observation` summarize fit behavior.
 They can justify using Robust or Strict modes, but they are not market prices,
 quotes, or traded IVs.
-
-## Handoff Workflow
-
-Future sessions should read `SESSION_HANDOFF.md`, then only the relevant
-unchecked section of `upgrade.md`. Implement the next unchecked item, preserve
-provenance labels, run targeted tests plus full verification for completed
-phases, update both files, and commit before moving to the next phase.

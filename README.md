@@ -1,224 +1,140 @@
-# Real-Time Options Volatility Surface
+# Financial Filings Intelligence + Options Volatility
 
-A Python toolkit for computing and visualizing implied-volatility surfaces for
-US equity options. The dashboard now behaves as a compact quant workstation:
-it shows data provenance, distinguishes live/delayed data from synthetic
-fallbacks, builds surfaces from real `yfinance` option chains when available,
-and exposes chain quality diagnostics beside the charts.
+A financial intelligence platform with two connected halves:
 
-## Project Direction
+- **Filings RAG** — answers analyst questions over SEC filings (10-K / 10-Q / 8-K /
+  EX-99) with **validated inline citations**, built on idempotent SEC ingestion,
+  section-aware chunking, hybrid retrieval, and honest coverage reporting.
+- **Options volatility workstation** — computes and visualizes implied-volatility
+  surfaces, skew, term structure, and expected moves from real option chains.
 
-This repo is now the base for a larger financial intelligence platform. The
-existing volatility workstation remains the market-context layer, while the new
-RAG track will ingest SEC filings, 8-K exhibits, and earnings-call-adjacent
-content to answer analyst-grade questions with validated citations. The full
-scope and phased implementation plan live in
-[docs/financial-rag-platform-plan.md](docs/financial-rag-platform-plan.md).
+The two meet in a **unified brief**: ask a question and get a cited filing answer
+beside an options-market context panel, with every value labeled by source and
+provenance. The defining principle throughout is **data honesty** — live, delayed,
+fallback, synthetic, retrieved, and model-derived values are never presented as
+something they are not.
 
-## Features
+## Why it's interesting
 
-- Black-Scholes pricing and Greeks: delta, gamma, theta, vega, rho.
-- Implied-volatility solver with Newton-Raphson, bisection, and Brent paths.
-- Volatility surface construction across strikes and expiries.
-- Streamlit workstation with Surface, Chain, Skew & Term, Risk, and Diagnostics tabs.
-- Real yfinance option-chain normalization with source, cache, and rejection metadata.
-- Explicit synthetic/fallback labeling when live or delayed data is unavailable.
-- Realized return correlations from historical yfinance closes.
-- Built-in caching to be friendlier to yfinance rate limits.
+- **Citation discipline** — every factual answer maps to a retrieved chunk; the
+  validator rejects hallucinated citation labels and fails closed.
+- **Messy real-world ingestion** — SEC EDGAR filings parsed into sections,
+  exhibits, and speaker turns, with uneven EX-99 / CFO-commentary coverage
+  surfaced honestly rather than hidden.
+- **A real eval harness** — retrieval and answer quality are measured (Recall@k,
+  MRR, NDCG@k, section/source hit rate, citation validity), not just asserted.
+- **Provenance everywhere** — fitted surfaces, fallback chains, and retrieved
+  evidence carry explicit "not a market observation" labels.
+- **Measured, not bolted-on** — features that didn't earn their place (e.g. a
+  reranker) ship as clearly-labeled opt-in infrastructure, not the default.
 
-## Supported Tickers
-
-Common defaults include `AAPL`, `MSFT`, `GOOGL`, `NVDA`, `TSLA`, `SPY`,
-`QQQ`, `META`, `AMZN`, and `JPM`. The dashboard sidebar includes a larger
-equity and ETF universe.
-
-## Quick Start
+## Demo
 
 ```bash
-git clone <this-repo>
-cd Real-Time-Options-Volatility-Surface
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
+# 1) Unified brief: cited filing answer + options-market context (one screen)
+.\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py
+
+# 1b) Headless version (writes a JSON brief, no UI, no API keys needed)
+.\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py
+
+# 2) Options volatility workstation
+.\venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-For reproducible installs, use the pinned direct-dependency lock after creating
-the virtual environment:
+The volatility workstation shows data provenance, surface quality, and fit
+diagnostics in one view:
+
+![Dashboard overview](docs/assets/dashboard-overview.png)
+![3D implied-volatility surface](docs/assets/dashboard-surface-3d.png)
+
+## Eval results
+
+Local retrieval/answer eval over a 12-ticker SEC corpus (~6,527 chunks). Numbers
+are regenerated locally; see [docs/financial-rag-eval-baseline.md](docs/financial-rag-eval-baseline.md).
+
+| Metric | Value |
+| --- | --- |
+| Eval cases / gold labels | 50 / 64 |
+| Section/source hit rate | 0.980 |
+| Gold Recall@5 | 0.682 |
+| Gold MRR | 0.455 |
+| Answer citation validity | 1.000 (0 hallucinated, 0 uncited) |
 
 ```bash
-pip install -r requirements.lock
+.\venv\Scripts\python.exe scripts\financial_rag_expanded_retrieval_eval.py --top-k 5 --per-subquery-k 8
+.\venv\Scripts\python.exe scripts\financial_rag_expanded_answer_eval.py --top-k 5 --per-subquery-k 8
 ```
 
-On macOS/Linux, activate with:
+## Quick start
 
 ```bash
-source .venv/bin/activate
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt   # or requirements.lock for pinned installs
+copy .env.example .env            # optional; needed only for live data / Voyage / OpenAI
 ```
 
-Use the project virtual environment for tests and dashboard work. Some base
-Anaconda environments can carry incompatible global web-stack packages; this
-project expects Streamlit's `starlette>=0.40.0` dependency set.
+The default workflows are cache-only and run offline. SEC ingestion (Voyage
+embeddings optional) is opt-in:
 
-The `.env` file is optional for the default yfinance workflow. Paid API keys
-are reserved for future provider integrations and the upcoming filings RAG
-pipeline.
+```bash
+.\venv\Scripts\python.exe scripts\financial_rag_retrieval_repair.py --tickers NVDA --fetch-sec --embed
+```
 
-## Running
+## Key commands
 
 | Command | What it does |
 | --- | --- |
-| `streamlit run app.py` | Launches the interactive dashboard on port 8501. |
-| `python main.py` | Runs a noninteractive smoke test and exits. |
-| `python main.py --smoke-test` | Same as above, explicit CI-friendly smoke test. |
-| `python main.py --interactive` | Opens the legacy interactive CLI prompt. |
-| `python main.py test` | Runs the older full CLI system test, including data fetches. |
-| `.\venv\Scripts\python.exe -m scripts.financial_rag_phase1_smoke` | Runs the Phase 1 SEC filings ingestion, parsing, chunking, and optional Voyage embedding smoke pipeline for NVDA. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase2_retrieval_smoke.py` | Runs the Phase 2 local dense retrieval smoke over cached chunks and Voyage vectors. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase3_query_smoke.py` | Runs the Phase 3 deterministic query-routing smoke over local retrieval. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase4_workbench_smoke.py` | Runs the Phase 4 local API/workbench smoke without SEC refetch. |
-| `.\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_phase4_workbench.py` | Launches the local filings evidence workbench. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase4_eval_report.py` | Writes the tiny offline Phase 4 retrieval eval report under ignored artifacts. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase5_differentiators_report.py` | Writes the Phase 5 local differentiators report under ignored artifacts. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase6_demo_workflow.py` | Runs the local Phase 6 recruiter-demo workflow and writes readiness/evidence reports under ignored artifacts. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase7_api_smoke.py` | Runs local Phase 7 API contract smoke checks and writes an ignored report artifact. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_phase7_api_server.py` | Launches the optional local FastAPI adapter when FastAPI is installed. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_openai_answer_smoke.py` | Dry-runs OpenAI answer readiness over local evidence without calling OpenAI. Add `--live` to test with `OPENAI_API_KEY`. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_expanded_retrieval_eval.py` | Runs expanded offline retrieval-quality evals across multi-company fixtures. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_expanded_answer_eval.py` | Runs expanded dry-run answer evals; add `--live` for opt-in OpenAI calls. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_retrieval_repair.py --tickers NVDA` | Rebuilds SEC-aware local RAG chunks from cached filings without SEC refetch; add `--fetch-sec` to expand the corpus and `--embed` to refresh Voyage vectors. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_market_context_smoke.py` | Builds a cache-only combined brief: cited filing evidence plus options-market provenance for one question/ticker. Add `--live-market` to source metrics from the volatility engine. |
-| `.\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py` | Builds the unified analyst brief (cited filing evidence + optional gated answer + market context). Add `--answer` for the opt-in OpenAI answer and `--live-market` for live market metrics. |
-| `.\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py` | Launches the unified brief view: one screen pairing cited filing evidence with a labeled market-context panel, separate from the volatility dashboard. |
-| `python scripts/verify.py` | Runs lint, compile, pytest, and the dashboard healthcheck. |
-| `python scripts/verify.py --fix` | Applies Ruff formatting/fixes, then runs verification. |
-| `python -m scripts.healthcheck` | Runs project import, pricing, connector, surface, and Streamlit checks. |
-| `python diagnostic.py` | Sanity-checks pricing, IV, Greeks, and surface construction. |
+| `streamlit run scripts\financial_rag_brief_view.py` | Unified brief: cited filing evidence + market context. |
+| `streamlit run app.py` | Options volatility workstation. |
+| `python scripts\financial_rag_expanded_retrieval_eval.py` | Retrieval-quality eval (Recall@k, MRR, NDCG@k). |
+| `python scripts\financial_rag_retrieval_repair.py --fetch-sec --embed` | Build/refresh the local SEC corpus and Voyage vectors. |
+| `python scripts\financial_rag_api_server.py` | Optional local FastAPI adapter over the cache-only RAG service. |
+| `python scripts\verify.py` | Lint, compile, full pytest suite, and dashboard healthcheck. |
 
-## Dashboard State
-
-The first screen exposes provenance before analysis. Live/delayed data uses the
-market provider path; synthetic and fallback states are labeled in the header
-and Diagnostics tab so generated data is never presented as live.
-
-![Dashboard default AppTest state](docs/assets/dashboard-default-state.svg)
-
-## Dashboard Preview
-
-The workstation-style UI combines ticker selection, data provenance, surface
-quality, and fit diagnostics in one view.
-
-![Dashboard overview with AAPL surface readiness and quality metrics](docs/assets/dashboard-overview.png)
-
-The diagnostics panels show provider provenance, quote quality, model inputs,
-market-integrity checks, and fit guardrails for the current chain.
-
-![Dashboard quality and provenance diagnostics](docs/assets/dashboard-quality-provenance.png)
-
-The surface view renders the fitted implied-volatility surface with quote
-reliability overlays.
-
-![3D implied-volatility surface with reliability overlay](docs/assets/dashboard-surface-3d.png)
-
-The term-structure panel compares ATM implied volatility across expiries and
-marks nearby events against realized-volatility references.
-
-![ATM implied-volatility term structure with event markers](docs/assets/dashboard-term-structure.png)
-
-## Project Layout
+## Architecture
 
 ```text
-.
-|-- app.py                  # Streamlit dashboard entry point
-|-- main.py                 # CLI smoke test, monitoring, and legacy prompt
-|-- dashboard_connector.py  # Data/provenance orchestration for the dashboard
-|-- config.py               # Shared configuration
-|-- requirements.lock       # Pinned direct dependency set
-|-- config/
-|   `-- financial_rag_universe.yaml # Initial 20-company filings universe
-|-- docs/                   # Architecture notes and dashboard screenshots
-|-- src/
-|   |-- data/               # yfinance price/options providers and synthetic fallback
-|   |-- financial_rag/      # Filings RAG scaffolding and future pipeline modules
-|   |-- pricing/            # Black-Scholes and implied-vol solver
-|   |-- analysis/           # Volatility surface construction
-|   |-- visualization/      # Plotly and matplotlib helpers
-|   |-- portfolio/          # Portfolio analytics scaffolding
-|   |-- realtime/           # Streaming/refresh scaffolding
-|   |-- utils/              # Shared helpers
-|   `-- config/             # Per-asset configuration
-|-- tests/                  # pytest unit tests
-|-- scripts/                # CLI utilities and healthcheck
-`-- plots/                  # Generated surface images
+src/
+|-- financial_rag/        # SEC ingestion, parsing, chunking, retrieval, query,
+|   |                     #   synthesis (citations), evaluation, audit, API,
+|   |                     #   differentiators, and the market-context integration
+|-- data/                 # yfinance providers, normalized models, synthetic fallback
+|-- pricing/ quant/ analysis/   # Black-Scholes, Greeks, IV solver, SVI, surface fitting
+`-- dashboard/            # Streamlit volatility workstation
 ```
+
+The data path is documented in [docs/architecture.md](docs/architecture.md), the
+RAG-plus-market integration in
+[docs/financial-rag-market-context.md](docs/financial-rag-market-context.md),
+reviewer definitions in [docs/glossary.md](docs/glossary.md), and surface-fit
+quality and provenance in [docs/surface_quality.md](docs/surface_quality.md).
+
+## Honest limitations
+
+- EX-99 / CFO-commentary coverage is uneven by issuer; coverage reports expose
+  this rather than hiding it. Some tickers have primary filings only.
+- INTC chunks lack item-number metadata (its 10-K labels live only in a trailing
+  index), so item-filtered INTC queries return empty; non-item topics resolve.
+- A rerank stage exists but ships **opt-in, off by default**: it does not beat the
+  domain-tuned first stage on the current eval, partly because the gold labels are
+  resolved by that same scorer. The honest write-up is in the eval-baseline note.
+- yfinance market data may be delayed, incomplete, or rate-limited; the UI labels
+  live / delayed / fallback / synthetic states explicitly.
 
 ## Testing
 
 ```bash
-pytest tests/
-python -m scripts.healthcheck
-python scripts/verify.py
+.\venv\Scripts\python.exe -m pytest -q
+.\venv\Scripts\python.exe scripts\verify.py
 ```
 
-On Windows, prefer the repo virtual environment explicitly when in doubt. In a
-fresh checkout this is usually `.venv`; this local workspace currently uses
-`venv`.
-
-```bash
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m scripts.healthcheck
-```
-
-Substitute `.\venv\Scripts\python.exe` if using this existing local workspace.
-
-Pytest discovery is scoped to `tests/` by `pytest.ini`; legacy runnable demos in
-`scripts/` remain import/compile checked without being collected as unit tests.
-Tests cover Black-Scholes pricing, put-call parity, Greeks signs/bounds,
-price-to-IV round trips, option-chain cleaning, provider contracts, config
-round trips, provenance labels, and deterministic Streamlit AppTest states.
-
-## Architecture And Glossary
-
-The data path is documented in [docs/architecture.md](docs/architecture.md):
-providers -> normalized canonical models -> quant engine -> connector ->
-dashboard, with offline tests attached to the normalized and rendered states.
-The Phase 1 filings smoke pipeline is documented in
-[docs/financial-rag-phase1-smoke.md](docs/financial-rag-phase1-smoke.md).
-The Phase 2 local retrieval smoke is documented in
-[docs/financial-rag-phase2-retrieval.md](docs/financial-rag-phase2-retrieval.md).
-The Phase 6 recruiter-demo workflow is documented in
-[docs/financial-rag-phase6-demo-guide.md](docs/financial-rag-phase6-demo-guide.md).
-The Phase 7 local API contract is documented in
-[docs/financial-rag-phase7-api-guide.md](docs/financial-rag-phase7-api-guide.md).
-OpenAI API-key testing is documented in
-[docs/financial-rag-openai-testing.md](docs/financial-rag-openai-testing.md).
-Expanded retrieval and answer testing is documented in
-[docs/financial-rag-testing-expansion.md](docs/financial-rag-testing-expansion.md).
-The current local retrieval/answer eval baseline (commands, metrics, coverage,
-and known gaps) is recorded in
-[docs/financial-rag-eval-baseline.md](docs/financial-rag-eval-baseline.md).
-Retrieval repair, reingestion behavior, and gold-label maintenance are
-documented in
-[docs/financial-rag-retrieval-repair.md](docs/financial-rag-retrieval-repair.md).
-The thin integration that pairs cited filing evidence with options-market
-context is documented in
-[docs/financial-rag-market-context.md](docs/financial-rag-market-context.md).
-Reviewer-facing definitions for IV, DTE, moneyness, skew, risk reversal,
-butterfly, IV rank, SVI, and data provenance modes live in
-[docs/glossary.md](docs/glossary.md).
-Surface-fit quality, recommended fit presets, validation diagnostics, and the
-distinction between raw quotes and fitted estimates are covered in
-[docs/surface_quality.md](docs/surface_quality.md).
-
-## Data Honesty
-
-The dashboard intentionally labels each view as live/delayed, synthetic, or
-fallback. yfinance data may be delayed, incomplete, rate-limited, or unavailable
-for some symbols. When real option chains cannot be fetched or normalized, the
-surface can fall back to a Black-Scholes-consistent synthetic chain, and the UI
-shows that fallback reason in the data-quality row and Diagnostics tab.
+Tests cover Black-Scholes pricing and Greeks, IV round trips, option-chain
+cleaning, provider contracts, surface fitting and validation, SEC parsing and
+chunking, retrieval and citation validation, eval metrics, API contracts, and the
+unified brief.
 
 ## Disclaimer
 
-This project is for research and educational use. It is not investment advice
-and is not built for live trading.
+For research and educational use. Not investment advice and not built for live
+trading.

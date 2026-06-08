@@ -97,7 +97,6 @@ class EmbeddingCache:
 def embedding_setup_message() -> str:
     return (
         "VOYAGE_API_KEY is not configured. Add a real Voyage key to .env, then rerun "
-        "`\\.\\venv\\Scripts\\python.exe -m scripts.financial_rag_phase1_smoke` "
-        "to generate cached embeddings. OpenAI and Anthropic are intentionally not used "
-        "in Phase 1."
+        "`\\.\\venv\\Scripts\\python.exe scripts\\financial_rag_retrieval_repair.py --embed` "
+        "to generate cached embeddings. OpenAI and Anthropic are not used for embeddings."
     )

@@ -14,15 +14,14 @@ data with its own provenance. They are never merged into a single claim.
 ## Commands
 
 ```powershell
-.\venv\Scripts\python.exe scripts\financial_rag_market_context_smoke.py
 .\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py
 .\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py
 ```
 
-The first writes the evidence + market-context brief. The second writes the
-unified brief (evidence + optional gated answer + market context). The third
-launches the unified brief view: one screen pairing cited filing evidence with a
-market-context panel, with an opt-in gated answer.
+The first writes the unified brief (evidence + optional gated answer + market
+context) headlessly. The second launches the unified brief view: one screen
+pairing cited filing evidence with a market-context panel, with an opt-in gated
+answer.
 
 All are cache-only by default: they use a deterministic offline market snapshot
 labeled `Fallback`. Pass `--live-market` to source metrics from the volatility

@@ -1,5 +1,3 @@
-import importlib
-
 from src.financial_rag.synthesis import (
     DEFAULT_OPENAI_SYNTHESIS_MODEL,
     check_openai_readiness,
@@ -56,10 +54,6 @@ def test_validate_answer_citations_accepts_only_retrieved_labels() -> None:
 
     assert accepted[0]["chunk_id"] == "risk"
     assert rejected == ["S8"]
-
-
-def test_openai_smoke_script_is_importable() -> None:
-    assert importlib.import_module("scripts.financial_rag_openai_answer_smoke")
 
 
 class _FakeResponsesClient:

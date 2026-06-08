@@ -182,16 +182,14 @@ def test_fastapi_missing_dependency_has_clear_guidance() -> None:
             create_fastapi_app(_service())
 
 
-def test_phase7_keeps_phase1_to_phase6_command_modules_importable() -> None:
+def test_rag_command_modules_are_importable() -> None:
     modules = [
-        "scripts.financial_rag_phase1_smoke",
-        "scripts.financial_rag_phase2_retrieval_smoke",
-        "scripts.financial_rag_phase3_query_smoke",
-        "scripts.financial_rag_phase4_workbench_smoke",
-        "scripts.financial_rag_phase5_differentiators_report",
-        "scripts.financial_rag_phase6_demo_workflow",
-        "scripts.financial_rag_phase7_api_smoke",
-        "scripts.financial_rag_phase7_api_server",
+        "scripts.financial_rag_ingest",
+        "scripts.financial_rag_retrieval_repair",
+        "scripts.financial_rag_expanded_retrieval_eval",
+        "scripts.financial_rag_expanded_answer_eval",
+        "scripts.financial_rag_api_server",
+        "scripts.financial_rag_brief_smoke",
     ]
 
     for module in modules:

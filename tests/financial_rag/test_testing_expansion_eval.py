@@ -197,13 +197,11 @@ def test_answer_report_and_dry_run_answer_eval() -> None:
     assert report["pass_rate"] == 1.0
 
 
-def test_expanded_eval_scripts_importable_and_phase_commands_compatible() -> None:
+def test_expanded_eval_scripts_are_importable() -> None:
     modules = [
         "scripts.financial_rag_expanded_retrieval_eval",
         "scripts.financial_rag_expanded_answer_eval",
-        "scripts.financial_rag_phase1_smoke",
-        "scripts.financial_rag_phase7_api_smoke",
-        "scripts.financial_rag_openai_answer_smoke",
+        "scripts.financial_rag_ingest",
         "scripts.financial_rag_retrieval_repair",
     ]
 
