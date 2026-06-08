@@ -30,6 +30,11 @@ something they are not.
 
 ## Demo
 
+The unified brief — a cited filing answer beside an options-market context panel,
+each labeled as a distinct data source, with an opt-in citation-validated answer:
+
+![Unified filing + market brief](docs/assets/brief-view.png)
+
 The filings corpus is local-only (not committed). Build a small demo corpus once
 — a free SEC fetch; **no paid keys required** (set `SEC_USER_AGENT` in `.env`;
 Voyage embeddings are optional, lexical retrieval works without them):
