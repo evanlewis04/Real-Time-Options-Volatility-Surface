@@ -81,16 +81,59 @@ def check_realized_vol() -> str:
     return f"close_to_close_20d={close_to_close:.4f}"
 
 
-def check_brief() -> str:
-    from src.financial_rag.api import build_local_api_service
-    from src.financial_rag.integration import build_unified_brief, market_provider_from_metrics
-    from src.financial_rag.settings import project_root
+class _FixtureQueryEmbedder:
+    """Deterministic query embedder for the self-contained brief smoke."""
 
-    service = build_local_api_service(root=project_root(), use_voyage=False)
+    def embed_queries(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
+
+
+def _in_memory_service():
+    """Build a self-contained RAG service from an in-memory fixture chunk.
+
+    The healthcheck must pass on a fresh clone and in CI, where the gitignored
+    ``data/filings/chunks/`` cache is empty. Building the service from an in-memory
+    fixture (the same shape the integration tests use) exercises the full
+    retrieval -> citation -> brief-assembly path without depending on a fetched
+    corpus.
+    """
+    from src.financial_rag.api import LocalRagApiService
+    from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever
+
+    chunks = [
+        LocalChunkRecord(
+            chunk_id="risk",
+            chunk_text="Risk factors include data center demand and export controls.",
+            metadata={
+                "chunk_id": "risk",
+                "document_id": "doc",
+                "ticker": "NVDA",
+                "form_type": "10-K",
+                "filing_date": "2026-02-25",
+                "accession_number": "0001045810-26-000021",
+                "source_url": "https://www.sec.gov/Archives/doc.htm",
+                "document_role": "primary",
+                "exhibit_type": "",
+                "item_number": "1A",
+            },
+        )
+    ]
+    retriever = LocalDenseRetriever(
+        chunks=chunks,
+        embeddings={"risk": [1.0, 0.0]},
+        query_embedder=_FixtureQueryEmbedder(),
+    )
+    return LocalRagApiService(chunks=chunks, retriever=retriever)
+
+
+def check_brief() -> str:
+    from src.financial_rag.integration import build_unified_brief, market_provider_from_metrics
+
+    service = _in_memory_service()
     provider = market_provider_from_metrics(DETERMINISTIC_SNAPSHOT)
     brief = build_unified_brief(
         service,
-        question="How have NVIDIA data center demand disclosures changed over the last year?",
+        question="What does NVDA Item 1A say about data center demand risk?",
         ticker="NVDA",
         top_k=5,
         per_subquery_k=8,

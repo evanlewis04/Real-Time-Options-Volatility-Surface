@@ -29,13 +29,13 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint (ruff)
-        run: python -m ruff check src tests diagnostic.py dashboard_connector.py app.py scripts
+        run: python -m ruff check src tests scripts
 
       - name: Compile Python sources
-        run: python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py
+        run: python -m compileall src tests scripts
 
       - name: Test
         run: python -m pytest -q
 
-      - name: Dashboard smoke
+      - name: Brief smoke
         run: python -m scripts.healthcheck
