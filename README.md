@@ -1,18 +1,16 @@
-# Financial Filings Intelligence + Options Volatility
+# Financial Filing Market Intelligence
 
-A financial intelligence platform with two connected halves:
+A point-in-time SEC-filings research platform: ask an analyst question and get an
+answer grounded in 10-K / 10-Q / 8-K / EX-99 disclosure with **validated inline
+citations**, paired with a clearly-labeled options-market context panel. It is
+built on idempotent SEC ingestion, section-aware chunking, hybrid retrieval,
+citation-validated synthesis, and honest coverage reporting.
 
-- **Filings RAG** — answers analyst questions over SEC filings (10-K / 10-Q / 8-K /
-  EX-99) with **validated inline citations**, built on idempotent SEC ingestion,
-  section-aware chunking, hybrid retrieval, and honest coverage reporting.
-- **Options volatility workstation** — computes and visualizes implied-volatility
-  surfaces, skew, term structure, and expected moves from real option chains.
-
-The two meet in a **unified brief**: ask a question and get a cited filing answer
-beside an options-market context panel, with every value labeled by source and
-provenance. The defining principle throughout is **data honesty** — live, delayed,
-fallback, synthetic, retrieved, and model-derived values are never presented as
-something they are not.
+The defining principle is **data honesty**: retrieved, model-derived, and
+market-implied values are never presented as something they are not. Filing
+evidence (management disclosure, cited) and market context (options-market
+implied) stay in separate, provenance-labeled blocks and are never merged into a
+single claim.
 
 ## Why it's interesting
 
@@ -23,8 +21,9 @@ something they are not.
   surfaced honestly rather than hidden.
 - **A real eval harness** — retrieval and answer quality are measured (Recall@k,
   MRR, NDCG@k, section/source hit rate, citation validity), not just asserted.
-- **Provenance everywhere** — fitted surfaces, fallback chains, and retrieved
-  evidence carry explicit "not a market observation" labels.
+- **Separation of sources** — cited filing disclosure and options-market context
+  carry explicit, distinct provenance labels; the market panel is offline-safe
+  and labels itself unavailable when no snapshot is supplied.
 - **Measured, not bolted-on** — features that didn't earn their place (e.g. a
   reranker) ship as clearly-labeled opt-in infrastructure, not the default.
 
@@ -46,25 +45,18 @@ Voyage embeddings are optional, lexical retrieval works without them):
 Then:
 
 ```bash
-# 1) Unified brief: cited filing answer + options-market context (one screen)
+# Unified brief: cited filing answer + options-market context (one screen)
 .\venv\Scripts\python.exe -m streamlit run scripts\financial_rag_brief_view.py
 
-# 1b) Headless version (writes a JSON brief, no UI)
+# Headless version (writes a JSON brief, no UI)
 .\venv\Scripts\python.exe scripts\financial_rag_brief_smoke.py
-
-# 2) Options volatility workstation (runs offline on synthetic fallback data)
-.\venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 Add `--embed` to the corpus command (with `VOYAGE_API_KEY`) for dense retrieval,
 and `--answer` to the brief smoke (with `OPENAI_API_KEY`) for the opt-in
-generated answer.
-
-The volatility workstation shows data provenance, surface quality, and fit
-diagnostics in one view:
-
-![Dashboard overview](docs/assets/dashboard-overview.png)
-![3D implied-volatility surface](docs/assets/dashboard-surface-3d.png)
+generated answer. Market context defaults to a deterministic offline snapshot; it
+is attached through an injectable provider so the platform never depends on a live
+market feed.
 
 ## Eval results
 
@@ -92,7 +84,7 @@ the dated history and coverage notes.
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt   # or requirements.lock for pinned installs
-copy .env.example .env            # optional; needed only for live data / Voyage / OpenAI
+copy .env.example .env            # optional; needed only for SEC fetch / Voyage / OpenAI
 ```
 
 The default workflows are cache-only and run offline. SEC ingestion (Voyage
@@ -107,11 +99,11 @@ embeddings optional) is opt-in:
 | Command | What it does |
 | --- | --- |
 | `streamlit run scripts\financial_rag_brief_view.py` | Unified brief: cited filing evidence + market context. |
-| `streamlit run app.py` | Options volatility workstation. |
+| `python scripts\financial_rag_brief_smoke.py` | Headless brief (writes a JSON artifact, no UI). |
 | `python scripts\financial_rag_expanded_retrieval_eval.py` | Retrieval-quality eval (Recall@k, MRR, NDCG@k). |
 | `python scripts\financial_rag_retrieval_repair.py --fetch-sec --embed` | Build/refresh the local SEC corpus and Voyage vectors. |
 | `python scripts\financial_rag_api_server.py` | Optional local FastAPI adapter over the cache-only RAG service. |
-| `python scripts\verify.py` | Lint, compile, full pytest suite, and dashboard healthcheck. |
+| `python scripts\verify.py` | Lint, compile, full pytest suite, and the RAG brief healthcheck. |
 
 ## Architecture
 
@@ -120,16 +112,19 @@ src/
 |-- financial_rag/        # SEC ingestion, parsing, chunking, retrieval, query,
 |   |                     #   synthesis (citations), evaluation, audit, API,
 |   |                     #   differentiators, and the market-context integration
-|-- data/                 # yfinance providers, normalized models, synthetic fallback
-|-- pricing/ quant/ analysis/   # Black-Scholes, Greeks, IV solver, SVI, surface fitting
-`-- dashboard/            # Streamlit volatility workstation
+|-- marketdata/           # self-contained realized-volatility estimators
+`-- utils/                # structured logging + timing helpers
 ```
 
-The data path is documented in [docs/architecture.md](docs/architecture.md), the
-RAG-plus-market integration in
-[docs/financial-rag-market-context.md](docs/financial-rag-market-context.md),
-reviewer definitions in [docs/glossary.md](docs/glossary.md), and surface-fit
-quality and provenance in [docs/surface_quality.md](docs/surface_quality.md).
+The RAG-plus-market integration is documented in
+[docs/financial-rag-market-context.md](docs/financial-rag-market-context.md); the
+dated eval history and coverage notes are in
+[docs/financial-rag-eval-baseline.md](docs/financial-rag-eval-baseline.md).
+
+Market context attaches through an injectable provider seam
+(`market_provider_from_metrics`), so the RAG package has no dependency on any live
+market or volatility stack. When no snapshot is supplied, the market block is
+labeled `unavailable` and the path stays fully offline.
 
 ## Honest limitations
 
@@ -140,8 +135,8 @@ quality and provenance in [docs/surface_quality.md](docs/surface_quality.md).
 - A rerank stage exists but ships **opt-in, off by default**: it does not beat the
   domain-tuned first stage on the current eval, partly because the gold labels are
   resolved by that same scorer. The honest write-up is in the eval-baseline note.
-- yfinance market data may be delayed, incomplete, or rate-limited; the UI labels
-  live / delayed / fallback / synthetic states explicitly.
+- Market context is a deterministic offline snapshot by default; a live provider
+  is not part of this build. The market block is always source-labeled.
 
 ## Testing
 
@@ -150,10 +145,9 @@ quality and provenance in [docs/surface_quality.md](docs/surface_quality.md).
 .\venv\Scripts\python.exe scripts\verify.py
 ```
 
-Tests cover Black-Scholes pricing and Greeks, IV round trips, option-chain
-cleaning, provider contracts, surface fitting and validation, SEC parsing and
-chunking, retrieval and citation validation, eval metrics, API contracts, and the
-unified brief.
+Tests cover SEC parsing and chunking, retrieval and citation validation, eval
+metrics, API contracts, the realized-volatility estimators, and the unified
+filing + market brief.
 
 ## Disclaimer
 

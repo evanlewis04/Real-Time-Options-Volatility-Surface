@@ -24,9 +24,39 @@ from src.financial_rag.integration import (
     market_provider_from_metrics,
     volatility_market_provider,
 )
-from src.dashboard.theme import inject_theme
 from src.financial_rag.settings import project_root
 from src.financial_rag.workbench import answer_citation_rows, company_options, evidence_rows
+
+# Self-contained Apple-clean light theme for the recruiter-facing brief view.
+# Kept inline (no dependency on the retired dashboard theme module) so this view
+# stays styled after the dashboard/quant stack was cut.
+_BRIEF_THEME_CSS = """
+<style>
+:root {
+    --bg: #F5F5F7; --panel: #FFFFFF; --ink: #1D1D1F; --muted: #515154;
+    --line: #D2D2D7; --accent: #0071E3;
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Inter", Arial, sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+}
+.stApp { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; }
+h1, h2, h3 { color: var(--ink); font-weight: 600; letter-spacing: -0.01em; }
+section[data-testid="stSidebar"] { background: var(--panel); border-right: 1px solid var(--line); }
+[data-testid="stMetric"], div[data-testid="stDataFrame"], div[data-testid="stJson"] {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+}
+[data-testid="stMetricValue"], code, pre, div[data-testid="stDataFrame"] {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+}
+.stButton > button[kind="primary"], .stButton > button[data-testid="baseButton-primary"] {
+    background: var(--accent); color: #FFFFFF; border: none; border-radius: 8px; font-weight: 500;
+}
+</style>
+"""
+
+
+def inject_theme(st_module: Any) -> None:
+    """Apply the inlined light theme to the Streamlit app."""
+    st_module.markdown(_BRIEF_THEME_CSS, unsafe_allow_html=True)
 
 DETERMINISTIC_SNAPSHOT = {
     "source_mode": "Fallback",

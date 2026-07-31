@@ -159,38 +159,18 @@ def market_provider_from_metrics(snapshot: dict[str, Any]) -> Callable[[str], di
     return _provider
 
 
-def volatility_market_provider(ticker: str) -> dict[str, Any]:
-    """Provider backed by the existing volatility engine (lazy, optional).
+def volatility_market_provider(_ticker: str) -> dict[str, Any]:
+    """Placeholder for a live volatility-engine provider (currently unavailable).
 
-    Imports the dashboard connector lazily so the RAG package never hard-depends
-    on the dashboard/quant stack. Any failure (missing stack, no market data)
-    propagates to ``get_market_context``, which labels the context unavailable.
+    The live options/volatility engine that once backed this provider is not part
+    of this filings-intelligence build, so there is no live market source to call.
+    Raising here is the documented seam: ``get_market_context`` catches it and
+    labels the market context ``unavailable``, keeping the offline path honest. To
+    attach real metrics, build a provider from a precomputed snapshot with
+    :func:`market_provider_from_metrics` and pass it as ``market_provider``.
     """
 
-    from dashboard_connector import DashboardConnector
-
-    connector = DashboardConnector()
-    data = connector.get_current_data(ticker.upper())
-    metric_keys = (
-        "price",
-        "iv_30d",
-        "iv_rank",
-        "expected_move",
-        "expected_move_pct",
-        "front_expected_move_pct",
-        "skew",
-        "term_structure",
-        "timestamp",
+    raise RuntimeError(
+        "No live volatility-engine provider is available in this build; supply a "
+        "market snapshot via market_provider_from_metrics instead."
     )
-    metrics = {key: data[key] for key in metric_keys if key in data}
-    # The connector reports its snapshot time as a datetime; the metrics payload
-    # is serialized (headless brief JSON, API responses), so normalize it to an
-    # ISO string rather than leaking a non-JSON-serializable object downstream.
-    timestamp = metrics.get("timestamp")
-    if hasattr(timestamp, "isoformat"):
-        metrics["timestamp"] = timestamp.isoformat()
-    return {
-        "source_mode": str(data.get("data_mode", data.get("source_mode", ""))),
-        "message": "Market context from the volatility engine.",
-        "metrics": metrics,
-    }

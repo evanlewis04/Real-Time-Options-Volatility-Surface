@@ -1,27 +1,34 @@
-"""Project healthcheck for CI and local smoke testing."""
+"""Project healthcheck for CI and local smoke testing.
+
+Exercises the filings-intelligence keep-set offline: the RAG import surface, the
+realized-volatility estimator, and an end-to-end unified analyst brief built from
+the local cache with a deterministic market snapshot (no network, no OpenAI).
+"""
 
 from __future__ import annotations
 
-import os
 import sys
-import logging
-from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, List
 
 import numpy as np
+import pandas as pd
 
-STREAMLIT_CONTEXT_LOGGER = "streamlit.runtime.scriptrunner_utils.script_run_context"
-os.environ.setdefault("STREAMLIT_LOG_LEVEL", "error")
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-
-def _quiet_streamlit_context_warning() -> None:
-    logger = logging.getLogger(STREAMLIT_CONTEXT_LOGGER)
-    logger.setLevel(logging.ERROR)
-    logger.disabled = True
-
-
-_quiet_streamlit_context_warning()
+# Deterministic offline market snapshot mirrored from the brief smoke: keeps the
+# healthcheck fully local (no volatility engine, no yfinance, no OpenAI).
+DETERMINISTIC_SNAPSHOT = {
+    "source_mode": "Fallback",
+    "message": "Deterministic offline market snapshot (not live).",
+    "front_expected_move_pct": 8.2,
+    "iv_rank": 64.0,
+    "iv_30d": 0.52,
+    "skew": -0.04,
+}
 
 
 @dataclass
@@ -39,131 +46,80 @@ def _run(name: str, fn: Callable[[], str]) -> CheckResult:
         return CheckResult(name, False, f"{type(exc).__name__}: {exc}")
 
 
-@contextmanager
-def _deterministic_offline_market_data():
-    """Force local smoke checks away from yfinance/network providers."""
-    from src.data import options_provider, price_provider
-
-    previous_price_yfinance = price_provider.YFINANCE_AVAILABLE
-    previous_options_yfinance = options_provider.YFINANCE_AVAILABLE
-    previous_random_state = np.random.get_state()
-    price_provider.YFINANCE_AVAILABLE = False
-    options_provider.YFINANCE_AVAILABLE = False
-    np.random.seed(0)
-    try:
-        yield
-    finally:
-        price_provider.YFINANCE_AVAILABLE = previous_price_yfinance
-        options_provider.YFINANCE_AVAILABLE = previous_options_yfinance
-        np.random.set_state(previous_random_state)
-
-
 def check_imports() -> str:
-    import dashboard_connector  # noqa: F401
-    from src.dashboard import run_dashboard  # noqa: F401
-    from src.dashboard.loading import LoadingState, render_loading_state  # noqa: F401
-    from src.dashboard.surface_view import surface_stats  # noqa: F401
-    from src.dashboard.tables import filter_option_chain  # noqa: F401
-    from src.dashboard.theme import apply_chart_layout  # noqa: F401
-    from src.dashboard.tooltips import COLUMN_HELP, CONTROL_HELP  # noqa: F401
-    from src.data.historical import HistoricalPriceLoader  # noqa: F401
-    from src.data.market_calendar import MarketCalendar  # noqa: F401
-    from src.data.models import MarketDataSnapshot, OptionQuote  # noqa: F401
-    from src.data.options_provider import YFinanceOptionsProvider  # noqa: F401
-    from src.data.retry import call_with_backoff  # noqa: F401
-    from src.data.snapshots import save_snapshot  # noqa: F401
-    from src.pricing.black_scholes import BlackScholesModel  # noqa: F401
-    from src.pricing.implied_vol import ImpliedVolatilityCalculator  # noqa: F401
-    from src.quant.arbitrage import apply_no_arbitrage_checks  # noqa: F401
-    from src.quant.corporate_actions import CorporateActionProvider  # noqa: F401
-    from src.quant.dividends import DividendProvider  # noqa: F401
-    from src.quant.rates import RiskFreeRateProvider  # noqa: F401
-    from src.quant.smoothing import smooth_iv_surface  # noqa: F401
-    from src.quant.svi import calibrate_svi_by_expiry  # noqa: F401
-
-    return "core and dashboard modules imported"
-
-
-def check_pricing() -> str:
-    from src.pricing.black_scholes import BlackScholesModel
-    from src.pricing.implied_vol import ImpliedVolatilityCalculator
-    from src.quant.dividends import DividendProvider
-    from src.quant.rates import RiskFreeRateProvider
-
-    rate = RiskFreeRateProvider().get_curve().rate_for_dte(180).rate
-    dividend_yield = DividendProvider().get("AAPL").annual_yield
-    price = BlackScholesModel.call_price(100.0, 100.0, 0.5, rate, 0.25, q=dividend_yield)
-    iv, method = ImpliedVolatilityCalculator().calculate_implied_vol(
-        price, 100.0, 100.0, 0.5, rate, "call", q=dividend_yield, method="brent"
+    from src.financial_rag.api import build_local_api_service  # noqa: F401
+    from src.financial_rag.differentiators import get_market_context  # noqa: F401
+    from src.financial_rag.integration import (  # noqa: F401
+        build_unified_brief,
+        market_provider_from_metrics,
+        volatility_market_provider,
     )
-    if iv is None or abs(iv - 0.25) > 1e-4:
-        raise AssertionError(f"IV round trip failed: {iv}")
-    return f"call={price:.4f}, iv={iv:.4f}, method={method}"
+    from src.financial_rag.settings import project_root  # noqa: F401
+    from src.marketdata.realized_vol import latest_realized_volatility  # noqa: F401
+
+    return "financial_rag and marketdata modules imported"
 
 
-def check_surface() -> str:
-    from src.analysis.surface_builder import build_surface
-    from src.data.price_provider import RealTimePriceProvider
-    from src.data.synthetic_options import SyntheticOptionsGenerator
+def check_realized_vol() -> str:
+    from src.marketdata.realized_vol import latest_realized_volatility, realized_volatility_estimators
 
-    with _deterministic_offline_market_data():
-        provider = RealTimePriceProvider()
-        generator = SyntheticOptionsGenerator(provider, demo_seed=0)
-        spot = provider.get_live_price("AAPL")
-        chain = generator.create_chain("AAPL", spot_price=spot)
-    _, _, vols = build_surface(chain, spot, "AAPL")
-    if vols.size == 0:
-        raise AssertionError("surface has no points")
-    return f"surface shape={vols.shape}, rows={len(chain)}"
+    rng = np.random.default_rng(0)
+    closes = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, size=120)))
+    frame = pd.DataFrame(
+        {
+            "Open": closes,
+            "High": closes * 1.01,
+            "Low": closes * 0.99,
+            "Close": closes,
+        }
+    )
+    estimates = realized_volatility_estimators(frame, windows=(20,))
+    latest = latest_realized_volatility(estimates)
+    close_to_close = latest.get("close_to_close_20d")
+    if close_to_close is None or not np.isfinite(close_to_close):
+        raise AssertionError(f"realized vol not finite: {latest}")
+    return f"close_to_close_20d={close_to_close:.4f}"
 
 
-def check_connector() -> str:
-    from dashboard_connector import DashboardConnector
+def check_brief() -> str:
+    from src.financial_rag.api import build_local_api_service
+    from src.financial_rag.integration import build_unified_brief, market_provider_from_metrics
+    from src.financial_rag.settings import project_root
 
-    with _deterministic_offline_market_data():
-        connector = DashboardConnector()
-        data = connector.get_current_data("AAPL")
-        required = {"price", "data_mode", "iv_30d", "timestamp"}
-        missing = required - set(data)
-        if missing:
-            raise AssertionError(f"missing connector fields: {sorted(missing)}")
-        health = connector.get_system_health()
-        snapshot = connector.get_market_data_snapshot("AAPL")
-        if snapshot.symbol != "AAPL":
-            raise AssertionError("snapshot symbol mismatch")
-        market_status = connector.get_market_status()
+    service = build_local_api_service(root=project_root(), use_voyage=False)
+    provider = market_provider_from_metrics(DETERMINISTIC_SNAPSHOT)
+    brief = build_unified_brief(
+        service,
+        question="How have NVIDIA data center demand disclosures changed over the last year?",
+        ticker="NVDA",
+        top_k=5,
+        per_subquery_k=8,
+        market_provider=provider,
+        run_answer=False,
+    )
+    payload = brief.to_dict()
+
+    if payload["filing_evidence"]["result_count"] < 1:
+        raise AssertionError("brief returned no filing evidence")
+    if not payload["filing_evidence"]["accepted_citations"]:
+        raise AssertionError("brief returned no accepted citations")
+    if payload["market_context"]["status"] != "ok":
+        raise AssertionError(f"market context status={payload['market_context']['status']}")
+    labels = {source["label"] for source in payload["data_sources"]}
+    if len(labels) != 2:
+        raise AssertionError(f"expected two labeled data sources, got {sorted(labels)}")
     return (
-        f"mode={data['data_mode']}, yfinance={health['overall'].get('yfinance_available')}, "
-        f"snapshot_options={len(snapshot.options)}, market={market_status.get('session_state')}"
+        f"results={payload['filing_evidence']['result_count']}, "
+        f"citations={len(payload['filing_evidence']['accepted_citations'])}, "
+        f"market={payload['market_context']['status']}"
     )
-
-
-def check_streamlit_testing() -> str:
-    from streamlit.testing.v1 import AppTest
-
-    _quiet_streamlit_context_warning()
-    previous_test_env = os.environ.get("PYTEST_CURRENT_TEST")
-    os.environ["PYTEST_CURRENT_TEST"] = "scripts.healthcheck::streamlit_offline_smoke"
-    at = AppTest.from_file("app.py")
-    try:
-        at.run(timeout=90)
-    finally:
-        if previous_test_env is None:
-            os.environ.pop("PYTEST_CURRENT_TEST", None)
-        else:
-            os.environ["PYTEST_CURRENT_TEST"] = previous_test_env
-    if len(at.exception) > 0:
-        raise AssertionError(f"{len(at.exception)} Streamlit exceptions")
-    return f"metrics={len(at.metric)}, dataframes={len(at.dataframe)}"
 
 
 def main() -> int:
     checks: List[CheckResult] = [
         _run("imports", check_imports),
-        _run("pricing", check_pricing),
-        _run("surface", check_surface),
-        _run("connector", check_connector),
-        _run("streamlit", check_streamlit_testing),
+        _run("realized_vol", check_realized_vol),
+        _run("brief", check_brief),
     ]
 
     print("PROJECT HEALTHCHECK")

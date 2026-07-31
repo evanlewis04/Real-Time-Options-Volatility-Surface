@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.quant.realized_vol import latest_realized_volatility, realized_volatility_estimators
+from src.marketdata.realized_vol import latest_realized_volatility, realized_volatility_estimators
 
 
 def test_realized_volatility_estimators_return_annualized_ohlc_metrics():
