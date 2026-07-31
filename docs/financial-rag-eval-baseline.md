@@ -118,7 +118,7 @@ Regenerated locally after ~8 weeks by re-fetching all 12 tickers from SEC EDGAR
 inside free-tier limits), so only the offline column is refreshed here; dense
 retrieval still works via `--embed` + `--use-voyage`. Environment: Python 3.13,
 pandas 3.0 / numpy 2.5 / streamlit 1.60 (current majors). Full `scripts/verify.py`
-is green (lint, compile, 315 tests, dashboard healthcheck).
+is green (lint, compile, 316 tests, dashboard healthcheck).
 
 Corpus now: 12 tickers, 76 documents, 6,259 chunks (vs the May snapshot's 6,527) —
 the SEC filings rolled forward, so the underlying documents are not identical to
