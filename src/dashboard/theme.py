@@ -1,15 +1,24 @@
 """Dashboard styling and Plotly theme helpers.
 
-Design token map:
+Design token map (Apple-clean light system):
 - Color tokens are semantic: surfaces, borders, text, accent, data states, and
   series colors. Components should consume tokens instead of raw hex values.
-- Type tokens define one UI family and one numeric mono family. Numeric UI uses
-  tabular numbers and a slashed zero for scan-heavy workstation reading.
-- Space tokens follow a 4-point scale. Component gaps, padding, and margins use
-  these values so dense layouts stay regular across breakpoints.
-- Radius tokens stop at 8px. Panels use hairline borders plus a 1px inset
-  highlight instead of heavy shadows.
-- Motion tokens are limited to subtle 120ms/200ms hover and focus treatments.
+- Surfaces are light (page `#F5F5F7`, cards `#FFFFFF`); text is near-black
+  (`#1D1D1F`) with mid-gray secondary/tertiary. Borders are hairline light-gray
+  (`#D2D2D7`) paired with soft drop shadows instead of heavy dark borders.
+- One restrained accent (Apple-blue `#0071E3`) carries primary actions, links,
+  and focus only — it is never decorative. Data-state colors are muted, not the
+  saturated trading-terminal red/green/amber.
+- Type tokens define one UI family (system font stack) and one numeric mono
+  family. Numeric UI keeps tabular numbers and a slashed zero for scan-heavy
+  reading of prices and tables.
+- Space tokens follow a 4-point scale. Radius tokens run 8/10/14px for the
+  softer, rounded Apple panel feel. Motion is calm: 200ms/300ms hover and focus.
+
+A matching dark variant is intentionally out of scope for this pass: Streamlit
+native widgets read a single base theme from `.streamlit/config.toml` and Plotly
+charts are colored server-side, so a coherent light+dark toggle needs runtime
+theme switching rather than a reskin.
 """
 
 from __future__ import annotations
@@ -17,57 +26,57 @@ from __future__ import annotations
 import plotly.graph_objects as go
 
 
-SURFACE_0 = "#0B0D10"
-SURFACE_1 = "#11141A"
-SURFACE_2 = "#171B22"
-SURFACE_3 = "#1E232B"
-BORDER_SUBTLE = "rgba(255, 255, 255, 0.06)"
-BORDER_DEFAULT = "rgba(255, 255, 255, 0.12)"
-BORDER_STRONG = "rgba(255, 255, 255, 0.2)"
-TEXT_PRIMARY = "#F4F7FB"
-TEXT_SECONDARY = "#B6C0CC"
-TEXT_TERTIARY = "#7F8A98"
-ACCENT = "#F5A524"
-DATA_LIVE = "#22D3A8"
-DATA_SYNTHETIC = "#F5A524"
-DATA_FALLBACK = "#FF5C5C"
-DATA_STALE = "#A79D90"
+SURFACE_0 = "#F5F5F7"
+SURFACE_1 = "#FFFFFF"
+SURFACE_2 = "#F0F0F3"
+SURFACE_3 = "#E8E8ED"
+BORDER_SUBTLE = "rgba(0, 0, 0, 0.06)"
+BORDER_DEFAULT = "#D2D2D7"
+BORDER_STRONG = "rgba(0, 0, 0, 0.22)"
+TEXT_PRIMARY = "#1D1D1F"
+TEXT_SECONDARY = "#515154"
+TEXT_TERTIARY = "#86868B"
+ACCENT = "#0071E3"
+DATA_LIVE = "#1E9E63"
+DATA_SYNTHETIC = "#B7791F"
+DATA_FALLBACK = "#C4362E"
+DATA_STALE = "#8A8A8E"
 
 CHART_BG = SURFACE_0
 PANEL_BG = SURFACE_1
-GRID_COLOR = "rgba(255,255,255,0.08)"
-LINE_COLOR = "rgba(255,255,255,0.16)"
+GRID_COLOR = "rgba(0,0,0,0.08)"
+LINE_COLOR = "rgba(0,0,0,0.14)"
 INK = TEXT_PRIMARY
 MUTED = TEXT_SECONDARY
 
 SERIES_PALETTE = (
-    "#22D3A8",
-    "#60A5FA",
-    "#F5A524",
-    "#F472B6",
-    "#A78BFA",
-    "#34D399",
-    "#FB7185",
-    "#FACC15",
+    "#0071E3",
+    "#1E9E63",
+    "#E8833A",
+    "#AF52DE",
+    "#FF2D55",
+    "#00A0B0",
+    "#5856D6",
+    "#B7791F",
 )
 
 DIVERGING_SCALE = [
-    [0.00, "#1C2A5E"],
-    [0.18, "#2563EB"],
-    [0.36, "#22D3A8"],
-    [0.50, "#E7ECEF"],
-    [0.64, "#F5A524"],
-    [0.82, "#F97316"],
+    [0.00, "#08519C"],
+    [0.25, "#3B82F6"],
+    [0.45, "#AECBFA"],
+    [0.50, "#F0F0F3"],
+    [0.55, "#F6B5A8"],
+    [0.75, "#E5533D"],
     [1.00, "#B42318"],
 ]
 
 SEQUENTIAL_SCALE = [
-    [0.00, "#0B0D10"],
-    [0.18, "#132331"],
-    [0.36, "#14545D"],
-    [0.56, "#168F83"],
-    [0.76, "#F5A524"],
-    [1.00, "#FFE08A"],
+    [0.00, "#F5F5F7"],
+    [0.20, "#CFE3F8"],
+    [0.40, "#93C0F0"],
+    [0.60, "#3B8EE5"],
+    [0.80, "#0071E3"],
+    [1.00, "#0A4A9E"],
 ]
 
 
@@ -75,34 +84,34 @@ CSS = """
 <style>
     /* === tokens === */
     :root {
-        --surface-0: #0B0D10;
-        --surface-1: #11141A;
-        --surface-2: #171B22;
-        --surface-3: #1E232B;
-        --border-subtle: rgba(255, 255, 255, 0.06);
-        --border-default: rgba(255, 255, 255, 0.12);
-        --border-strong: rgba(255, 255, 255, 0.2);
-        --text-primary: #F4F7FB;
-        --text-secondary: #B6C0CC;
-        --text-tertiary: #7F8A98;
-        --text-inverse: #0B0D10;
-        --accent: #F5A524;
-        --accent-hover: #FFC85A;
-        --accent-muted: rgba(245, 165, 36, 0.08);
-        --data-live: #22D3A8;
-        --data-synthetic: #F5A524;
-        --data-fallback: #FF5C5C;
-        --data-stale: #A79D90;
-        --series-1: #22D3A8;
-        --series-2: #60A5FA;
-        --series-3: #F5A524;
-        --series-4: #F472B6;
-        --series-5: #A78BFA;
-        --series-6: #34D399;
-        --series-7: #FB7185;
-        --series-8: #FACC15;
-        --font-ui: "Inter", "Segoe UI", Arial, sans-serif;
-        --font-mono: "JetBrains Mono", "Cascadia Mono", "IBM Plex Mono", Consolas, monospace;
+        --surface-0: #F5F5F7;
+        --surface-1: #FFFFFF;
+        --surface-2: #F0F0F3;
+        --surface-3: #E8E8ED;
+        --border-subtle: rgba(0, 0, 0, 0.06);
+        --border-default: #D2D2D7;
+        --border-strong: rgba(0, 0, 0, 0.22);
+        --text-primary: #1D1D1F;
+        --text-secondary: #515154;
+        --text-tertiary: #86868B;
+        --text-inverse: #FFFFFF;
+        --accent: #0071E3;
+        --accent-hover: #0077ED;
+        --accent-muted: rgba(0, 113, 227, 0.08);
+        --data-live: #1E9E63;
+        --data-synthetic: #B7791F;
+        --data-fallback: #C4362E;
+        --data-stale: #8A8A8E;
+        --series-1: #0071E3;
+        --series-2: #1E9E63;
+        --series-3: #E8833A;
+        --series-4: #AF52DE;
+        --series-5: #FF2D55;
+        --series-6: #00A0B0;
+        --series-7: #5856D6;
+        --series-8: #B7791F;
+        --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", "Inter", Arial, sans-serif;
+        --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Mono", "IBM Plex Mono", Consolas, monospace;
         --text-xs: 11px;
         --text-sm: 12px;
         --text-base: 13px;
@@ -118,13 +127,15 @@ CSS = """
         --s-6: 24px;
         --s-7: 28px;
         --s-8: 32px;
-        --r-sm: 4px;
-        --r-md: 6px;
-        --r-lg: 8px;
-        --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-        --motion-standard: 120ms;
-        --motion-emphasis: 200ms;
-        --panel-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        --r-sm: 8px;
+        --r-md: 10px;
+        --r-lg: 14px;
+        --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+        --motion-standard: 200ms;
+        --motion-emphasis: 300ms;
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+        --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+        --panel-highlight: 0 1px 2px rgba(0, 0, 0, 0.04);
 
         /* Compatibility aliases for existing selectors and tests. */
         --bg: var(--surface-0);
@@ -180,14 +191,14 @@ CSS = """
         height: 32px;
         border: 1px solid var(--border-default);
         border-radius: var(--r-md);
-        background: var(--surface-2);
+        background: var(--surface-1);
         color: var(--accent);
-        box-shadow: var(--panel-highlight);
+        box-shadow: var(--shadow-sm);
     }
     header[data-testid="stHeader"] button[aria-label*="sidebar" i]:hover,
     header[data-testid="stHeader"] [data-testid*="Sidebar" i] button:hover,
     header[data-testid="stHeader"] [data-testid*="sidebar" i] button:hover {
-        border-color: rgba(245,165,36,0.55);
+        border-color: rgba(0,113,227,0.55);
         background: var(--accent-muted);
     }
     div[data-testid="stToolbar"], #MainMenu, footer {
@@ -203,12 +214,12 @@ CSS = """
         padding-top: 0 !important;
     }
     .block-container {
-        padding: var(--s-1) var(--s-5) var(--s-6);
+        padding: var(--s-3) var(--s-6) var(--s-8);
         max-width: 1540px;
     }
     a, a:visited { color: var(--accent); }
     :focus-visible {
-        outline: 2px solid var(--accent-hover) !important;
+        outline: 2px solid var(--accent) !important;
         outline-offset: 2px !important;
         border-radius: var(--r-sm);
     }
@@ -221,19 +232,19 @@ CSS = """
         border: 1px solid var(--border-default);
         background: var(--surface-1);
         border-radius: var(--r-lg);
-        margin-bottom: var(--s-3);
-        box-shadow: var(--panel-highlight);
+        margin-bottom: var(--s-4);
+        box-shadow: var(--shadow-sm);
         overflow: hidden;
     }
     .workstation-topline {
-        min-height: 32px;
+        min-height: 36px;
         display: flex;
         justify-content: space-between;
         gap: var(--s-4);
         align-items: center;
-        padding: var(--s-2) var(--s-3);
+        padding: var(--s-2) var(--s-4);
         border-bottom: 1px solid var(--border-subtle);
-        background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+        background: var(--surface-1);
     }
     .brand-cluster, .header-cluster {
         display: flex;
@@ -248,14 +259,14 @@ CSS = """
         font-weight: 800;
         line-height: 1;
         padding: 5px 7px;
-        border: 1px solid rgba(245,165,36,0.38);
+        border: 1px solid rgba(0,113,227,0.28);
         border-radius: var(--r-sm);
         background: var(--accent-muted);
         }
     .workstation-kicker {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         line-height: 1;
         text-transform: uppercase;
     }
@@ -290,26 +301,26 @@ CSS = """
         display: grid;
         grid-template-columns: minmax(180px, 1.15fr) repeat(5, minmax(92px, 0.7fr));
         align-items: stretch;
-        min-height: 44px;
+        min-height: 48px;
         border-bottom: 1px solid var(--border-subtle);
     }
     .workstation-symbol-block {
         display: flex;
         align-items: baseline;
         gap: var(--s-3);
-        padding: var(--s-2) var(--s-3);
+        padding: var(--s-2) var(--s-4);
         min-width: 0;
     }
     .workstation-symbol {
         color: var(--text-primary);
         font-size: var(--text-display);
-        font-weight: 800;
+        font-weight: 700;
         line-height: 1;
     }
     .workstation-spot {
         color: var(--accent);
         font-size: var(--text-lg);
-        font-weight: 800;
+        font-weight: 700;
     }
     .spot-delta {
         color: var(--data-live);
@@ -319,27 +330,27 @@ CSS = """
     }
     .kpi-strip-tile {
         border-left: 1px solid var(--border-subtle);
-        padding: var(--s-2) var(--s-3);
+        padding: var(--s-2) var(--s-4);
         min-width: 0;
     }
     .kpi-strip-label {
         color: var(--text-tertiary);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         line-height: 1.1;
         text-transform: uppercase;
     }
     .kpi-strip-value {
         color: var(--text-primary);
         font-size: var(--text-md);
-        font-weight: 800;
+        font-weight: 700;
         margin-top: 2px;
         overflow-wrap: anywhere;
     }
     .function-key-strip {
         display: grid;
         grid-template-columns: repeat(10, minmax(max-content, 1fr));
-        min-height: 36px;
+        min-height: 40px;
         border-top: 1px solid var(--border-subtle);
         border-bottom: 1px solid var(--border-subtle);
         background: var(--surface-0);
@@ -359,7 +370,7 @@ CSS = """
         cursor: pointer;
         font-family: var(--font-mono);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         min-width: max-content;
         padding: 0 var(--s-3);
         text-transform: uppercase;
@@ -386,24 +397,24 @@ CSS = """
     .workstation-tape span {
         border-right: 1px solid var(--border-subtle);
         background: var(--surface-1);
-        padding: var(--s-2) var(--s-3);
+        padding: var(--s-2) var(--s-4);
         overflow-wrap: anywhere;
     }
     .workstation-tape strong {
         color: var(--text-primary);
-        font-weight: 750;
+        font-weight: 700;
     }
     .workstation-readiness {
         border-left: 2px solid var(--accent);
         background: var(--accent-muted);
-        margin: var(--s-3);
+        margin: var(--s-4);
         padding: var(--s-2) var(--s-3);
         border-radius: var(--r-md);
     }
     .readiness-title {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
     }
     .readiness-detail {
@@ -415,7 +426,7 @@ CSS = """
         display: flex;
         flex-wrap: wrap;
         gap: var(--s-1);
-        padding: 0 var(--s-3) var(--s-3);
+        padding: 0 var(--s-4) var(--s-3);
     }
 
     /* === command rail === */
@@ -423,30 +434,29 @@ CSS = """
         width: 280px !important;
         border-right: 1px solid var(--border-default);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
     }
     section[data-testid="stSidebar"] > div {
-        padding: var(--s-3) var(--s-3) var(--s-5);
+        padding: var(--s-4) var(--s-4) var(--s-5);
     }
     .rail-heading {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
         margin: var(--s-3) 0 var(--s-2);
     }
     .rail-panel {
         border: 1px solid var(--border-default);
         border-radius: var(--r-md);
-        background: var(--surface-2);
-        box-shadow: var(--panel-highlight);
+        background: var(--surface-1);
+        box-shadow: var(--shadow-sm);
         padding: var(--s-3);
         margin-bottom: var(--s-3);
     }
     .rail-command-label {
         color: var(--text-tertiary);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
         margin-bottom: var(--s-1);
     }
@@ -460,19 +470,19 @@ CSS = """
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        height: 24px;
+        height: 26px;
         border: 1px solid var(--border-default);
         border-radius: var(--r-sm);
         background: var(--surface-0);
         color: var(--text-secondary);
         font-size: var(--text-xs);
-        font-weight: 700;
+        font-weight: 600;
         padding: 0 var(--s-2);
     }
     .rail-chip.active {
-        border-color: rgba(245,165,36,0.55);
+        border-color: rgba(0,113,227,0.55);
         background: var(--accent-muted);
-        color: var(--text-primary);
+        color: var(--accent);
     }
     .rail-dot, .status-dot {
         width: 6px;
@@ -492,13 +502,13 @@ CSS = """
         color: var(--text-primary);
         font-family: var(--font-mono);
         font-size: var(--text-xl);
-        font-weight: 800;
+        font-weight: 700;
         line-height: 1;
     }
     .rail-context-spot {
         color: var(--accent);
         font-size: var(--text-lg);
-        font-weight: 800;
+        font-weight: 700;
     }
     .rail-context-meta {
         color: var(--text-tertiary);
@@ -519,30 +529,30 @@ CSS = """
     section[data-testid="stSidebar"] details[data-testid="stExpander"] {
         border: 1px solid var(--border-default);
         border-radius: var(--r-md);
-        background: var(--surface-2);
-        box-shadow: var(--panel-highlight);
+        background: var(--surface-1);
+        box-shadow: var(--shadow-sm);
         margin-bottom: var(--s-3);
         overflow: hidden;
     }
     section[data-testid="stSidebar"] details[data-testid="stExpander"] summary {
-        min-height: 34px;
+        min-height: 36px;
         color: var(--text-primary);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
         border-bottom: 1px solid var(--border-subtle);
-        background: var(--surface-1);
-        padding: 0 var(--s-2);
+        background: var(--surface-2);
+        padding: 0 var(--s-3);
     }
     section[data-testid="stSidebar"] details[data-testid="stExpander"] summary:hover {
         background: var(--surface-3);
-        color: var(--accent-hover);
+        color: var(--accent);
     }
     section[data-testid="stSidebar"] details[data-testid="stExpander"] > div {
-        padding: var(--s-2) var(--s-2) var(--s-3);
+        padding: var(--s-2) var(--s-3) var(--s-3);
     }
     section[data-testid="stSidebar"] div[data-testid="stButton"] button {
-        min-height: 26px;
+        min-height: 28px;
         border-radius: var(--r-sm);
         font-family: var(--font-mono);
         font-size: var(--text-xs);
@@ -562,21 +572,21 @@ CSS = """
     div[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
     div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div,
     div[data-testid="stNumberInput"] input {
-        background: var(--surface-0);
+        background: var(--surface-1);
         border: 1px solid var(--border-default);
-        border-radius: var(--r-md);
+        border-radius: var(--r-sm);
         color: var(--text-primary);
-        min-height: 34px;
+        min-height: 36px;
         box-shadow: none;
-        transition: border-color var(--motion-standard) var(--ease-out), background var(--motion-standard) var(--ease-out);
+        transition: border-color var(--motion-standard) var(--ease-out), box-shadow var(--motion-standard) var(--ease-out);
     }
     div[data-testid="stTextInput"] input:hover,
     section[data-testid="stSidebar"] div[data-baseweb="select"] > div:hover,
     div[data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
     div[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover,
     div[data-testid="stNumberInput"] input:hover {
-        border-color: rgba(245,165,36,0.5);
-        background: var(--surface-2);
+        border-color: rgba(0,113,227,0.5);
+        box-shadow: 0 0 0 3px rgba(0,113,227,0.10);
     }
     div[data-baseweb="select"] input,
     div[data-baseweb="select"] span,
@@ -589,26 +599,26 @@ CSS = """
         background: var(--surface-1);
         border: 1px solid var(--border-default);
         border-radius: var(--r-md);
-        box-shadow: 0 16px 38px rgba(0, 0, 0, 0.45);
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
     }
     div[data-baseweb="popover"] [role="option"] {
         color: var(--text-primary);
-        font-weight: 650;
+        font-weight: 550;
     }
     div[data-baseweb="popover"] [role="option"]:hover,
     div[data-baseweb="popover"] [aria-selected="true"] {
         background: var(--accent-muted);
-        color: var(--accent-hover);
+        color: var(--accent);
     }
     span[data-baseweb="tag"] {
-        background: rgba(34, 211, 168, 0.08);
-        border: 1px solid rgba(34, 211, 168, 0.38);
+        background: rgba(0, 113, 227, 0.08);
+        border: 1px solid rgba(0, 113, 227, 0.35);
         border-radius: var(--r-sm);
-        color: var(--text-primary);
-        font-weight: 700;
+        color: var(--accent);
+        font-weight: 600;
     }
-    span[data-baseweb="tag"] span { color: var(--text-primary); }
-    span[data-baseweb="tag"] svg { fill: var(--text-tertiary); }
+    span[data-baseweb="tag"] span { color: var(--accent); }
+    span[data-baseweb="tag"] svg { fill: var(--accent); }
     div[data-testid="stSlider"] {
         padding-top: 0;
     }
@@ -620,11 +630,11 @@ CSS = """
         border-radius: 999px;
     }
     div[data-testid="stSlider"] [role="slider"] {
-        width: 10px;
-        height: 10px;
+        width: 12px;
+        height: 12px;
         background: var(--accent);
         border-color: var(--accent);
-        box-shadow: 0 0 0 2px rgba(245, 165, 36, 0.18);
+        box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.16);
     }
     div[data-testid="stCheckbox"] label {
         color: var(--text-primary);
@@ -635,33 +645,42 @@ CSS = """
     div[data-testid="stNumberInput"] [data-testid="stWidgetLabel"] p {
         color: var(--text-secondary);
         font-size: var(--text-sm);
-        font-weight: 650;
+        font-weight: 550;
     }
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stButton"] button {
-        min-height: 34px;
-        border-radius: var(--r-md);
+        min-height: 36px;
+        border-radius: var(--r-sm);
         border: 1px solid var(--border-default);
-        background: var(--surface-2);
+        background: var(--surface-1);
         color: var(--text-primary);
-        font-weight: 750;
+        font-weight: 600;
         transition: all var(--motion-standard) var(--ease-out);
     }
-    div[data-testid="stButton"] button[kind="primary"],
     div[data-testid="stButton"] button:hover,
     div[data-testid="stDownloadButton"] button:hover {
-        border-color: rgba(245,165,36,0.55);
+        border-color: rgba(0,113,227,0.55);
         background: var(--accent-muted);
-        color: var(--accent-hover);
+        color: var(--accent);
+    }
+    div[data-testid="stButton"] button[kind="primary"] {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: var(--text-inverse);
+    }
+    div[data-testid="stButton"] button[kind="primary"]:hover {
+        border-color: var(--accent-hover);
+        background: var(--accent-hover);
+        color: var(--text-inverse);
     }
 
     /* === tabs === */
     div[data-testid="stTabs"] [role="tablist"] {
-        min-height: 36px;
+        min-height: 40px;
         border: 1px solid var(--border-default);
         border-radius: var(--r-md);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
+        box-shadow: var(--shadow-sm);
         gap: 0;
         padding: 0 var(--s-1);
         overflow-x: auto;
@@ -674,8 +693,8 @@ CSS = """
         color: var(--text-tertiary);
         font-family: var(--font-mono);
         font-size: var(--text-xs);
-        font-weight: 750;
-        min-height: 36px;
+        font-weight: 600;
+        min-height: 40px;
         padding: 0 var(--s-3);
         text-transform: uppercase;
         white-space: nowrap;
@@ -691,7 +710,7 @@ CSS = """
     }
     div[data-testid="stTabs"] button[aria-label],
     div[data-testid="stTabs"] [role="tablist"] ~ button {
-        background: var(--surface-2);
+        background: var(--surface-1);
         border: 1px solid var(--border-default);
         border-radius: var(--r-md);
         color: var(--accent);
@@ -708,23 +727,23 @@ CSS = """
     .section-header {
         display: flex;
         align-items: center;
-        min-height: 34px;
+        min-height: 36px;
         color: var(--text-primary);
         font-size: var(--text-md);
-        font-weight: 750;
+        font-weight: 600;
         border: 1px solid var(--border-default);
         border-radius: var(--r-md) var(--r-md) 0 0;
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
-        padding: 0 var(--s-3);
+        box-shadow: var(--shadow-sm);
+        padding: 0 var(--s-4);
         margin: var(--s-4) 0 0;
     }
     .panel-card {
         border: 1px solid var(--border-default);
         border-radius: var(--r-lg);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
-        margin-bottom: var(--s-3);
+        box-shadow: var(--shadow-sm);
+        margin-bottom: var(--s-4);
         overflow: hidden;
     }
     .panel-card-header {
@@ -732,20 +751,20 @@ CSS = """
         align-items: center;
         justify-content: space-between;
         gap: var(--s-3);
-        padding: var(--s-2) var(--s-3);
+        padding: var(--s-3) var(--s-4);
         border-bottom: 1px solid var(--border-subtle);
     }
     .panel-card-kicker {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
         line-height: 1.1;
     }
     .panel-card-title {
         color: var(--text-primary);
         font-size: var(--text-md);
-        font-weight: 750;
+        font-weight: 600;
         line-height: 1.2;
     }
     .panel-card-actions {
@@ -758,54 +777,54 @@ CSS = """
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 24px;
-        height: 24px;
+        min-width: 26px;
+        height: 26px;
         border: 1px solid var(--border-default);
         border-radius: var(--r-sm);
-        background: var(--surface-2);
+        background: var(--surface-1);
         color: var(--text-tertiary);
         font-family: var(--font-mono);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         padding: 0 var(--s-1);
         text-transform: uppercase;
     }
     .panel-card-action:hover {
-        border-color: rgba(245,165,36,0.55);
-        color: var(--accent-hover);
+        border-color: rgba(0,113,227,0.55);
+        color: var(--accent);
         background: var(--accent-muted);
     }
     .panel-card-body {
-        padding: var(--s-3);
+        padding: var(--s-4);
     }
     .metric-grid {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 0;
-        margin-bottom: var(--s-3);
+        margin-bottom: var(--s-4);
         border: 1px solid var(--border-default);
         border-radius: var(--r-lg);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
+        box-shadow: var(--shadow-sm);
         overflow: hidden;
     }
     .metric-card {
         border-right: 1px solid var(--border-subtle);
         border-bottom: 1px solid var(--border-subtle);
-        padding: var(--s-3);
+        padding: var(--s-4);
         background: var(--surface-1);
         min-width: 0;
     }
     .metric-card-label {
         color: var(--text-tertiary);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
     }
     .metric-card-value {
         color: var(--text-primary);
         font-size: var(--text-lg);
-        font-weight: 850;
+        font-weight: 700;
         line-height: 1.2;
         margin-top: var(--s-1);
         overflow-wrap: anywhere;
@@ -813,19 +832,19 @@ CSS = """
     .metric-card-detail {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 700;
+        font-weight: 600;
         margin-top: 2px;
         overflow-wrap: anywhere;
     }
     .quality-row, .quality-workstation {
         border: 1px solid var(--border-default);
         border-radius: var(--r-lg);
-        padding: var(--s-3);
+        padding: var(--s-4);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
+        box-shadow: var(--shadow-sm);
         color: var(--text-secondary);
         font-size: var(--text-sm);
-        margin-bottom: var(--s-3);
+        margin-bottom: var(--s-4);
     }
     .quality-alert {
         display: flex;
@@ -836,7 +855,7 @@ CSS = """
         padding: var(--s-2) var(--s-3);
         margin-bottom: var(--s-3);
         color: var(--text-primary);
-        background: var(--surface-2);
+        background: var(--surface-1);
     }
     .quality-alert::before {
         content: "";
@@ -845,12 +864,12 @@ CSS = """
         border-radius: 999px;
         background: var(--data-stale);
     }
-    .quality-alert-warning { border-color: rgba(245, 165, 36, 0.55); }
+    .quality-alert-warning { border-color: rgba(183, 121, 31, 0.5); }
     .quality-alert-warning::before { background: var(--data-synthetic); }
-    .quality-alert-success { border-color: rgba(34, 211, 168, 0.45); }
+    .quality-alert-success { border-color: rgba(30, 158, 99, 0.45); }
     .quality-alert-success::before { background: var(--data-live); }
-    .quality-alert-info { border-color: rgba(96, 165, 250, 0.45); }
-    .quality-alert-info::before { background: #60A5FA; }
+    .quality-alert-info { border-color: rgba(0, 113, 227, 0.45); }
+    .quality-alert-info::before { background: var(--accent); }
     .quality-chip-row {
         display: flex;
         flex-wrap: wrap;
@@ -875,15 +894,14 @@ CSS = """
     .quality-group {
         border: 1px solid var(--border-subtle);
         border-radius: var(--r-md);
-        background: var(--surface-2);
-        box-shadow: var(--panel-highlight);
+        background: var(--surface-0);
         padding: var(--s-3);
         min-width: 0;
     }
     .quality-group-title {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 850;
+        font-weight: 700;
         text-transform: uppercase;
         margin-bottom: var(--s-2);
     }
@@ -902,12 +920,12 @@ CSS = """
     .quality-item-label {
         color: var(--text-tertiary);
         font-size: var(--text-xs);
-        font-weight: 750;
+        font-weight: 600;
     }
     .quality-item-value {
         color: var(--text-primary);
         font-size: var(--text-sm);
-        font-weight: 750;
+        font-weight: 600;
         overflow-wrap: break-word;
         word-break: normal;
     }
@@ -922,14 +940,14 @@ CSS = """
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        height: 20px;
+        height: 22px;
         border: 1px solid var(--border-default);
         border-radius: var(--r-sm);
         padding: 0 var(--s-2);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
-        background: var(--surface-2);
+        background: var(--surface-1);
         color: var(--text-secondary);
     }
     .status-pill::before {
@@ -939,9 +957,9 @@ CSS = """
         border-radius: 999px;
         background: var(--data-live);
     }
-    .status-live { color: var(--data-live); border-color: rgba(34, 211, 168, 0.45); background: rgba(34, 211, 168, 0.08); }
-    .status-synthetic { color: var(--data-synthetic); border-color: rgba(245, 165, 36, 0.5); background: var(--accent-muted); }
-    .status-fallback { color: var(--data-fallback); border-color: rgba(255, 92, 92, 0.45); background: rgba(255, 92, 92, 0.08); }
+    .status-live { color: var(--data-live); border-color: rgba(30, 158, 99, 0.45); background: rgba(30, 158, 99, 0.08); }
+    .status-synthetic { color: var(--data-synthetic); border-color: rgba(183, 121, 31, 0.5); background: rgba(183, 121, 31, 0.08); }
+    .status-fallback { color: var(--data-fallback); border-color: rgba(196, 54, 46, 0.45); background: rgba(196, 54, 46, 0.08); }
     .status-synthetic::before { background: var(--data-synthetic); }
     .status-fallback::before { background: var(--data-fallback); }
     .dashboard-ready-marker {
@@ -955,9 +973,9 @@ CSS = """
         border: 1px solid var(--border-default);
         border-radius: var(--r-lg);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
-        padding: var(--s-4);
-        margin: var(--s-2) 0 var(--s-3);
+        box-shadow: var(--shadow-sm);
+        padding: var(--s-5);
+        margin: var(--s-2) 0 var(--s-4);
     }
     .loading-panel-top, .empty-panel-top {
         display: flex;
@@ -975,13 +993,13 @@ CSS = """
     .loading-stage {
         color: var(--accent);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
     }
     .loading-title, .empty-title {
         color: var(--text-primary);
         font-size: var(--text-md);
-        font-weight: 750;
+        font-weight: 600;
         line-height: 1.25;
     }
     .loading-detail, .empty-detail {
@@ -990,17 +1008,17 @@ CSS = """
         margin-top: 2px;
     }
     .loading-pulse {
-        border: 1px solid rgba(245, 165, 36, 0.5);
+        border: 1px solid rgba(0, 113, 227, 0.5);
         border-radius: var(--r-sm);
         color: var(--accent);
         background: var(--accent-muted);
         font-family: var(--font-mono);
         font-size: var(--text-xs);
-        font-weight: 800;
+        font-weight: 700;
         padding: 3px var(--s-2);
     }
     .loading-progress {
-        height: 5px;
+        height: 6px;
         border: 1px solid var(--border-subtle);
         border-radius: 999px;
         background: var(--surface-0);
@@ -1027,7 +1045,7 @@ CSS = """
     .skeleton-line {
         height: 12px;
         border-radius: var(--r-sm);
-        background: linear-gradient(90deg, #1B2028 25%, #242A33 45%, #1B2028 65%);
+        background: linear-gradient(90deg, #ECECEF 25%, #F5F5F7 45%, #ECECEF 65%);
         background-size: 220% 100%;
         animation: skeleton-shimmer 1.15s ease-in-out infinite;
     }
@@ -1042,13 +1060,13 @@ CSS = """
     .empty-action {
         display: inline-flex;
         align-items: center;
-        min-height: 28px;
-        border: 1px solid rgba(245,165,36,0.45);
+        min-height: 30px;
+        border: 1px solid rgba(0,113,227,0.45);
         border-radius: var(--r-md);
         color: var(--accent);
         background: var(--accent-muted);
         font-size: var(--text-sm);
-        font-weight: 750;
+        font-weight: 600;
         margin-top: var(--s-3);
         padding: 0 var(--s-3);
     }
@@ -1063,7 +1081,7 @@ CSS = """
         border-radius: var(--r-lg);
         overflow: hidden;
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
+        box-shadow: var(--shadow-sm);
     }
     div[data-testid="stDataFrame"] * {
         font-variant-numeric: tabular-nums;
@@ -1076,7 +1094,7 @@ CSS = """
         background: var(--surface-2) !important;
         color: var(--text-secondary) !important;
         font-size: var(--text-xs) !important;
-        font-weight: 800 !important;
+        font-weight: 700 !important;
         text-transform: uppercase;
     }
     div[data-testid="stDataFrame"] [role="row"],
@@ -1085,16 +1103,16 @@ CSS = """
     }
     div[data-testid="stTable"] tbody tr:nth-child(even),
     div[data-testid="stDataFrame"] [role="row"]:nth-child(even) {
-        background: rgba(255, 255, 255, 0.02);
+        background: rgba(0, 0, 0, 0.02);
     }
 
     /* === metrics compatibility === */
     div[data-testid="stMetric"] {
         border: 1px solid var(--border-default);
         border-radius: var(--r-lg);
-        padding: var(--s-3);
+        padding: var(--s-4);
         background: var(--surface-1);
-        box-shadow: var(--panel-highlight);
+        box-shadow: var(--shadow-sm);
     }
     div[data-testid="stMetricLabel"] p {
         color: var(--text-tertiary);
@@ -1209,12 +1227,12 @@ def status_pill(label: str, mode: str) -> str:
     return f'<span class="status-pill {data_mode_class(mode)}">{label}: {mode or "Unknown"}</span>'
 
 
-def _dark_colorbar() -> dict:
+def _light_colorbar() -> dict:
     return {
         "bgcolor": PANEL_BG,
         "bordercolor": LINE_COLOR,
         "borderwidth": 1,
-        "tickfont": {"color": TEXT_SECONDARY, "family": "JetBrains Mono, Consolas, monospace", "size": 11},
+        "tickfont": {"color": TEXT_SECONDARY, "family": "SF Mono, JetBrains Mono, Consolas, monospace", "size": 11},
         "title": {"font": {"color": TEXT_SECONDARY, "size": 11}},
         "outlinecolor": LINE_COLOR,
     }
@@ -1244,7 +1262,7 @@ def _has_explicit_color(value: object) -> bool:
 
 
 def _apply_trace_colorbars(fig: go.Figure) -> None:
-    colorbar_style = _dark_colorbar()
+    colorbar_style = _light_colorbar()
     palette_index = 0
     for trace in fig.data:
         colorbar = getattr(trace, "colorbar", None)
@@ -1270,13 +1288,13 @@ def _apply_trace_colorbars(fig: go.Figure) -> None:
             palette_index += 1
 
 
-def _dark_scene_axis(title: str | None = None) -> dict:
+def _light_scene_axis(title: str | None = None) -> dict:
     axis = {
         "backgroundcolor": SURFACE_0,
         "gridcolor": GRID_COLOR,
         "zerolinecolor": LINE_COLOR,
         "showbackground": True,
-        "tickfont": {"color": TEXT_SECONDARY, "family": "JetBrains Mono, Consolas, monospace", "size": 11},
+        "tickfont": {"color": TEXT_SECONDARY, "family": "SF Mono, JetBrains Mono, Consolas, monospace", "size": 11},
         "title": {"font": {"color": TEXT_SECONDARY, "size": 11}},
     }
     if title:
@@ -1285,20 +1303,20 @@ def _dark_scene_axis(title: str | None = None) -> dict:
 
 
 def apply_chart_layout(fig: go.Figure, height: int = 420) -> go.Figure:
-    """Apply the shared dark workstation theme to every Plotly figure."""
+    """Apply the shared Apple-clean light theme to every Plotly figure."""
     _apply_trace_colorbars(fig)
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly_white",
         height=height,
         margin=dict(l=35, r=25, t=48, b=35),
         paper_bgcolor=PANEL_BG,
         plot_bgcolor=CHART_BG,
-        font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12, color=TEXT_PRIMARY),
+        font=dict(family="-apple-system, BlinkMacSystemFont, SF Pro Text, Segoe UI, Inter, sans-serif", size=12, color=TEXT_PRIMARY),
         title=dict(font=dict(size=13, color=TEXT_PRIMARY), x=0.01, xanchor="left"),
         hoverlabel=dict(
             bgcolor=SURFACE_1,
             bordercolor=ACCENT,
-            font=dict(color=TEXT_PRIMARY, family="JetBrains Mono, Consolas, monospace", size=11),
+            font=dict(color=TEXT_PRIMARY, family="SF Mono, JetBrains Mono, Consolas, monospace", size=11),
         ),
         legend=dict(
             orientation="h",
@@ -1319,7 +1337,7 @@ def apply_chart_layout(fig: go.Figure, height: int = 420) -> go.Figure:
         gridcolor=GRID_COLOR,
         zeroline=False,
         linecolor=LINE_COLOR,
-        tickfont=dict(color=TEXT_SECONDARY, family="JetBrains Mono, Consolas, monospace", size=11),
+        tickfont=dict(color=TEXT_SECONDARY, family="SF Mono, JetBrains Mono, Consolas, monospace", size=11),
         title_font=dict(color=TEXT_SECONDARY, size=11),
     )
     fig.update_yaxes(
@@ -1327,7 +1345,7 @@ def apply_chart_layout(fig: go.Figure, height: int = 420) -> go.Figure:
         gridcolor=GRID_COLOR,
         zeroline=False,
         linecolor=LINE_COLOR,
-        tickfont=dict(color=TEXT_SECONDARY, family="JetBrains Mono, Consolas, monospace", size=11),
+        tickfont=dict(color=TEXT_SECONDARY, family="SF Mono, JetBrains Mono, Consolas, monospace", size=11),
         title_font=dict(color=TEXT_SECONDARY, size=11),
     )
     if getattr(fig.layout, "scene", None):
@@ -1335,9 +1353,9 @@ def apply_chart_layout(fig: go.Figure, height: int = 420) -> go.Figure:
         fig.update_layout(
             scene={
                 "bgcolor": SURFACE_1,
-                "xaxis": _dark_scene_axis(getattr(scene.xaxis.title, "text", None)),
-                "yaxis": _dark_scene_axis(getattr(scene.yaxis.title, "text", None)),
-                "zaxis": _dark_scene_axis(getattr(scene.zaxis.title, "text", None)),
+                "xaxis": _light_scene_axis(getattr(scene.xaxis.title, "text", None)),
+                "yaxis": _light_scene_axis(getattr(scene.yaxis.title, "text", None)),
+                "zaxis": _light_scene_axis(getattr(scene.zaxis.title, "text", None)),
             }
         )
     return fig

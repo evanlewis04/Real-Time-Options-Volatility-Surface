@@ -24,6 +24,7 @@ from src.financial_rag.integration import (
     market_provider_from_metrics,
     volatility_market_provider,
 )
+from src.dashboard.theme import inject_theme
 from src.financial_rag.settings import project_root
 from src.financial_rag.workbench import answer_citation_rows, company_options, evidence_rows
 
@@ -39,6 +40,7 @@ DETERMINISTIC_SNAPSHOT = {
 
 def main() -> None:
     st.set_page_config(page_title="Filing + Market Brief", layout="wide")
+    inject_theme(st)
     st.title("Filing + Market Brief")
     st.caption(
         "Cited SEC filing evidence and options-market context, side by side and "
