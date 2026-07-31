@@ -29,10 +29,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint (ruff)
-        run: python -m ruff check src tests diagnostic.py dashboard_connector.py app.py main.py scripts
+        run: python -m ruff check src tests diagnostic.py dashboard_connector.py app.py scripts
 
       - name: Compile Python sources
-        run: python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py main.py
+        run: python -m compileall src tests scripts dashboard_connector.py diagnostic.py app.py
 
       - name: Test
         run: python -m pytest -q

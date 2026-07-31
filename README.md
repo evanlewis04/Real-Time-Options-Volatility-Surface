@@ -68,15 +68,17 @@ diagnostics in one view:
 
 ## Eval results
 
-Local retrieval/answer eval over a 12-ticker SEC corpus (~6,527 chunks). Numbers
-are regenerated locally; see [docs/financial-rag-eval-baseline.md](docs/financial-rag-eval-baseline.md).
+Local retrieval/answer eval over a 12-ticker SEC corpus (~6,259 chunks), offline
+lexical retrieval. Numbers are regenerated locally (last refreshed 2026-07-31);
+see [docs/financial-rag-eval-baseline.md](docs/financial-rag-eval-baseline.md) for
+the dated history and coverage notes.
 
 | Metric | Value |
 | --- | --- |
-| Eval cases / gold labels | 50 / 64 |
-| Section/source hit rate | 0.980 |
-| Gold Recall@5 | 0.682 |
-| Gold MRR | 0.455 |
+| Eval cases / gold labels resolved | 50 / 58 |
+| Section/source hit rate | 0.860 |
+| Gold Recall@5 | 0.667 |
+| Gold MRR | 0.421 |
 | Answer citation validity | 1.000 (0 hallucinated, 0 uncited) |
 
 ```bash

@@ -182,8 +182,15 @@ def volatility_market_provider(ticker: str) -> dict[str, Any]:
         "term_structure",
         "timestamp",
     )
+    metrics = {key: data[key] for key in metric_keys if key in data}
+    # The connector reports its snapshot time as a datetime; the metrics payload
+    # is serialized (headless brief JSON, API responses), so normalize it to an
+    # ISO string rather than leaking a non-JSON-serializable object downstream.
+    timestamp = metrics.get("timestamp")
+    if hasattr(timestamp, "isoformat"):
+        metrics["timestamp"] = timestamp.isoformat()
     return {
         "source_mode": str(data.get("data_mode", data.get("source_mode", ""))),
         "message": "Market context from the volatility engine.",
-        "metrics": {key: data[key] for key in metric_keys if key in data},
+        "metrics": metrics,
     }

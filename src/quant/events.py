@@ -75,15 +75,18 @@ class EventCalendarSnapshot:
 class LocalEventCalendarSource:
     """Load macro and symbol events from a local CSV file."""
 
-    def __init__(self, path: Path | str = DEFAULT_EVENT_CALENDAR_PATH):
+    def __init__(self, path: Path | str = DEFAULT_EVENT_CALENDAR_PATH, as_of: datetime | None = None):
         self.path = Path(path)
+        # When set, pins the snapshot's as-of reference instead of deriving it
+        # from the wall clock / file mtime. Lets tests be deterministic.
+        self.as_of = as_of
 
     def load(self, symbol: str) -> EventCalendarSnapshot:
         key = symbol.upper()
         if not self.path.exists():
             return EventCalendarSnapshot(
                 symbol=key,
-                as_of=datetime.now(),
+                as_of=self.as_of or datetime.now(),
                 source=f"local:{self.path}",
                 mode="Local",
                 fallback_reason="Local event calendar file missing; no events loaded",
@@ -93,7 +96,7 @@ class LocalEventCalendarSource:
         if frame.empty:
             return EventCalendarSnapshot(
                 symbol=key,
-                as_of=datetime.fromtimestamp(self.path.stat().st_mtime),
+                as_of=self.as_of or datetime.fromtimestamp(self.path.stat().st_mtime),
                 source=f"local:{self.path}",
                 mode="Local",
                 fallback_reason="Local event calendar is empty; no events loaded",
@@ -103,7 +106,7 @@ class LocalEventCalendarSource:
         events = _events_from_rows(frame, lower_cols, key, f"local:{self.path}")
         return EventCalendarSnapshot(
             symbol=key,
-            as_of=datetime.fromtimestamp(self.path.stat().st_mtime),
+            as_of=self.as_of or datetime.fromtimestamp(self.path.stat().st_mtime),
             source=f"local:{self.path}",
             mode="Local",
             events=tuple(events),
@@ -117,9 +120,11 @@ class EventCalendarProvider:
         self,
         local_path: Path | str = DEFAULT_EVENT_CALENDAR_PATH,
         cache_ttl_seconds: int = 3600,
+        as_of: datetime | None = None,
     ):
         self.local_source = LocalEventCalendarSource(
-            os.getenv("ROVS_EVENT_CALENDAR_PATH") or local_path
+            os.getenv("ROVS_EVENT_CALENDAR_PATH") or local_path,
+            as_of=as_of,
         )
         self.cache_ttl = timedelta(seconds=cache_ttl_seconds)
         self._cache: dict[str, tuple[EventCalendarSnapshot, datetime]] = {}

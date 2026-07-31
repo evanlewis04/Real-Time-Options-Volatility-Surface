@@ -122,7 +122,7 @@ def _configure_event_provider(connector: DashboardConnector, tmp_path):
         ),
         encoding="utf-8",
     )
-    connector.event_provider = EventCalendarProvider(local_path=path)
+    connector.event_provider = EventCalendarProvider(local_path=path, as_of=datetime(2026, 5, 3, 10, 0, 0))
 
 
 def _configure_corporate_action_provider(connector: DashboardConnector):
