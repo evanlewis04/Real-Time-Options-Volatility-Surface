@@ -5,6 +5,7 @@ from textwrap import dedent
 
 import pandas as pd
 
+from src.dashboard import theme
 from src.dashboard.formatting import fmt_int, fmt_money, fmt_pct
 from src.quant.provenance import (
     CURRENT_ROBUST_FIT_PROVENANCE,
@@ -1864,7 +1865,7 @@ def run_dashboard() -> None:
             x=1.0,
             y=1.08,
             showarrow=False,
-            font=dict(size=11, color="#667085"),
+            font=dict(size=11, color=theme.TEXT_SECONDARY),
         )
         return fig
 
@@ -1973,7 +1974,7 @@ def run_dashboard() -> None:
                 ]
             )
             if not fit_points.empty:
-                marker_3d = {"size": 3, "color": "#f97316", "opacity": 0.82}
+                marker_3d = {"size": 3, "color": theme.SERIES_PALETTE[2], "opacity": 0.82}
                 if show_reliability_overlay:
                     marker_3d = {
                         "size": 4 + (fit_points["reliability_overlay"] * 5),
@@ -2028,7 +2029,7 @@ def run_dashboard() -> None:
             ]
         )
         if not fit_points.empty:
-            marker_2d = {"color": "#111827", "size": 6, "symbol": "circle-open"}
+            marker_2d = {"color": theme.TEXT_PRIMARY, "size": 6, "symbol": "circle-open"}
             if show_reliability_overlay:
                 marker_2d = {
                     "color": fit_points["reliability_overlay"],
@@ -2143,7 +2144,7 @@ def run_dashboard() -> None:
                     )
                 ]
             )
-            residual_fig.add_hline(y=0, line_width=1, line_color="#667085")
+            residual_fig.add_hline(y=0, line_width=1, line_color=theme.LINE_COLOR)
             residual_fig.update_layout(
                 title=f"{surface_symbol} Fit Residuals",
                 xaxis_title=fit_axis_title,
@@ -2854,12 +2855,12 @@ def run_dashboard() -> None:
                     y=smile_vols,
                     mode="lines+markers",
                     name=f"{smile_days:.0f} DTE",
-                    line=dict(color="#1f7a8c", width=3),
+                    line=dict(color=theme.ACCENT, width=3),
                     hovertemplate=f"{smile_hover_label}<br>IV: %{{y:.2%}}<extra></extra>",
                 )
             )
             if surface_x_axis == "Strike":
-                fig_smile.add_vline(x=current_data["price"], line_width=1, line_dash="dash", line_color="#667085")
+                fig_smile.add_vline(x=current_data["price"], line_width=1, line_dash="dash", line_color=theme.TEXT_TERTIARY)
             fig_smile.update_layout(
                 title=f"{surface_symbol} Front Smile",
                 xaxis_title=smile_axis_title,
@@ -2876,7 +2877,7 @@ def run_dashboard() -> None:
                         x=term["DTE"],
                         y=term["ATM IV"],
                         mode="lines+markers",
-                        line=dict(color="#44546a", width=3),
+                        line=dict(color=theme.ACCENT, width=3),
                         hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<extra></extra>",
                     )
                 )
@@ -2889,7 +2890,7 @@ def run_dashboard() -> None:
                             y=marker_frame["atm_iv"],
                             mode="markers",
                             name="Events",
-                            marker=dict(color="#c2410c", size=10, symbol="diamond"),
+                            marker=dict(color=theme.SERIES_PALETTE[2], size=10, symbol="diamond"),
                             customdata=marker_frame[["label"]],
                             hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<br>%{customdata[0]}<extra></extra>",
                         )
@@ -2944,14 +2945,14 @@ def run_dashboard() -> None:
                             y=expiry_change_display["mean_iv_change"],
                             marker_color=np.where(
                                 expiry_change_display["mean_iv_change"] >= 0,
-                                "#087f5b",
-                                "#b42318",
+                                theme.DATA_LIVE,
+                                theme.DATA_FALLBACK,
                             ),
                             hovertemplate="Expiry: %{x}<br>Mean dIV: %{y:.2%}<extra></extra>",
                         )
                     ]
                 )
-                fig_change.add_hline(y=0, line_width=1, line_color="#667085")
+                fig_change.add_hline(y=0, line_width=1, line_color=theme.LINE_COLOR)
                 fig_change.update_layout(
                     title=f"{surface_symbol} Mean IV Change By Expiry",
                     xaxis_title="Expiry",
@@ -3134,7 +3135,7 @@ def run_dashboard() -> None:
                     go.Bar(
                         x=front_residuals["log_moneyness"],
                         y=front_residuals["residual"],
-                        marker_color="#9b5de5",
+                        marker_color=theme.SERIES_PALETTE[3],
                         name="Residual",
                         hovertemplate=(
                             "Log-moneyness: %{x:.3f}<br>"
@@ -3145,7 +3146,7 @@ def run_dashboard() -> None:
                         customdata=front_residuals[["observed_iv", "fitted_iv"]],
                     )
                 )
-                fig_residual.add_hline(y=0, line_width=1, line_color="#667085")
+                fig_residual.add_hline(y=0, line_width=1, line_color=theme.LINE_COLOR)
                 fig_residual.update_layout(
                     title=f"{surface_symbol} Front SVI Residuals",
                     xaxis_title="Log-moneyness",
@@ -3300,7 +3301,7 @@ def run_dashboard() -> None:
                     y=term["ATM IV"],
                     mode="lines+markers",
                     name="ATM IV",
-                    line=dict(color="#176B87", width=3),
+                    line=dict(color=theme.ACCENT, width=3),
                     hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<extra></extra>",
                 )
             )
@@ -3312,7 +3313,7 @@ def run_dashboard() -> None:
                         y=float(r20),
                         line_width=1,
                         line_dash="dash",
-                        line_color="#b42318",
+                        line_color=theme.DATA_FALLBACK,
                         annotation_text="20D realized",
                     )
                 if r60 is not None:
@@ -3320,7 +3321,7 @@ def run_dashboard() -> None:
                         y=float(r60),
                         line_width=1,
                         line_dash="dot",
-                        line_color="#7a5af8",
+                        line_color=theme.SERIES_PALETTE[6],
                         annotation_text="60D realized",
                     )
             event_markers = _term_event_markers(term, expected_moves, expiry_events)
@@ -3332,7 +3333,7 @@ def run_dashboard() -> None:
                         y=marker_frame["atm_iv"],
                         mode="markers",
                         name="Events",
-                        marker=dict(color="#c2410c", size=11, symbol="diamond"),
+                        marker=dict(color=theme.SERIES_PALETTE[2], size=11, symbol="diamond"),
                         customdata=marker_frame[["label"]],
                         hovertemplate="DTE: %{x:.0f}<br>ATM IV: %{y:.2%}<br>%{customdata[0]}<extra></extra>",
                     )
@@ -3615,7 +3616,7 @@ def run_dashboard() -> None:
                             x=overlay["metric"],
                             y=overlay["left_normalized"],
                             name=surface_symbol,
-                            marker_color="#176B87",
+                            marker_color=theme.ACCENT,
                         )
                     )
                     fig_overlay.add_trace(
@@ -3623,7 +3624,7 @@ def run_dashboard() -> None:
                             x=overlay["metric"],
                             y=overlay["right_normalized"],
                             name=peer_symbol,
-                            marker_color="#F59E0B",
+                            marker_color=theme.SERIES_PALETTE[2],
                         )
                     )
                     fig_overlay.update_layout(
@@ -3841,10 +3842,10 @@ def run_dashboard() -> None:
                         y=payoff["pnl"],
                         mode="lines",
                         name="P&L",
-                        line=dict(color="#176B87", width=3),
+                        line=dict(color=theme.ACCENT, width=3),
                     )
                 )
-                fig_payoff.add_hline(y=0, line_width=1, line_color="#667085")
+                fig_payoff.add_hline(y=0, line_width=1, line_color=theme.LINE_COLOR)
                 fig_payoff.update_layout(
                     title=f"{surface_symbol} {strategy_type.title()} Payoff",
                     xaxis_title="Terminal spot",

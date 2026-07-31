@@ -26,9 +26,9 @@ def test_theme_polishes_workstation_controls_without_large_radius_cards():
     assert ".metric-grid" in CSS
     assert ".quality-group-grid" in CSS
     assert ".dashboard-ready-marker" in CSS
-    assert "--r-lg: 8px" in CSS
-    assert "--surface-0: #0B0D10" in CSS
-    assert "--accent: #F5A524" in CSS
+    assert "--r-lg: 14px" in CSS
+    assert "--surface-0: #F5F5F7" in CSS
+    assert "--accent: #0071E3" in CSS
 
 
 def test_kpi_grid_uses_two_rows_on_desktop():
@@ -64,23 +64,23 @@ def test_keyboard_layer_supports_function_keys_and_number_fallbacks():
     assert "syncHeaderTabs" in source
 
 
-def test_plotly_3d_scene_uses_dark_workstation_theme():
+def test_plotly_3d_scene_uses_light_workstation_theme():
     fig = go.Figure(data=[go.Surface(z=[[0.2, 0.3], [0.25, 0.35]], colorbar=dict(title="IV"))])
     fig.update_layout(scene=dict(xaxis_title="Moneyness", yaxis_title="Days", zaxis_title="IV"))
 
     themed = apply_chart_layout(fig, 620)
 
-    assert themed.layout.paper_bgcolor == "#11141A"
-    assert themed.layout.plot_bgcolor == "#0B0D10"
-    assert themed.layout.scene.xaxis.backgroundcolor == "#0B0D10"
-    assert themed.layout.scene.yaxis.gridcolor == "rgba(255,255,255,0.08)"
-    assert themed.data[0].colorbar.bgcolor == "#11141A"
+    assert themed.layout.paper_bgcolor == "#FFFFFF"
+    assert themed.layout.plot_bgcolor == "#F5F5F7"
+    assert themed.layout.scene.xaxis.backgroundcolor == "#F5F5F7"
+    assert themed.layout.scene.yaxis.gridcolor == "rgba(0,0,0,0.08)"
+    assert themed.data[0].colorbar.bgcolor == "#FFFFFF"
 
 
-def test_streamlit_native_components_use_dark_theme():
+def test_streamlit_native_components_use_light_theme():
     config_path = Path(".streamlit/config.toml")
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
 
-    assert config["theme"]["base"] == "dark"
-    assert config["theme"]["secondaryBackgroundColor"] == "#11141A"
-    assert config["theme"]["primaryColor"] == "#F5A524"
+    assert config["theme"]["base"] == "light"
+    assert config["theme"]["secondaryBackgroundColor"] == "#FFFFFF"
+    assert config["theme"]["primaryColor"] == "#0071E3"
