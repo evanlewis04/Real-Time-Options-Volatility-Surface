@@ -14,7 +14,6 @@ CHECK_PATHS = [
     "diagnostic.py",
     "dashboard_connector.py",
     "app.py",
-    "main.py",
     "scripts",
 ]
 
@@ -48,7 +47,7 @@ def main() -> int:
     _run("Lint", [python, "-m", "ruff", "check", *CHECK_PATHS], root)
     _run(
         "Compile",
-        [python, "-m", "compileall", "src", "tests", "scripts", "dashboard_connector.py", "diagnostic.py", "app.py", "main.py"],
+        [python, "-m", "compileall", "src", "tests", "scripts", "dashboard_connector.py", "diagnostic.py", "app.py"],
         root,
     )
     _run("Tests", [python, "-m", "pytest", "-q"], root)

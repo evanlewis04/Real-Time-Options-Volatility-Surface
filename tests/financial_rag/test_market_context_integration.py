@@ -1,5 +1,8 @@
 """Tests for the thin RAG-evidence + market-context integration prototype."""
 
+import json
+from datetime import datetime
+
 from src.financial_rag.api import LocalRagApiService
 from src.financial_rag.differentiators import get_market_context
 from src.financial_rag.integration import (
@@ -8,6 +11,7 @@ from src.financial_rag.integration import (
     build_brief_from_service,
     build_market_evidence_brief,
     market_provider_from_metrics,
+    volatility_market_provider,
 )
 from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever
 
@@ -66,6 +70,27 @@ def test_build_brief_from_service_runs_retrieval_and_attaches_market_context() -
     assert payload["filing_evidence"]["result_count"] >= 1
     assert payload["market_context"]["status"] == "ok"
     assert payload["market_context"]["metrics"]["iv_rank"] == 50.0
+
+
+def test_volatility_market_provider_normalizes_datetime_timestamp(monkeypatch) -> None:
+    # The connector reports its snapshot time as a datetime; the provider must
+    # normalize it to an ISO string so the serialized brief stays JSON-safe.
+    class _StubConnector:
+        def get_current_data(self, ticker: str) -> dict[str, object]:
+            return {
+                "data_mode": "Live/Delayed",
+                "price": 198.65,
+                "iv_30d": 0.55,
+                "timestamp": datetime(2026, 7, 31, 13, 13, 27),
+            }
+
+    monkeypatch.setattr("dashboard_connector.DashboardConnector", _StubConnector)
+
+    payload = volatility_market_provider("nvda")
+
+    assert payload["metrics"]["timestamp"] == "2026-07-31T13:13:27"
+    # Must be JSON-serializable end to end (the headless brief writes this to disk).
+    json.dumps(payload)
 
 
 def _query_payload() -> dict[str, object]:

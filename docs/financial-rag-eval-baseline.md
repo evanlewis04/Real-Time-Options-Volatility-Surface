@@ -110,6 +110,66 @@ New-ticker coverage (added INTC, GOOGL, META, AMZN, BAC, GS):
 - GS, like JPM, has no cached EX-99 narrative (investment-bank disclosure style).
 - META is the only newly added ticker with cached CFO commentary.
 
+## Update 2026-07-31: Re-run On A Rolled-Forward Corpus
+
+Regenerated locally after ~8 weeks by re-fetching all 12 tickers from SEC EDGAR
+(`scripts/financial_rag_retrieval_repair.py --fetch-sec`). This pass is
+**offline/lexical only** — the corpus was not re-embedded with Voyage (staying
+inside free-tier limits), so only the offline column is refreshed here; dense
+retrieval still works via `--embed` + `--use-voyage`. Environment: Python 3.13,
+pandas 3.0 / numpy 2.5 / streamlit 1.60 (current majors). Full `scripts/verify.py`
+is green (lint, compile, 315 tests, dashboard healthcheck).
+
+Corpus now: 12 tickers, 76 documents, 6,259 chunks (vs the May snapshot's 6,527) —
+the SEC filings rolled forward, so the underlying documents are not identical to
+the May run.
+
+Retrieval eval (50 cases, 13 companies incl. 1 unsupported-ticker control),
+offline lexical:
+
+| Metric | 2026-05-31 | 2026-07-31 |
+| --- | --- | --- |
+| Section/source hit rate | 0.980 | 0.860 |
+| Metadata completeness rate | — | 0.900 |
+| Evidence-quality pass rate | 0.980 | 0.900 |
+| Gold Recall@5 | 0.682 | 0.667 |
+| Gold MRR | 0.455 | 0.421 |
+| Gold NDCG@5 | 0.481 | 0.436 |
+| Gold labels resolved | 64 | 58 |
+
+Failure counts: `empty_retrieval_results` = 4, `wrong_section_or_source` = 2,
+`unsupported_ticker` = 1 (the intended TSLA control).
+
+Answer eval (16 cases, dry-run, no OpenAI):
+
+| Metric | 2026-05-31 | 2026-07-31 |
+| --- | --- | --- |
+| Pass rate | 1.000 | 0.812 |
+| Hallucinated citations | 0 | 0 |
+| Uncited factual sentences | 0 | 0 |
+| Evidence-quality pass rate | 1.000 | 1.000 |
+| Gold Recall@5 | 0.714 | 0.727 |
+| Retrieval errors | 0 | 3 |
+
+The deltas are corpus drift, not a code regression — parsing/chunking is
+unchanged and fully tested, and **citation discipline holds exactly (0
+hallucinated, 0 uncited)**. The four empty-retrieval cases are all coverage gaps
+in the freshly-fetched filing window, consistent with the documented uneven-EX-99
+limitation:
+
+- `nvda-cfo-revenue`, `nvda-press-release-gross-margin` — NVDA's current 8-K
+  window this cycle carries no chunked EX-99 press-release / CFO-commentary
+  exhibit (in May it had 121 EX-99 chunks), so the two gold cases that target that
+  exhibit find nothing. Other issuers' EX-99 exhibits (e.g. AAPL, AMD) still parse
+  and chunk normally, so this is a missing-source gap, not a parser break.
+- `xom-item1a-commodity-risk`, `xom-energy-transition` — XOM's refreshed corpus is
+  thin (94 chunks) and the specific Item 1A / energy-transition sections those
+  gold cases pin to are not present in the current filings.
+
+Recovering these is a re-fetch/coverage question (pull the specific EX-99 exhibits
+and XOM sections), not a retrieval-methodology change — left as-is here per the
+"re-run only" scope.
+
 ## Reranker (opt-in, default off)
 
 A swappable rerank stage exists (`src/financial_rag/retrieval/rerank.py`): a

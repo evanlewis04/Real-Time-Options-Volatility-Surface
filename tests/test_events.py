@@ -40,7 +40,7 @@ def test_expiry_event_metadata_maps_events_through_each_expiry(tmp_path):
         ),
         encoding="utf-8",
     )
-    snapshot = EventCalendarProvider(local_path=path).get("AAPL")
+    snapshot = EventCalendarProvider(local_path=path, as_of=datetime(2026, 6, 1)).get("AAPL")
     expiries = pd.Series([datetime(2026, 6, 19), datetime(2026, 8, 1)])
 
     metadata = expiry_event_metadata(expiries, snapshot)
