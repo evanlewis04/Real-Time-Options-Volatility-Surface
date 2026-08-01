@@ -16,8 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.financial_rag_ingest import DEFAULT_EMBED_BATCH_SIZE, run_smoke
+from scripts.financial_rag_ingest import DEFAULT_EMBED_BATCH_SIZE, run_pinned_filings, run_smoke
 from src.financial_rag.chunking import chunk_document
+from src.financial_rag.ingestion.pinned_filings import pins_for_tickers
 from src.financial_rag.embeddings import (
     DEFAULT_VOYAGE_MODEL,
     EmbeddingCache,
@@ -66,6 +67,19 @@ def main() -> int:
             run_smoke(
                 ticker=ticker,
                 recent_8k_limit=args.recent_8k_limit,
+                sec_delay=args.sec_delay,
+                embed_batch_size=args.embed_batch_size,
+                root=root,
+                skip_embeddings=not args.embed,
+            )
+        # Additive: guarantee the eval-critical pinned filings are present on top
+        # of latest-N, regardless of drift or decoy ticker->CIK mappings.
+        pins = pins_for_tickers(tickers)
+        if pins:
+            print(f"Fetching {len(pins)} pinned eval-critical filing(s): "
+                  + ", ".join(f"{pin.ticker} {pin.accession_number}" for pin in pins))
+            run_pinned_filings(
+                pins=pins,
                 sec_delay=args.sec_delay,
                 embed_batch_size=args.embed_batch_size,
                 root=root,

@@ -245,3 +245,89 @@ Two honest consequences:
   reorders within the retrieved pool rather than changing its membership. The
   prior "reranking does not beat the first stage" conclusion was an artifact of
   the circular gold, not a property of the reranker.
+
+## Update 2026-08-01: Accession-Pinned Eval-Critical Filings (coverage gaps recovered)
+
+The 2026-07-31 roll-forward left four gold cases failing with
+`empty_retrieval_results` — the filings they depend on had drifted out of the
+latest-N fetch window (or were never reachable by ticker at all). Because the
+corpus is gitignored, a fresh clone rebuilds it by fetching from SEC EDGAR, so
+those gaps — and the eval numbers — were not reproducible. This change pins the
+eval-critical filings by accession number so a rebuild is deterministic.
+
+**What shipped (code):**
+
+- `src/financial_rag/ingestion/pinned_filings.py` — the single source of truth
+  for the filings the gold eval depends on (`PINNED_FILINGS`), plus
+  `cik_from_accession` (the first ten digits of an accession *are* the filer CIK
+  by construction) and `pins_for_tickers`.
+- `scripts/financial_rag_ingest.py` — `run_pinned_filings` fetches each pin under
+  the CIK **derived from its accession**, not the ticker→CIK lookup, and tags it
+  under the pin's ticker. Shared per-target fetch/parse/chunk logic is factored
+  into `ingest_target` (used by both the latest-N and pinned paths).
+- `scripts/financial_rag_retrieval_repair.py` — under `--fetch-sec`, the pinned
+  filings are fetched **additively** after latest-N, so freshness selection is
+  untouched and the eval-critical documents are always present on top of it.
+- `tests/financial_rag/test_pinned_filings.py` — guards the contract: each pin
+  derives to its intended registrant CIK, is wired into the fetch path, and
+  (when a corpus is built) resolves tagged to the intended ticker under that CIK.
+
+**Pinned set (minimal — exactly what the four gold cases need):**
+
+| Ticker | Accession | Filer CIK | Backs gold cases |
+| --- | --- | --- | --- |
+| NVDA | `0001045810-26-000051` | 1045810 | `nvda-press-release-gross-margin`, `nvda-cfo-revenue` (EX-99 press release + CFO commentary) |
+| XOM | `0000034088-26-000045` | 34088 | `xom-item1a-commodity-risk`, `xom-energy-transition` (10-K Item 1A / energy transition) |
+
+**Reproducibility contract:** rebuilding from scratch with
+`scripts/financial_rag_retrieval_repair.py --fetch-sec --tickers NVDA,XOM --embed
+--prune-stale-embeddings` deterministically yields these filings regardless of
+latest-N drift.
+
+**XOM entity finding — kept, not purged (verified before acting).** The `XOM`
+ticker maps to CIK 2115436 ("ExxonMobil Holdings Corp"), not to CIK 34088
+("Exxon Mobil Corp") that files the 10-K. This is **not** a decoy/wrong company:
+CIK 2115436 filed an `8-K12B` (successor-issuer form) plus a `POSASR` and ~23
+`S-8 POS` on 2026-07-01 — the signature of a holding-company reorganization in
+which a new public parent is placed atop the operating company and inherits the
+NYSE/XOM listing. So the 94 pre-existing XOM chunks are the *current public XOM
+registrant's* real 8-Ks (same corporate family, correct ticker) and were kept;
+the operating subsidiary (34088) still files the 10-K, now pinned and tagged
+under XOM. XOM retrieval is single-corporate-family. (A broader ticker→CIK decoy
+audit across all 12 tickers is noted as separate follow-up work.)
+
+**Before/after.** Corpus after pin-fetch + re-embed of NVDA+XOM: 6,582 chunks
+(was 6,259), XOM now 261 (10-K, CIK 34088) + 94 (holdco 8-Ks, CIK 2115436); the
+NVDA target 8-K (59 chunks) and XOM 10-K (261 chunks) are fully embedded.
+
+All four target cases move out of failure — `status=pass`, `source_hit=True`,
+zero `failures` (they were `empty_retrieval_results`). Gold labels resolved
+**58 → 64**. Retrieval failure counts drop to just the intended TSLA control:
+
+| Metric | 2026-08-01 (pre-pin, 58 labels) | 2026-08-01 (post-pin, 64 labels) |
+| --- | --- | --- |
+| Gold labels resolved | 58 | 64 |
+| Failure counts | `empty_retrieval_results`×4, `wrong_section_or_source`×2, `unsupported_ticker`×1 | `unsupported_ticker`×1 |
+| Recall@5 (offline none / lexical / voyage-rerank) | 0.436 / 0.436 / 0.436 | 0.409 / 0.409 / 0.409 |
+| MRR (offline none / lexical / voyage-rerank) | 0.194 / 0.245 / 0.259 | 0.177 / 0.229 / 0.237 |
+| NDCG@5 (offline none / lexical / voyage-rerank) | 0.209 / 0.242 / 0.253 | 0.195 / 0.229 / 0.236 |
+
+Answer eval (16 cases, dry-run): **pass rate 0.812 → 1.000, retrieval errors
+3 → 0**, hallucinated citations 0, uncited sentences 0 (citation discipline
+holds exactly).
+
+**Honest reading of the numbers.** Reranker ordering still holds monotonically
+(voyage > lexical > none on MRR/NDCG). Aggregate Recall@5/MRR/NDCG tick *down*
+slightly — this is denominator growth, not a regression: six newly-resolvable
+labels enter the eval, and three of the four recovered cases retrieve a
+*correct-source sibling* chunk (source_hit) rather than the single canonical
+gold chunk the scorer-independent selection picks, so they add to the
+denominator without adding an exact-chunk hit. `nvda-press-release-gross-margin`
+does hit exactly (recall@5 = 1.0). Pushing the other three to exact-chunk recall
+would require retrieval/gold-methodology tuning, which is deliberately out of
+scope here (gold stays scorer-independent as merged in the prior update). The
+gaps are closed at the level the failure taxonomy measures: no case is
+empty/wrong-section anymore, and the answer eval's retrieval errors are zero.
+
+Full `scripts/verify.py` is green (lint, compile, 94 tests incl. the new pin
+guard, dashboard healthcheck).
