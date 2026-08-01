@@ -231,7 +231,7 @@ def _short_url(url: str) -> str:
     tail = url.split("/Archives/", 1)[-1] if "/Archives/" in url else url
     parts = tail.split("/")
     if len(parts) > 2:
-        return "sec.gov/…/" + parts[-1]
+        return "sec.gov/…/" + _esc(parts[-1])
     return _esc(url)
 
 
@@ -462,11 +462,17 @@ def main() -> None:
     options = company_options(service.companies()) or ["NVDA"]
     default_index = options.index("NVDA") if "NVDA" in options else 0
 
-    _markup(_hero_html(options[default_index]))
+    # The hero renders above the controls, so bind its ticker to the selectbox's
+    # persisted value (keyed "ticker") — falling back to the default on first
+    # paint, or if a stale session value is no longer in the current options.
+    selected_ticker = st.session_state.get("ticker", options[default_index])
+    if selected_ticker not in options:
+        selected_ticker = options[default_index]
+    _markup(_hero_html(selected_ticker))
 
     ticker_col, question_col = st.columns([1, 3])
     with ticker_col:
-        ticker = st.selectbox("Ticker", options, index=default_index)
+        ticker = st.selectbox("Ticker", options, index=default_index, key="ticker")
     with question_col:
         question = st.text_area(
             "Question",
