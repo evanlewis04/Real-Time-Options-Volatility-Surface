@@ -1,7 +1,10 @@
 """Phase 1 Stage 1 — point-in-time backfill logic (offline, pure)."""
 
 import importlib.util
+import json
 from pathlib import Path
+
+from src.financial_rag.storage import LocalRagStore
 
 _SPEC = importlib.util.spec_from_file_location(
     "financial_rag_backfill_pit",
@@ -63,3 +66,26 @@ def test_backfill_row_flags_unresolved_acceptance_without_faking() -> None:
     assert changed is True
     assert row["period_end"] == "2025-12-31"
     assert row["filed_at"] == ""  # flagged empty, never faked
+
+
+def test_run_backfill_dry_run_previews_without_writing(tmp_path: Path) -> None:
+    store = LocalRagStore(root=tmp_path)
+    chunk_path = store.chunks_dir / "DOC.jsonl"
+    row = {
+        "chunk_id": "c1",
+        "accession_number": "0000000000-26-000001",
+        "report_date": "2025-12-31",
+    }
+    chunk_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    before = chunk_path.read_text(encoding="utf-8")
+
+    preview = backfill.run_backfill(store, {}, dry_run=True)
+
+    assert preview["dry_run"] is True and preview["chunks_changed"] == 1
+    assert chunk_path.read_text(encoding="utf-8") == before  # no write on a dry run
+
+    applied = backfill.run_backfill(store, {}, dry_run=False)
+
+    assert applied["chunks_changed"] == 1
+    written = json.loads(chunk_path.read_text(encoding="utf-8").splitlines()[0])
+    assert written["period_end"] == "2025-12-31"  # execute path actually writes

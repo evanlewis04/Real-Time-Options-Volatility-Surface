@@ -221,6 +221,58 @@ def test_idempotent_rerun_is_a_noop(tmp_path: Path) -> None:
     assert checkpoint.read_text(encoding="utf-8") == checkpoint_after_first
 
 
+def test_dry_run_reports_plan_and_mutates_nothing(tmp_path: Path) -> None:
+    store = LocalRagStore(root=tmp_path)
+    checkpoint = tmp_path / "checkpoint.jsonl"
+    constituents = [_company("A", "1"), _company("B", "2"), _company("C", "3")]
+    store.upsert_manifest(  # A is already complete
+        checkpoint, key="ticker", record={"ticker": "A", "status": "completed"}
+    )
+    checkpoint_before = checkpoint.read_text(encoding="utf-8")
+    client = FakeSECClient(["1", "2", "3"])
+
+    def _boom(_company: CompanyRecord) -> list[str]:
+        raise AssertionError("dry run must never ingest")
+
+    result = fetch_constituents(
+        constituents=constituents,
+        store=store,
+        checkpoint_path=checkpoint,
+        ingest_company=_boom,
+        dry_run=True,
+        logger=lambda _msg: None,
+    )
+
+    assert result.total == 3 and result.skipped == 1 and result.pending == 2
+    assert result.completed == 0 and result.chunks_written == 0
+    assert client.submission_calls == [] and client.document_calls == []  # no network
+    assert checkpoint.read_text(encoding="utf-8") == checkpoint_before  # no checkpoint write
+    assert _raw_file_count(store) == 0  # no corpus mutation
+
+
+def test_script_run_dry_run_needs_no_secret_and_writes_nothing(tmp_path: Path) -> None:
+    module = _load_fetch_script()
+    csv_path = tmp_path / "constituents.csv"
+    csv_path.write_text(
+        "ticker,cik,company_name\nA,0000000001,A Inc.\nB,0000000002,B Inc.\n",
+        encoding="utf-8",
+    )
+
+    result = module.run(
+        constituents_path=csv_path,
+        root=tmp_path,
+        recent_8k_limit=0,
+        sec_delay=0.2,
+        embed_batch_size=8,
+        limit=None,
+        skip_embeddings=True,
+        execute=False,
+    )
+
+    assert result.total == 2 and result.pending == 2 and result.completed == 0
+    assert not module.checkpoint_path(LocalRagStore(root=tmp_path)).exists()
+
+
 def test_continue_on_error_records_failure_and_keeps_going(tmp_path: Path) -> None:
     store = LocalRagStore(root=tmp_path)
     checkpoint = tmp_path / "checkpoint.jsonl"

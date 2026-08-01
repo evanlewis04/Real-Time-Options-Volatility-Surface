@@ -53,6 +53,8 @@ class BatchFetchResult:
     completed: int = 0
     failed: int = 0
     chunks_written: int = 0
+    # Names that a dry run would fetch (not yet complete). Stays 0 on a real run.
+    pending: int = 0
     failures: list[tuple[str, str]] = field(default_factory=list)
 
 
@@ -63,6 +65,7 @@ def fetch_constituents(
     checkpoint_path: Path,
     ingest_company: IngestCompany,
     continue_on_error: bool = False,
+    dry_run: bool = False,
     logger: Callable[[str], None] = print,
 ) -> BatchFetchResult:
     """Fetch every constituent once, checkpointing after each success.
@@ -73,10 +76,27 @@ def fetch_constituents(
     checkpointed as completed, so it re-runs next time; with
     ``continue_on_error=False`` (the default) the exception also propagates after
     it is recorded, modelling a hard interruption that stops the run.
+
+    ``dry_run`` reports the plan (how many names would be fetched vs. already
+    complete) without calling ``ingest_company`` or writing the checkpoint — zero
+    corpus mutation and no network, so a real pull is always a deliberate opt-in.
     """
 
     completed = load_completed_tickers(checkpoint_path)
     result = BatchFetchResult(total=len(constituents))
+
+    if dry_run:
+        for company in constituents:
+            if company.ticker.upper() in completed:
+                result.skipped += 1
+            else:
+                result.pending += 1
+        logger(
+            f"[sp500] DRY RUN: would fetch {result.pending} name(s), "
+            f"{result.skipped} already complete of {result.total}. "
+            "No corpus writes. Re-run with --execute to perform the real pull."
+        )
+        return result
 
     for company in constituents:
         ticker = company.ticker.upper()

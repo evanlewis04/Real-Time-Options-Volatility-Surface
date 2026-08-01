@@ -106,20 +106,35 @@ def run(
     embed_batch_size: int,
     limit: int | None,
     skip_embeddings: bool,
+    execute: bool,
 ) -> BatchFetchResult:
     load_environment()
+    constituents = list(parse_constituents_csv(constituents_path.read_text(encoding="utf-8")))
+    if limit is not None:
+        constituents = constituents[:limit]
+
+    store = LocalRagStore(root=root)
+
+    if not execute:
+        # Guardrail: no --execute means preview only — no secret, no network, no
+        # corpus writes. `ingest_company` is never reached in a dry run.
+        def _forbidden(_company: CompanyRecord) -> list[DocumentChunk]:
+            raise AssertionError("dry run must not ingest")
+
+        return fetch_constituents(
+            constituents=constituents,
+            store=store,
+            checkpoint_path=checkpoint_path(store),
+            ingest_company=_forbidden,
+            dry_run=True,
+        )
+
     sec_user_agent = configured_secret("SEC_USER_AGENT")
     if not sec_user_agent:
         raise SystemExit(
             "SEC_USER_AGENT must be configured in .env before the real S&P 500 pull. "
             "The Stage 4 machinery and its tests run without it; only the live fetch needs it."
         )
-
-    constituents = list(parse_constituents_csv(constituents_path.read_text(encoding="utf-8")))
-    if limit is not None:
-        constituents = constituents[:limit]
-
-    store = LocalRagStore(root=root)
     client = SECClient(user_agent=sec_user_agent, delay_seconds=sec_delay)
     ingest_company = make_ingest_company(
         client=client,
@@ -163,6 +178,11 @@ def parse_args() -> argparse.Namespace:
         "--embed-batch-size", type=int, default=DEFAULT_EMBED_BATCH_SIZE, help="Voyage batch size."
     )
     parser.add_argument("--skip-embeddings", action="store_true", help="Fetch/parse/chunk only.")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Perform the real corpus-mutating EDGAR pull. Without it, dry-run (preview only).",
+    )
     return parser.parse_args()
 
 
@@ -176,7 +196,14 @@ def main() -> int:
         embed_batch_size=args.embed_batch_size,
         limit=args.limit,
         skip_embeddings=args.skip_embeddings,
+        execute=args.execute,
     )
+    if not args.execute:
+        print("[DRY RUN] No corpus writes. Pass --execute to perform the real pull.")
+        print(f"Constituents considered: {result.total}")
+        print(f"Already complete (would skip): {result.skipped}")
+        print(f"Would fetch: {result.pending}")
+        return 0
     print(f"Constituents considered: {result.total}")
     print(f"Skipped (already complete): {result.skipped}")
     print(f"Completed this run: {result.completed}")

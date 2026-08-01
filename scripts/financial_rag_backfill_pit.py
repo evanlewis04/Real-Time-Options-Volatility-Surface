@@ -86,8 +86,18 @@ def _rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def run_backfill(
-    store: LocalRagStore, acceptance_by_accession: dict[str, str]
+    store: LocalRagStore,
+    acceptance_by_accession: dict[str, str],
+    *,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
+    """Backfill filed_at / period_end onto cached chunk rows.
+
+    ``dry_run`` computes exactly what would change but never rewrites any file, so
+    a preview can never mutate the corpus. Row dicts are mutated in memory only to
+    count changes; on a dry run they are discarded unwritten.
+    """
+
     chunk_files = [p for p in sorted(store.chunks_dir.glob("*.jsonl")) if p.name != "manifest.jsonl"]
     chunks_seen = 0
     chunks_changed = 0
@@ -106,10 +116,11 @@ def run_backfill(
                 filed_at_resolved += 1
             else:
                 unresolved_accessions.add(str(row.get("accession_number", "") or ""))
-        if file_changed:
+        if file_changed and not dry_run:
             _rewrite_jsonl(path, rows)
 
     return {
+        "dry_run": dry_run,
         "chunk_files": len(chunk_files),
         "chunks_seen": chunks_seen,
         "chunks_changed": chunks_changed,
@@ -148,10 +159,28 @@ def main() -> int:
         action="store_true",
         help="Skip the SEC acceptance re-fetch; backfill period_end only.",
     )
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Perform the real corpus-mutating backfill. Without it, dry-run (preview only).",
+    )
     args = parser.parse_args()
 
     root = Path(args.root) if args.root else project_root()
     store = LocalRagStore(root=root)
+
+    if not args.execute:
+        # Guardrail: preview only — no SEC re-fetch, no file writes.
+        ciks = _unique_ciks(store)
+        summary = run_backfill(store, {}, dry_run=True)
+        print("[DRY RUN] No corpus writes. Pass --execute to apply the backfill.")
+        if not args.offline_only:
+            print(
+                f"Would fetch SEC submissions for {len(ciks)} CIK(s) to resolve filed_at, "
+                "then write filed_at / period_end onto cached chunks."
+            )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
 
     acceptance_by_accession: dict[str, str] = {}
     if not args.offline_only:
