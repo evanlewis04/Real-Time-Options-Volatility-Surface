@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Sequence
 
 from src.financial_rag.evaluation.expanded import EXPANDED_RETRIEVAL_CASES, ExpandedEvalCase
-from src.financial_rag.retrieval import LocalChunkRecord, lexical_relevance_score
+from src.financial_rag.retrieval import LocalChunkRecord
 
 
 @dataclass(frozen=True)
@@ -102,15 +102,15 @@ def resolve_gold_labels(
     """Resolve human-selected label specs to current local chunk IDs."""
 
     labels: list[ResolvedGoldLabel] = []
-    questions_by_case = {case.case_id: case.question for case in EXPANDED_RETRIEVAL_CASES}
     for spec in specs:
-        question = questions_by_case.get(spec.case_id, spec.topic)
         candidates = [
             (score, chunk)
             for chunk in chunks
-            if (score := _candidate_score(chunk, spec, question=question)) > 0
+            if (score := _candidate_score(chunk, spec)) > 0
         ]
-        candidates.sort(key=lambda item: item[0], reverse=True)
+        # Deterministic order: score desc, then chunk_id for a stable tiebreak so
+        # label selection is reproducible across runs and machines.
+        candidates.sort(key=lambda item: (item[0], item[1].chunk_id), reverse=True)
         for score, chunk in candidates[: spec.max_labels]:
             labels.append(
                 ResolvedGoldLabel(
@@ -180,7 +180,19 @@ def gold_label_summary(labels: Sequence[ResolvedGoldLabel]) -> dict[str, Any]:
     }
 
 
-def _candidate_score(chunk: LocalChunkRecord, spec: GoldLabelSpec, *, question: str) -> float:
+def _candidate_score(chunk: LocalChunkRecord, spec: GoldLabelSpec) -> float:
+    """Score a chunk as a gold-label candidate, independently of the retriever.
+
+    Gold selection deliberately does NOT call the production retrieval scorer
+    (`lexical_relevance_score`). Using it here made the eval circular: gold chunks
+    were whatever the first stage already ranked highest, so MRR/NDCG rewarded any
+    retriever or reranker that agreed with the first stage and penalized one that
+    reordered — the reranker could never win on its own merits. Selection here is
+    grounded only in filing structure (metadata filters) and a transparent,
+    retrieval-agnostic topicality signal: how densely the human-authored required
+    terms actually occur in the chunk. This lets the reranker be measured fairly.
+    """
+
     metadata = chunk.metadata
     if _norm(metadata.get("ticker")) != spec.ticker:
         return 0.0
@@ -194,20 +206,16 @@ def _candidate_score(chunk: LocalChunkRecord, spec: GoldLabelSpec, *, question: 
         return 0.0
 
     text = chunk.chunk_text.lower()
-    matched = sum(1 for term in spec.required_terms if term.lower() in text)
-    if matched != len(spec.required_terms):
+    # Every required term must be present, or the chunk is not a candidate.
+    if any(term.lower() not in text for term in spec.required_terms):
         return 0.0
-    metadata_score = 0.0
-    if spec.item_numbers:
-        metadata_score += 2.0
-    if spec.exhibit_types:
-        metadata_score += 1.0
-    return (
-        float(matched)
-        + metadata_score
-        + (lexical_relevance_score(question, chunk.chunk_text, chunk.metadata) * 5)
-        + min(len(text), 2200) / 4400
-    )
+    # Topicality signal, retrieval-agnostic: total occurrences of the required
+    # terms in the chunk. A chunk that discusses the selected terms repeatedly is
+    # a stronger label than one that mentions them once. The small length term is
+    # only a deterministic secondary nudge, capped so long chunks cannot dominate
+    # on length alone.
+    occurrences = sum(text.count(term.lower()) for term in spec.required_terms)
+    return float(occurrences) + min(len(text), 2200) / 4400
 
 
 def _norm(value: object) -> str:
