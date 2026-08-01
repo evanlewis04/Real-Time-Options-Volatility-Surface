@@ -19,11 +19,13 @@ from src.financial_rag.embeddings import (
     VoyageEmbeddingProvider,
     embedding_setup_message,
 )
+from src.financial_rag.ingestion.pinned_filings import PinnedFiling, cik_from_accession
 from src.financial_rag.ingestion.sec_client import (
     SECClient,
     ExhibitRecord,
     FilingRecord,
     build_document_id,
+    cik_padded,
     filing_primary_document_url,
     infer_exhibit_type,
     parse_filing_index_exhibits,
@@ -93,31 +95,17 @@ def run_smoke(
     all_chunks: list[DocumentChunk] = []
 
     for target in targets:
-        metadata, created = fetch_raw_document(
-            store=store,
-            client=client,
-            ticker=company.ticker,
-            cik=company.cik,
-            company_name=company.company_name,
-            target=target,
+        all_chunks.extend(
+            ingest_target(
+                store=store,
+                client=client,
+                ticker=company.ticker,
+                cik=company.cik,
+                company_name=company.company_name,
+                target=target,
+                counts=counts,
+            )
         )
-        if created:
-            counts.fetched += 1
-        else:
-            counts.already_present += 1
-
-        parsed_created = parse_document(store=store, metadata=metadata)
-        if parsed_created:
-            counts.parsed += 1
-        else:
-            counts.parse_already_present += 1
-
-        chunks, chunks_created = chunk_parsed_document(store=store, metadata=metadata)
-        all_chunks.extend(chunks)
-        if chunks_created:
-            counts.chunks_written += len(chunks)
-        else:
-            counts.chunks_already_present += len(chunks)
 
     if skip_embeddings:
         counts.embedding_skipped = len(all_chunks)
@@ -129,6 +117,139 @@ def run_smoke(
             batch_size=embed_batch_size,
         )
     return counts
+
+
+def run_pinned_filings(
+    *,
+    pins: tuple[PinnedFiling, ...],
+    sec_delay: float,
+    embed_batch_size: int,
+    root: Path,
+    skip_embeddings: bool = False,
+) -> SmokeCounts:
+    """Fetch, parse, chunk, and embed a fixed set of accession-pinned filings.
+
+    Each pin is fetched under the CIK derived from its accession number (not the
+    ticker->CIK lookup) and tagged under the pin's ticker, so eval-critical
+    filings are present regardless of latest-N drift or decoy ticker mappings.
+    """
+
+    load_environment()
+    sec_user_agent = configured_secret("SEC_USER_AGENT")
+    if not sec_user_agent:
+        raise SystemExit(
+            "SEC_USER_AGENT must be configured in .env before using SEC EDGAR. "
+            "Use a real contact string such as 'Your Name your.email@example.com'."
+        )
+
+    store = LocalRagStore(root=root)
+    client = SECClient(user_agent=sec_user_agent, delay_seconds=sec_delay)
+    counts = SmokeCounts()
+    all_chunks: list[DocumentChunk] = []
+
+    for pin in pins:
+        cik = cik_from_accession(pin.accession_number)
+        submissions = client.fetch_company_submissions(cik)
+        company_name = str(submissions.get("name", ""))
+        filing = find_filing_by_accession(recent_filing_records(submissions), pin.accession_number)
+        for target in discover_pinned_targets(client, cik, filing):
+            all_chunks.extend(
+                ingest_target(
+                    store=store,
+                    client=client,
+                    ticker=pin.ticker,
+                    cik=cik_padded(cik),
+                    company_name=company_name,
+                    target=target,
+                    counts=counts,
+                )
+            )
+
+    if skip_embeddings:
+        counts.embedding_skipped = len(all_chunks)
+    else:
+        embed_chunks(
+            store=store,
+            chunks=all_chunks,
+            counts=counts,
+            batch_size=embed_batch_size,
+        )
+    return counts
+
+
+def find_filing_by_accession(
+    records: tuple[FilingRecord, ...], accession_number: str
+) -> FilingRecord:
+    for record in records:
+        if record.accession_number == accession_number:
+            return record
+    raise SystemExit(
+        f"Pinned accession {accession_number} was not found in the filer's recent "
+        "submissions. SEC EDGAR's submissions file lists roughly the latest 1,000 "
+        "filings; a pin older than that window needs the paginated submissions index."
+    )
+
+
+def discover_pinned_targets(
+    client: SECClient,
+    cik: int | str,
+    filing: FilingRecord,
+) -> list[DownloadTarget]:
+    """Download targets for a single pinned filing: primary doc plus EX-99 for 8-Ks."""
+
+    targets = [
+        DownloadTarget(
+            filing=filing,
+            document_name=filing.primary_document,
+            source_url=filing_primary_document_url(cik, filing),
+            document_role="primary",
+            description=filing.description,
+        )
+    ]
+    if filing.form == "8-K":
+        base_url = sec_archive_base_url(cik, filing.accession_number)
+        index_html = client.fetch_filing_index(cik, filing.accession_number)
+        for exhibit in parse_filing_index_exhibits(index_html, base_url=base_url):
+            targets.append(exhibit_download_target(filing, exhibit))
+    return targets
+
+
+def ingest_target(
+    *,
+    store: LocalRagStore,
+    client: SECClient,
+    ticker: str,
+    cik: str,
+    company_name: str,
+    target: DownloadTarget,
+    counts: SmokeCounts,
+) -> list[DocumentChunk]:
+    """Fetch, parse, and chunk one download target, updating ``counts`` in place."""
+
+    metadata, created = fetch_raw_document(
+        store=store,
+        client=client,
+        ticker=ticker,
+        cik=cik,
+        company_name=company_name,
+        target=target,
+    )
+    if created:
+        counts.fetched += 1
+    else:
+        counts.already_present += 1
+
+    if parse_document(store=store, metadata=metadata):
+        counts.parsed += 1
+    else:
+        counts.parse_already_present += 1
+
+    chunks, chunks_created = chunk_parsed_document(store=store, metadata=metadata)
+    if chunks_created:
+        counts.chunks_written += len(chunks)
+    else:
+        counts.chunks_already_present += len(chunks)
+    return chunks
 
 
 def discover_download_targets(
