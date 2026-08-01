@@ -1,78 +1,88 @@
 # Architecture
 
-This is one platform with two provenance-preserving layers that meet in a unified
-brief. A **market-intelligence layer** turns option chains into implied-volatility
-analytics, and a **filings-intelligence layer** turns SEC disclosure into cited,
-retrievable evidence. A shared discipline runs through both: every value carries
-its source and mode, and fitted, fallback, synthetic, retrieved, or
-model-derived values are never presented as live market observations.
+A point-in-time SEC-filings research platform. SEC disclosure becomes cited,
+retrievable evidence; each analyst question is answered from that evidence and
+paired with a clearly-labeled options-market context panel. One discipline runs
+through it: every value carries its source and mode, and retrieved,
+model-derived, or market-implied values are never presented as live market
+observations. Filing evidence (management disclosure, cited) and market context
+(options-market implied) stay in separate, provenance-labeled blocks.
 
 ```mermaid
 flowchart LR
-    subgraph Market["Market-intelligence layer"]
-        Providers["Providers<br/>yfinance, demo, snapshots"]
-        Normalize["Normalize<br/>OptionQuote, MarketDataSnapshot"]
-        Quant["Quant engine<br/>IV, Greeks, SVI, surface quality"]
-        Connector["Dashboard connector<br/>cache, provenance, fallback"]
-        VolUI["Streamlit workstation"]
-        Providers --> Normalize --> Quant --> Connector --> VolUI
-    end
+    SEC["SEC EDGAR<br/>10-K/10-Q/8-K/EX-99"]
+    Ingest["Ingestion<br/>idempotent, raw retained"]
+    Parse["Parse + chunk<br/>section/exhibit/speaker aware"]
+    Store["Storage<br/>local chunk + embedding cache"]
+    Retrieve["Retrieval<br/>dense + lexical, opt-in rerank"]
+    Synth["Synthesis<br/>citation validation, fails closed"]
+    API["Cache-only API / workbench"]
+    SEC --> Ingest --> Parse --> Store --> Retrieve --> Synth --> API
 
-    subgraph Filings["Filings-intelligence layer"]
-        SEC["SEC EDGAR<br/>10-K/10-Q/8-K/EX-99"]
-        Ingest["Ingestion<br/>idempotent, raw retained"]
-        Parse["Parse + chunk<br/>section/exhibit/speaker aware"]
-        Retrieve["Retrieval<br/>dense + lexical, opt-in rerank"]
-        Synth["Synthesis<br/>citation validation"]
-        API["Cache-only API / workbench"]
-        SEC --> Ingest --> Parse --> Retrieve --> Synth --> API
-    end
-
-    Connector --> Brief["Unified brief<br/>cited evidence + market context"]
-    Synth --> Brief
-    Brief --> Tests["Offline verification<br/>fixtures, evals, healthcheck, CI"]
-    VolUI --> Tests
-    API --> Tests
+    Market["Market context<br/>injectable provider (offline snapshot)"]
+    API --> Brief["Unified brief<br/>cited evidence + market context"]
+    Market --> Brief
+    Brief --> Verify["Offline verification<br/>fixtures, evals, healthcheck, CI"]
+    API --> Verify
 ```
 
-## Market-intelligence layer
-
-Providers produce raw market inputs; normalization converts them into canonical
-`OptionQuote` / `MarketDataSnapshot` models with rejection buckets; the quant
-engine fits rates, dividends, IV, Greeks, SVI, and surface quality; and the
-dashboard connector caches results and routes fallbacks while preserving timing
-and provenance. The Streamlit workstation renders analytics beside their quality
-metadata.
-
-## Filings-intelligence layer
+## Filings-intelligence pipeline
 
 SEC EDGAR is the citation backbone. Ingestion is idempotent and retains the raw
 payloads; parsing splits filings into sections, exhibits, and speaker turns;
-chunking is section/exhibit/speaker aware. Retrieval is dense + lexical fusion
-(with an opt-in rerank stage), and synthesis validates every inline citation
-against a retrieved chunk, failing closed on hallucinated labels. A cache-only
-service exposes retrieval, coverage, documents, and market-context endpoints.
+chunking is section/exhibit/speaker aware. Chunks and their embeddings are held in
+a local cache, so the default retrieval and brief paths run offline with no
+network. Retrieval is dense + lexical fusion with an opt-in rerank stage, and
+synthesis validates every inline citation against a retrieved chunk, failing
+closed on hallucinated labels. A cache-only service (`src/financial_rag/api`,
+with the `workbench` helpers) exposes retrieval, coverage, and document access;
+evaluation (`src/financial_rag/evaluation`) measures retrieval and answer quality
+against gold labels.
 
-## The integration
+The package is organized into focused subpackages under `src/financial_rag/`:
+`ingestion`, `parsing`, `chunking`, `storage`, `embeddings`, `retrieval`,
+`synthesis`, `query`, `api`, `evaluation`, `audit`, `differentiators`, and
+`integration`.
 
-The two layers meet in `src/financial_rag/integration`: the unified brief pairs
-cited filing evidence with an options-market context panel for one question and
-ticker. They are deliberately decoupled — the filings package depends on the
-volatility engine only through an injectable provider, and the brief keeps
-disclosure, market data, and any generated answer explicitly labeled as distinct
-sources.
+## Market context
+
+Market context attaches through an **injectable provider** seam
+(`market_provider_from_metrics` in `src/financial_rag/integration`), so the RAG
+package has no dependency on any live market or volatility stack. The default path
+supplies a deterministic offline snapshot; when no snapshot is supplied, the
+market block is labeled `unavailable` and the path stays fully offline. A live
+provider is not part of this build — `volatility_market_provider` raises, and the
+existing `get_market_context` handler catches it and labels the context
+`unavailable`. Self-contained realized-volatility estimators live separately in
+`src/marketdata/realized_vol.py` (numpy/pandas only, no external market feed).
+
+## The unified brief
+
+The brief (`src/financial_rag/integration`) pairs cited filing evidence with an
+options-market context panel for one question and ticker. The two are deliberately
+decoupled and never merged into a single claim: disclosure, market data, and any
+generated answer are each explicitly labeled as distinct sources. The generated
+answer is opt-in — it runs only when both an evidence/readiness gate allows it and
+an OpenAI key is present; otherwise the brief returns cited evidence plus a labeled
+market block with no answer.
 
 ## Provenance contract
 
-Every market response carries source, mode, timestamp, cache age, fallback
-reason, and row counts. Every retrieval result carries ticker, form type,
-accession, filing date, section, and source URL, and every answer citation maps
-to a retrieved chunk. Synthetic, fallback, fitted, and model-derived values stay
-explicitly labeled.
+Every retrieval result carries ticker, form type, accession number, filing date,
+section, and source URL, and every answer citation maps to a retrieved chunk. The
+market block carries its status (`ok` / `unavailable`), source mode, and metrics.
+Model-derived and market-implied values stay explicitly labeled — a reader can
+always tell management disclosure from what the options market is implying.
 
 ## Offline contract
 
-The default paths are cache-only and deterministic. Tests use fixtures, AppTest
-fallback modes, and gold-label evals; CI requires no network. Live providers (and
-optional Voyage/OpenAI calls) can be absent or fail, and the system still renders
-a labeled fallback or lexical-retrieval state.
+The default paths are cache-only and deterministic. Tests use in-memory fixtures
+and gold-label evals; the healthcheck (`scripts/healthcheck.py`) builds an
+in-memory RAG service and runs the full retrieval → citation → brief-assembly path
+with no fetched corpus, so CI is green on a fresh clone with no network. Optional
+SEC fetch, Voyage embeddings, and OpenAI answers can be absent or fail, and the
+system still renders a labeled offline or lexical-retrieval state.
+
+See [financial-rag-market-context.md](financial-rag-market-context.md) for the
+integration detail and [financial-rag-eval-baseline.md](financial-rag-eval-baseline.md)
+for the dated eval history.
