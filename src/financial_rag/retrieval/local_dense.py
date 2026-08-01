@@ -6,6 +6,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Protocol
 
@@ -73,6 +74,7 @@ class LocalDenseRetriever:
         query_vector: list[float] | None = None,
         top_k: int = 5,
         filters: RetrievalFilters | None = None,
+        as_of: datetime | None = None,
     ) -> list[RetrievalResult]:
         if query_vector is None:
             if query is None:
@@ -81,10 +83,18 @@ class LocalDenseRetriever:
                 raise ValueError("A query embedder is required when query_vector is not provided.")
             query_vector = self.query_embedder.embed_queries([query])[0]
 
+        # Point-in-time (Phase 1 Stage 2): when as_of is set, hard-filter the
+        # candidate set to filings knowable as of that instant BEFORE scoring, so
+        # look-ahead records never enter retrieval. as_of is None on the eval path,
+        # making this a pure no-op there. Normalize as_of to UTC once, up front.
+        as_of_utc = _coerce_utc(as_of) if as_of is not None else None
+
         query_text = query or ""
         scored: list[tuple[float, LocalChunkRecord]] = []
         for chunk in self.chunks:
             if not _matches_filters(chunk.metadata, filters):
+                continue
+            if as_of_utc is not None and not _is_knowable_as_of(chunk.metadata, as_of_utc):
                 continue
             vector = self.embeddings.get(chunk.chunk_id)
             dense_score = cosine_similarity(query_vector, vector) if vector is not None else 0.0
@@ -251,6 +261,47 @@ def _matches_filters(metadata: dict[str, Any], filters: RetrievalFilters | None)
         if _normalize(actual) not in normalized_expected:
             return False
     return True
+
+
+def _is_knowable_as_of(metadata: dict[str, Any], as_of_utc: datetime) -> bool:
+    """True when the chunk's filing was public at or before ``as_of_utc``.
+
+    A chunk with an empty or unparseable ``filed_at`` is *excluded* from an
+    as-of view: a record whose public date cannot be proven is not knowable as
+    of any date. It re-enters once the point-in-time backfill fills filed_at.
+    """
+
+    filed_at = _parse_utc_datetime(metadata.get("filed_at"))
+    if filed_at is None:
+        return False
+    return filed_at <= as_of_utc
+
+
+def _parse_utc_datetime(value: Any) -> datetime | None:
+    """Parse a stored ISO-8601 ``filed_at`` into a tz-aware UTC datetime.
+
+    Matches the format written by ``parse_acceptance_datetime`` (ISO-8601 with a
+    ``+00:00`` offset, or a trailing ``Z``). Returns None for empty/unparseable
+    input so the caller can apply the data-honesty exclusion policy.
+    """
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    candidate = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+    return _coerce_utc(parsed)
+
+
+def _coerce_utc(value: datetime) -> datetime:
+    """Normalize a datetime to UTC; a naive datetime is assumed to be UTC."""
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _normalize(value: Any) -> str:
