@@ -331,3 +331,36 @@ empty/wrong-section anymore, and the answer eval's retrieval errors are zero.
 
 Full `scripts/verify.py` is green (lint, compile, 94 tests incl. the new pin
 guard, dashboard healthcheck).
+
+## Update 2026-08-01: Corpus Snapshots (Phase 1 Stage 3 — replayable composition)
+
+The drift in the two updates above (filings rolling out of the latest-N window)
+is what motivates recording *which corpus produced an eval*. A **corpus
+snapshot** records the corpus composition at a moment in time — per document its
+`document_id / accession / filed_at / content_hash / chunk_count`, plus a
+composition-fingerprint `snapshot_id` and totals — as one JSONL row per snapshot
+in `data/filings/snapshots/manifest.jsonl` (reusing `LocalRagStore.upsert_manifest`,
+no new store).
+
+**What it guarantees (going forward only):** a run pinned to snapshot `S`
+restricts the retriever's candidate set to the documents recorded in `S` at their
+recorded content, *before* scoring. So new filings landing after `S` cannot move
+a pinned run — the pin seam is `load_local_retrieval_corpus(..., snapshot=S)`,
+threaded through `build_local_api_service`; `snapshot=None` is a pure no-op, so
+the §4 numbers above reproduce exactly on an unpinned run. Pin/inspect via
+`scripts/financial_rag_corpus_snapshot.py {create,list,drift}` and the
+`--snapshot <id>` flag on the expanded retrieval eval.
+
+**Honest scope — no retroactive claim.** A snapshot pins state only from the
+moment it is taken. It does **not** reconstruct the May-2026 corpus or any
+pre-snapshot state — those chunks rolled forward and are gone (that irreversible
+loss *is* the drift this defends against). A document mutated after a snapshot is
+**excluded from the pinned view and reported as drift** (`content_hash`
+mismatch), never silently served with its newer content: snapshots detect the
+loss they cannot resurrect. What Stage 3 changes is that this loss is now
+structurally impossible for any corpus state captured *after* a snapshot exists.
+
+The reproduction invariant is proven deterministically on a synthetic on-disk
+corpus (`tests/financial_rag/test_phase3_corpus_snapshot.py`): snapshot →
+baseline ranking → land a new document → the pinned re-run is numerically
+identical while the unpinned run moves.

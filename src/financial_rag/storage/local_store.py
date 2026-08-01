@@ -25,11 +25,13 @@ class LocalRagStore:
         self.parsed_dir = self.root / "data" / "filings" / "parsed"
         self.chunks_dir = self.root / "data" / "filings" / "chunks"
         self.vector_cache_dir = self.root / "data" / "vector_cache"
+        self.snapshots_dir = self.root / "data" / "filings" / "snapshots"
         for directory in (
             self.raw_dir,
             self.parsed_dir,
             self.chunks_dir,
             self.vector_cache_dir,
+            self.snapshots_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -44,6 +46,11 @@ class LocalRagStore:
 
     def embedding_path(self, chunk_id: str) -> Path:
         return self.vector_cache_dir / f"{chunk_id}.json"
+
+    def snapshot_manifest_path(self) -> Path:
+        """JSONL manifest holding one row per recorded corpus snapshot."""
+
+        return self.snapshots_dir / "manifest.jsonl"
 
     def write_bytes_once(self, path: Path, content: bytes) -> StorageWriteResult:
         path.parent.mkdir(parents=True, exist_ok=True)

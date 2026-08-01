@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.financial_rag.embeddings import DEFAULT_VOYAGE_MODEL, VoyageEmbeddingProvider
 from src.financial_rag.differentiators import (
@@ -20,6 +20,9 @@ from src.financial_rag.query.router import KNOWN_TICKERS
 from src.financial_rag.retrieval import LocalChunkRecord, LocalDenseRetriever, load_local_retrieval_corpus
 from src.financial_rag.retrieval.rerank import Reranker, build_reranker
 from src.financial_rag.settings import configured_secret, load_environment
+
+if TYPE_CHECKING:
+    from src.financial_rag.corpus_snapshot import CorpusSnapshot
 
 
 DEFAULT_PHASE4_QUERY = "How have NVIDIA risk disclosures changed over the last year?"
@@ -261,15 +264,18 @@ def build_local_api_service(
     root: Path | str,
     use_voyage: bool = True,
     reranker: str = "none",
+    snapshot: "CorpusSnapshot | None" = None,
 ) -> LocalRagApiService:
     """Build the local service from cached chunks and vectors.
 
     ``reranker`` selects the rerank stage: "lexical" (deterministic, offline,
     default), "none" (dense+lexical baseline), or "voyage" (opt-in online).
+    ``snapshot`` pins the corpus to a recorded composition (Phase 1 Stage 3);
+    ``None`` loads the full live corpus (no behavior change).
     """
 
     load_environment()
-    chunks, embeddings = load_local_retrieval_corpus(root=root)
+    chunks, embeddings = load_local_retrieval_corpus(root=root, snapshot=snapshot)
     if use_voyage:
         api_key = configured_secret("VOYAGE_API_KEY")
         if api_key:
