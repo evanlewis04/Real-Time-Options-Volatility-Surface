@@ -7,6 +7,7 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
 
@@ -41,6 +42,32 @@ class FilingRecord:
     report_date: str
     primary_document: str
     description: str
+    # EDGAR acceptance datetime, normalized to ISO-8601 UTC. This is the precise
+    # "when did this become public" instant the point-in-time spine relies on.
+    # Empty string when the source value is missing/unparseable (never faked).
+    acceptance_datetime: str = ""
+
+
+def parse_acceptance_datetime(raw: str) -> str:
+    """Normalize an EDGAR ``acceptanceDateTime`` to an ISO-8601 UTC string.
+
+    EDGAR's submissions payload reports acceptance as e.g. ``2026-02-25T16:31:12.000Z``.
+    Returns ``""`` for a missing or unparseable value — a data-honesty guardrail: an
+    unresolved acceptance instant is flagged as empty, never zero-filled or guessed.
+    A naive datetime (no offset) is assumed UTC, matching EDGAR's ``Z`` convention.
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    candidate = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
 
 
 @dataclass(frozen=True)
@@ -213,6 +240,9 @@ def recent_filing_records(submissions_payload: dict[str, Any]) -> tuple[FilingRe
                 report_date=_list_get(recent.get("reportDate", []), index),
                 primary_document=_list_get(recent.get("primaryDocument", []), index),
                 description=_list_get(recent.get("primaryDocDescription", []), index),
+                acceptance_datetime=parse_acceptance_datetime(
+                    _list_get(recent.get("acceptanceDateTime", []), index)
+                ),
             )
         )
     return tuple(records)

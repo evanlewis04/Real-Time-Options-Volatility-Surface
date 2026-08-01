@@ -170,6 +170,8 @@ def _metadata_from_row(row: dict[str, object]) -> FilingMetadata:
         document_name=str(row.get("document_name", "")),
         description=str(row.get("description", "")),
         content_hash=str(row.get("content_hash", "")),
+        filed_at=str(row.get("filed_at", "")),
+        period_end=str(row.get("period_end", "") or row.get("report_date", "")),
     )
 
 
@@ -199,6 +201,8 @@ def _rebuild_chunk_manifest(store: LocalRagStore) -> None:
                     "item_number": row.get("item_number", ""),
                     "speaker_name": row.get("speaker_name", ""),
                     "speaker_role": row.get("speaker_role", ""),
+                    "filed_at": row.get("filed_at", ""),
+                    "period_end": row.get("period_end", "") or row.get("report_date", ""),
                 }
             )
     manifest_path = store.chunks_dir / "manifest.jsonl"

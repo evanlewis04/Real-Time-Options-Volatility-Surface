@@ -78,6 +78,8 @@ def _build_chunk(
         start_offset=start,
         end_offset=end,
         token_count=_approx_token_count(chunk_text),
+        filed_at=metadata.filed_at,
+        period_end=metadata.period_end,
         metadata={
             "parser_version": PARSER_VERSION,
             "chunker_version": CHUNKER_VERSION,

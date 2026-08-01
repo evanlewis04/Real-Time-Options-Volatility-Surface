@@ -345,6 +345,8 @@ def fetch_raw_document(
         document_name=target.document_name,
         description=target.description,
         content_hash=content_hash,
+        filed_at=target.filing.acceptance_datetime,
+        period_end=target.filing.report_date,
     )
     store.upsert_manifest(
         store.raw_dir / "manifest.jsonl",
