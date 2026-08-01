@@ -196,7 +196,52 @@ No config beats the baseline without a guardrail regression. Two reasons:
    first stage and penalize any reranker that reorders. A fair rerank measurement
    needs scorer-independent gold labels first.
 
+> **Update 2026-08-01: reason #2 is fixed.** Gold selection no longer calls the
+> production retrieval scorer; see the "Scorer-Independent Gold Labels" section
+> below. Under the corrected labels the reranker *does* beat the baseline, so the
+> conclusion in this section is superseded — the table and the two reasons above
+> are retained as the historical (circular-gold) record.
+
 The rerank stage ships as opt-in infrastructure (enable with `--reranker lexical`
 or `reranker="voyage"`); it is wired in the protected-set configuration, which
 reorders only the first-stage result set so source-hit and recall cannot regress
 when enabled.
+
+## Update 2026-08-01: Scorer-Independent Gold Labels (eval de-circularized)
+
+The eval's headline retrieval numbers were inflated by a circular gold-labeling
+step: `gold.py` selected each gold chunk by ranking candidates with
+`lexical_relevance_score` — the *same* tuned first-stage retrieval scorer the
+pipeline uses. Gold was therefore, by construction, "whatever the retriever ranks
+top," so Recall/MRR/NDCG measured the retriever against its own output and any
+reranker that reordered was penalized (that is exactly the reason #2 above).
+
+**Fix (`src/financial_rag/evaluation/gold.py`).** Gold selection is now
+retrieval-agnostic. Among chunks that pass the human-authored metadata filters
+(ticker / form / role / exhibit / item) and contain every required term, labels
+are chosen by a transparent topicality signal — the total occurrence count of the
+required terms in the chunk — with a small capped length term and a deterministic
+`chunk_id` tiebreak. It no longer references the production scorer or the query at
+all. Same 58 labels resolved; behavior-level gold tests unchanged and green.
+
+Corrected retrieval eval (same corpus as the 2026-07-31 run, 50 cases / 13
+companies, offline lexical, `--top-k 5 --per-subquery-k 8`):
+
+| Config | Recall@5 | MRR | NDCG@5 |
+| --- | --- | --- | --- |
+| none (baseline) | 0.436 | 0.194 | 0.209 |
+| lexical | 0.436 | 0.245 | 0.242 |
+| voyage | 0.436 | 0.259 | 0.253 |
+
+Two honest consequences:
+
+- **Headline numbers dropped** (Recall@5 0.667 → 0.436, MRR 0.421 → 0.194 vs the
+  2026-07-31 circular-gold run). This is the inflation coming out, not a
+  regression — the retriever now has to find independently-selected chunks rather
+  than its own top hits. These corrected numbers are the new floor.
+- **The reranker now earns its place.** For the first time, both rerankers beat
+  the baseline monotonically on ranking quality (voyage > lexical > none): MRR
+  +0.051 / +0.065, NDCG +0.033 / +0.044. Recall@5 is flat because reranking
+  reorders within the retrieved pool rather than changing its membership. The
+  prior "reranking does not beat the first stage" conclusion was an artifact of
+  the circular gold, not a property of the reranker.
