@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,9 @@ class QueryRequest:
     ticker: str = "NVDA"
     top_k: int = 5
     per_subquery_k: int = 5
+    # Point-in-time query (Phase 1 Stage 2): when set, retrieval is hard-filtered
+    # to filings knowable at this instant (filed_at <= as_of). None = full corpus.
+    as_of: datetime | None = None
 
 
 class LocalApiError(ValueError):
@@ -110,6 +114,7 @@ class LocalRagApiService:
             default_ticker=request.ticker,
             top_k=request.top_k,
             per_subquery_k=request.per_subquery_k,
+            as_of=request.as_of,
         )
         payload = serialize_query_result(result)
         if not payload["results"]:
@@ -477,7 +482,31 @@ def _query_request_from_payload(payload: dict[str, Any]) -> QueryRequest:
         ticker=str(payload.get("ticker", "NVDA")),
         top_k=int(payload.get("top_k", 5)),
         per_subquery_k=int(payload.get("per_subquery_k", 5)),
+        as_of=_parse_as_of(payload.get("as_of")),
     )
+
+
+def _parse_as_of(value: Any) -> datetime | None:
+    """Parse an optional ISO-8601 date or datetime from the request payload.
+
+    Accepts ``2026-03-01`` or a full ISO datetime (with ``Z`` or an offset).
+    A malformed value is a client error, not a silent None, so an as-of query is
+    never quietly run against the full corpus.
+    """
+
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    candidate = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        return datetime.fromisoformat(candidate)
+    except ValueError as exc:
+        raise LocalApiError(
+            status_code=400,
+            code="invalid_as_of",
+            message="as_of must be an ISO-8601 date or datetime (e.g. 2026-03-01).",
+            details={"as_of": text},
+        ) from exc
 
 
 def _validate_request(request: QueryRequest) -> None:

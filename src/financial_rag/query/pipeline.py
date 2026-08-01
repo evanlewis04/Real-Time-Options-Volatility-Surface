@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from src.financial_rag.query.coverage import CoverageReport, build_coverage_report
 from src.financial_rag.query.parent_context import HydratedContext, hydrate_parent_context
@@ -61,6 +62,7 @@ class QueryPipeline:
         default_ticker: str | None = None,
         top_k: int = 5,
         per_subquery_k: int | None = None,
+        as_of: datetime | None = None,
     ) -> QueryPipelineResult:
         routed = route_query(question, default_ticker=default_ticker)
         subqueries = plan_retrieval(routed)
@@ -72,6 +74,7 @@ class QueryPipeline:
                 query=subquery.query,
                 top_k=search_k,
                 filters=subquery.filters,
+                as_of=as_of,
             ):
                 raw_results.append((subquery.subquery_id, result, dict(subquery.trace)))
 
@@ -95,6 +98,7 @@ class QueryPipeline:
                 "pipeline": "phase3_local_query_v1",
                 "subquery_count": len(subqueries),
                 "result_count": len(merged),
+                "as_of": as_of.isoformat() if as_of is not None else None,
             },
         )
 

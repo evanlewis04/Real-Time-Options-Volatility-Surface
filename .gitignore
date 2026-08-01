@@ -14,6 +14,9 @@ ENV/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Scratch / working files (never commit)
+.scratch/
+
 # Tool caches
 .pytest_cache/
 .ruff_cache/
@@ -52,6 +55,7 @@ streamlit_*_smoke_*.err.log
 .streamlit/*
 !.streamlit/config.toml
 artifacts/dashboard_screenshots/
+artifacts/ws2_preview/
 artifacts/dashboard_crawler/
 artifacts/dashboard_crawler_online/
 data/alerts/
