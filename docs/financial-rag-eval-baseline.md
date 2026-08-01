@@ -364,3 +364,42 @@ The reproduction invariant is proven deterministically on a synthetic on-disk
 corpus (`tests/financial_rag/test_phase3_corpus_snapshot.py`): snapshot →
 baseline ranking → land a new document → the pinned re-run is numerically
 identical while the unpinned run moves.
+
+## Update 2026-08-01: Amendment Supersession (Phase 1 Stage 2b — section-level)
+
+Refines the Stage 2 as-of filter so that inside an as-of view at instant `D`, a
+section restated by an amendment (e.g. a `10-K/A`) knowable as of `D` never
+serves its pre-amendment version. EDGAR publishes no machine-readable
+"amends accession Y" link, so lineage is **derived**: chunks are grouped by
+`(cik, base_form, period_end)` where `base_form` is `form_type` with a trailing
+`/A` stripped (`10-K/A` → `10-K`). Implemented in
+`src/financial_rag/amendment_supersession.py`; the retriever computes the
+superseded chunk-id set over the as-of-knowable candidates and skips them before
+scoring, so a superseded section never reaches ranking.
+
+**Supersession is section-level, not document-level.** A 10-K/A usually restates
+only *part* of the original (commonly adds Part III, or restates one item), so
+dropping the whole original when a `/A` exists would silently lose the unamended
+Items (1A/7/8) that live only in the original. Instead, within a lineage group,
+for each section key (`item_number`, else `section_path`) only the
+latest-`filed_at` version's chunks survive; strictly-earlier versions of that
+same section are dropped. Unamended sections from the original remain; amended
+sections show the `/A`; the pre-amendment version of an amended section is never
+served.
+
+**Honest fallback — never silently drop, never silently serve a known-superseded
+section.** Any chunk whose lineage key, section key, or `filed_at` cannot be
+resolved does not participate: it is never dropped and can never cause a drop.
+Where item/section metadata is missing or unreliable (the documented INTC-style
+item-metadata gaps) we cannot tell what a `/A` supersedes, so we retain both
+versions rather than guess. Ties on `filed_at` are also retained.
+
+**Scope.** Applies only inside the as-of view; `as_of=None` is a pure no-op, so
+the §4 eval reproduces exactly (`none` 0.409/0.177/0.195, `lexical`
+0.409/0.229/0.229, 64 gold labels, `unsupported_ticker`×1 — all unchanged).
+Out of scope: cross-period amendments, full-vs-partial restatement detection, UI.
+On the current cached corpus `filed_at` is empty pending the Stage 1 backfill, so
+the as-of view (and thus supersession) is exercised on synthetic lineage fixtures
+with known section overlap (`tests/financial_rag/test_phase2b_amendment_supersession.py`):
+as of `D`, an amended section returns only the latest-≤`D` version while an
+unamended section still returns the original.

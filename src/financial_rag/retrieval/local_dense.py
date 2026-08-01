@@ -92,12 +92,26 @@ class LocalDenseRetriever:
         # making this a pure no-op there. Normalize as_of to UTC once, up front.
         as_of_utc = _coerce_utc(as_of) if as_of is not None else None
 
+        # Amendment supersession (Phase 1 Stage 2b): inside the as-of view, an
+        # amendment supersedes only the SECTIONS it restates. Compute the dropped
+        # chunk ids over the as-of-knowable set (later-filed versions of a section
+        # win) so a pre-amendment section is never served. Only runs when as_of is
+        # set, keeping the as_of=None eval path a pure no-op.
+        superseded: set[str] = set()
+        if as_of_utc is not None:
+            from src.financial_rag.amendment_supersession import superseded_chunk_ids
+
+            knowable = [c for c in self.chunks if _is_knowable_as_of(c.metadata, as_of_utc)]
+            superseded = superseded_chunk_ids(knowable)
+
         query_text = query or ""
         scored: list[tuple[float, LocalChunkRecord]] = []
         for chunk in self.chunks:
             if not _matches_filters(chunk.metadata, filters):
                 continue
             if as_of_utc is not None and not _is_knowable_as_of(chunk.metadata, as_of_utc):
+                continue
+            if chunk.chunk_id in superseded:
                 continue
             vector = self.embeddings.get(chunk.chunk_id)
             dense_score = cosine_similarity(query_vector, vector) if vector is not None else 0.0
