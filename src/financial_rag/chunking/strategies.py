@@ -228,6 +228,8 @@ def _build_chunk(
         item_number=item_number,
         speaker_name=speaker_name,
         speaker_role=speaker_role,
+        filed_at=metadata.filed_at,
+        period_end=metadata.period_end,
         metadata={
             "parser_version": PARSER_VERSION,
             "section_parser_version": SECTION_PARSER_VERSION,

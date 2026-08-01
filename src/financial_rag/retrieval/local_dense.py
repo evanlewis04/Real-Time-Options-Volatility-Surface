@@ -206,6 +206,8 @@ def _chunk_metadata(row: dict[str, Any]) -> dict[str, Any]:
         "item_number",
         "speaker_name",
         "speaker_role",
+        "filed_at",
+        "period_end",
     ):
         if key in row and row[key] not in (None, ""):
             metadata[key] = row[key]

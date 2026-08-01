@@ -25,6 +25,11 @@ class FilingMetadata:
     document_name: str = ""
     description: str = ""
     content_hash: str = ""
+    # Point-in-time spine (Phase 1): filed_at = EDGAR acceptance datetime (ISO-8601
+    # UTC, the moment the filing became public); period_end = the reporting period
+    # end (= report_date). Empty string means unresolved — never zero-filled/faked.
+    filed_at: str = ""
+    period_end: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -53,6 +58,11 @@ class DocumentChunk:
     item_number: str = ""
     speaker_name: str = ""
     speaker_role: str = ""
+    # Point-in-time spine (Phase 1): threaded down from FilingMetadata so the record
+    # retrieval sees carries acceptance datetime (filed_at) + period_end. Empty means
+    # unresolved, never faked. See models.FilingMetadata.
+    filed_at: str = ""
+    period_end: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
