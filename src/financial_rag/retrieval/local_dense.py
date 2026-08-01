@@ -8,9 +8,12 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Protocol
+from typing import TYPE_CHECKING, Any, Iterable, Protocol
 
 from src.financial_rag.storage import LocalRagStore
+
+if TYPE_CHECKING:
+    from src.financial_rag.corpus_snapshot import CorpusSnapshot
 
 
 class QueryEmbeddingProvider(Protocol):
@@ -126,11 +129,22 @@ class LocalDenseRetriever:
 def load_local_retrieval_corpus(
     *,
     root: Path | str = Path("."),
+    snapshot: "CorpusSnapshot | None" = None,
 ) -> tuple[list[LocalChunkRecord], dict[str, list[float]]]:
-    """Load local chunk JSONL files and vector-cache JSON files."""
+    """Load local chunk JSONL files and vector-cache JSON files.
+
+    When ``snapshot`` is provided, the chunk set is restricted to the documents
+    recorded in that snapshot at their recorded content (Phase 1 Stage 3). This
+    is the pin seam: a pinned read reproduces even after new docs land.
+    ``snapshot=None`` is a pure no-op, so the §4 eval reproduces exactly.
+    """
 
     store = LocalRagStore(root=root)
     chunks = _load_chunks(store.chunks_dir)
+    if snapshot is not None:
+        from src.financial_rag.corpus_snapshot import restrict_chunks_to_snapshot
+
+        chunks = restrict_chunks_to_snapshot(chunks, snapshot)
     embeddings = _load_embeddings(store.vector_cache_dir)
     return chunks, embeddings
 

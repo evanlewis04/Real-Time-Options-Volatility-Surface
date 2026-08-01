@@ -23,8 +23,10 @@ from src.financial_rag.evaluation import (
     write_csv_rows,
     write_json_report,
 )
+from src.financial_rag.corpus_snapshot import read_corpus_snapshot
 from src.financial_rag.retrieval import load_local_retrieval_corpus
 from src.financial_rag.settings import project_root
+from src.financial_rag.storage import LocalRagStore
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,6 +36,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=5, help="Merged retrieval results.")
     parser.add_argument("--per-subquery-k", type=int, default=5, help="Per-subquery results.")
     parser.add_argument("--use-voyage", action="store_true", help="Use Voyage query embeddings when configured.")
+    parser.add_argument(
+        "--snapshot",
+        default="",
+        help="Pin the corpus to a recorded snapshot id (Stage 3); empty runs the full live corpus.",
+    )
     parser.add_argument(
         "--reranker",
         default="none",
@@ -55,11 +62,20 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     tickers = [ticker.strip().upper() for ticker in args.tickers.split(",") if ticker.strip()]
-    chunks, _embeddings = load_local_retrieval_corpus(root=project_root())
+    snapshot = None
+    if args.snapshot:
+        snapshot = read_corpus_snapshot(LocalRagStore(root=project_root()), args.snapshot)
+        if snapshot is None:
+            print(f"Snapshot not found: {args.snapshot}")
+            return 1
+        print(f"Pinned to snapshot {snapshot.snapshot_id} ({snapshot.document_count} docs, {snapshot.chunk_count} chunks)")
+    chunks, _embeddings = load_local_retrieval_corpus(root=project_root(), snapshot=snapshot)
     gold_labels = resolve_gold_labels(chunks)
     labeled_cases = apply_gold_labels_to_cases(EXPANDED_RETRIEVAL_CASES, gold_labels)
     cases = filter_cases(labeled_cases, tickers=tickers or None, max_cases=args.max_cases)
-    service = build_local_api_service(root=project_root(), use_voyage=args.use_voyage, reranker=args.reranker)
+    service = build_local_api_service(
+        root=project_root(), use_voyage=args.use_voyage, reranker=args.reranker, snapshot=snapshot
+    )
     payloads: dict[str, dict[str, Any]] = {}
     for index, case in enumerate(cases, start=1):
         print(f"[{index}/{len(cases)}] {case.case_id}: {case.question}")

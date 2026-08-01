@@ -33,10 +33,12 @@ data/processed/*
 data/filings/raw/*
 data/filings/parsed/*
 data/filings/chunks/*
+data/filings/snapshots/*
 data/vector_cache/*
 !data/filings/raw/.gitkeep
 !data/filings/parsed/.gitkeep
 !data/filings/chunks/.gitkeep
+!data/filings/snapshots/.gitkeep
 !data/vector_cache/.gitkeep
 
 # IDE
