@@ -11,9 +11,6 @@ from pathlib import Path
 CHECK_PATHS = [
     "src",
     "tests",
-    "diagnostic.py",
-    "dashboard_connector.py",
-    "app.py",
     "scripts",
 ]
 
@@ -24,7 +21,7 @@ def _run(label: str, args: list[str], cwd: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run format, lint, compile, test, and dashboard smoke checks.")
+    parser = argparse.ArgumentParser(description="Run format, lint, compile, test, and brief smoke checks.")
     parser.add_argument(
         "--fix",
         action="store_true",
@@ -33,7 +30,7 @@ def main() -> int:
     parser.add_argument(
         "--skip-healthcheck",
         action="store_true",
-        help="Skip the Streamlit AppTest healthcheck for quicker inner-loop runs.",
+        help="Skip the RAG brief healthcheck for quicker inner-loop runs.",
     )
     args = parser.parse_args()
 
@@ -47,12 +44,12 @@ def main() -> int:
     _run("Lint", [python, "-m", "ruff", "check", *CHECK_PATHS], root)
     _run(
         "Compile",
-        [python, "-m", "compileall", "src", "tests", "scripts", "dashboard_connector.py", "diagnostic.py", "app.py"],
+        [python, "-m", "compileall", "src", "tests", "scripts"],
         root,
     )
     _run("Tests", [python, "-m", "pytest", "-q"], root)
     if not args.skip_healthcheck:
-        _run("Dashboard smoke", [python, "-m", "scripts.healthcheck"], root)
+        _run("Brief smoke", [python, "-m", "scripts.healthcheck"], root)
     return 0
 
 
