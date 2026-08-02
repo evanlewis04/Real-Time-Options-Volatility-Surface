@@ -35,6 +35,7 @@ data/filings/parsed/*
 data/filings/chunks/*
 data/filings/snapshots/*
 data/vector_cache/*
+data/filings/sp500_fetch_checkpoint.jsonl
 !data/filings/raw/.gitkeep
 !data/filings/parsed/.gitkeep
 !data/filings/chunks/.gitkeep
