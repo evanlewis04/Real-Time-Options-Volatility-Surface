@@ -29,7 +29,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.financial_rag.ingestion.sec_client import SECClient, recent_filing_records
-from src.financial_rag.settings import configured_secret, project_root
+from src.financial_rag.settings import configured_secret, load_environment, project_root
 from src.financial_rag.storage import LocalRagStore
 
 
@@ -165,6 +165,11 @@ def main() -> int:
         help="Perform the real corpus-mutating backfill. Without it, dry-run (preview only).",
     )
     args = parser.parse_args()
+
+    # Resolve SEC_USER_AGENT (and any other secret) from .env, matching every other
+    # real-run script (e.g. financial_rag_sp500_fetch). Without this the --execute
+    # acceptance re-fetch silently degrades to offline-only, leaving filed_at flagged.
+    load_environment()
 
     root = Path(args.root) if args.root else project_root()
     store = LocalRagStore(root=root)

@@ -2,7 +2,10 @@
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
+
+import pytest
 
 from src.financial_rag.storage import LocalRagStore
 
@@ -89,3 +92,50 @@ def test_run_backfill_dry_run_previews_without_writing(tmp_path: Path) -> None:
     assert applied["chunks_changed"] == 1
     written = json.loads(chunk_path.read_text(encoding="utf-8").splitlines()[0])
     assert written["period_end"] == "2025-12-31"  # execute path actually writes
+
+
+def test_execute_path_loads_env_to_resolve_secret(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: main(--execute) must load .env so SEC_USER_AGENT resolves.
+
+    The original backfill omitted ``load_environment()``, so the acceptance re-fetch
+    silently degraded to offline-only (period_end filled, filed_at flagged empty).
+    Simulate the secret living only in .env — ``load_environment()`` is the sole thing
+    that sets it — and assert the network client gets built. If main() failed to load
+    the env (the bug), the secret would stay unset and SECClient would never construct.
+    """
+    monkeypatch.delenv("SEC_USER_AGENT", raising=False)
+
+    def fake_load_env() -> None:
+        monkeypatch.setenv("SEC_USER_AGENT", "Regression Agent ops@corp.test")
+
+    monkeypatch.setattr(backfill, "load_environment", fake_load_env)
+
+    constructed: dict[str, str] = {}
+
+    class FakeSECClient:
+        def __init__(self, user_agent: str) -> None:
+            constructed["user_agent"] = user_agent
+
+        def fetch_company_submissions(self, cik: str) -> dict:
+            return {"filings": {"recent": {}}}
+
+    monkeypatch.setattr(backfill, "SECClient", FakeSECClient)
+
+    store = LocalRagStore(root=tmp_path)
+    (store.chunks_dir / "DOC.jsonl").write_text(
+        json.dumps(
+            {
+                "chunk_id": "c1",
+                "cik": "0000034088",
+                "accession_number": "0000034088-26-000045",
+                "report_date": "2025-12-31",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["financial_rag_backfill_pit", "--execute", "--root", str(tmp_path)])
+
+    assert backfill.main() == 0
+    assert constructed.get("user_agent") == "Regression Agent ops@corp.test"
