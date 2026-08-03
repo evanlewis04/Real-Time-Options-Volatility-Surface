@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from src.financial_rag.embeddings import EmbeddingCache, VoyageEmbeddingProvider
 from src.financial_rag.models import DocumentChunk
 from src.financial_rag.storage import LocalRagStore
@@ -25,6 +27,29 @@ def test_voyage_provider_accepts_fake_client_without_network() -> None:
     )
 
     assert provider.embed_texts(["abc", "hello"]) == [[3.0, 1.0], [5.0, 1.0]]
+
+
+def test_real_client_is_built_with_finite_timeout_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: the live Voyage client must have a request timeout + retries.
+
+    An unbounded client (timeout=None, max_retries=0) let a single stalled or
+    rate-limited embedding request hang a multi-hour ingest indefinitely. The
+    provider must pass a finite timeout and at least one retry so a wedged call
+    fails fast (and, being retriable, either recovers or surfaces a real error).
+    """
+    voyageai = pytest.importorskip("voyageai")
+    captured: dict[str, object] = {}
+
+    class RecordingClient:
+        def __init__(self, api_key=None, max_retries=0, timeout=None, base_url=None):
+            captured.update(api_key=api_key, max_retries=max_retries, timeout=timeout)
+
+    monkeypatch.setattr(voyageai, "Client", RecordingClient)
+
+    VoyageEmbeddingProvider(api_key="pa-test-key")
+
+    assert isinstance(captured["timeout"], (int, float)) and captured["timeout"] > 0
+    assert isinstance(captured["max_retries"], int) and captured["max_retries"] >= 1
 
 
 def test_embedding_cache_writes_once_with_source_metadata(tmp_path: Path) -> None:
