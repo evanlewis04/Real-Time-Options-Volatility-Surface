@@ -9,6 +9,13 @@ from src.financial_rag.storage import LocalRagStore
 
 
 DEFAULT_VOYAGE_MODEL = "voyage-finance-2"
+# A stalled or rate-limited embedding request must fail fast, not hang the whole
+# ingest: an unbounded call was observed freezing a multi-hour run for 37+ min
+# with no error. Bound every request and let the SDK auto-retry transient
+# rate-limit / 5xx errors with backoff before giving up (a raised error is then
+# recoverable — the batched fetch skips the name and the checkpoint resumes it).
+DEFAULT_EMBED_TIMEOUT_SECONDS = 60.0
+DEFAULT_EMBED_MAX_RETRIES = 3
 
 
 class EmbeddingClient(Protocol):
@@ -25,6 +32,8 @@ class VoyageEmbeddingProvider:
         api_key: str,
         model: str = DEFAULT_VOYAGE_MODEL,
         client: EmbeddingClient | None = None,
+        timeout: float = DEFAULT_EMBED_TIMEOUT_SECONDS,
+        max_retries: int = DEFAULT_EMBED_MAX_RETRIES,
     ) -> None:
         self.model = model
         if client is not None:
@@ -37,7 +46,9 @@ class VoyageEmbeddingProvider:
                 "The voyageai package is required when VOYAGE_API_KEY is configured. "
                 "Install project dependencies, then rerun the smoke script."
             ) from exc
-        self.client = voyageai.Client(api_key=api_key)
+        self.client = voyageai.Client(
+            api_key=api_key, max_retries=max_retries, timeout=timeout
+        )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         response = self.client.embed(texts, model=self.model, input_type="document")
