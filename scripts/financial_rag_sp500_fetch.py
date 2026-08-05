@@ -65,6 +65,7 @@ def make_ingest_company(
     store: LocalRagStore,
     recent_8k_limit: int,
     embed_batch_size: int,
+    embed_min_interval: float = 0.0,
     skip_embeddings: bool,
 ):
     """Build the per-company ingest callable driven through the shared engine."""
@@ -90,7 +91,11 @@ def make_ingest_company(
             )
         if not skip_embeddings:
             ingest_engine.embed_chunks(
-                store=store, chunks=chunks, counts=counts, batch_size=embed_batch_size
+                store=store,
+                chunks=chunks,
+                counts=counts,
+                batch_size=embed_batch_size,
+                min_request_interval=embed_min_interval,
             )
         return chunks
 
@@ -104,6 +109,7 @@ def run(
     recent_8k_limit: int,
     sec_delay: float,
     embed_batch_size: int,
+    embed_min_interval: float = 0.0,
     limit: int | None,
     skip_embeddings: bool,
     execute: bool,
@@ -141,6 +147,7 @@ def run(
         store=store,
         recent_8k_limit=recent_8k_limit,
         embed_batch_size=embed_batch_size,
+        embed_min_interval=embed_min_interval,
         skip_embeddings=skip_embeddings,
     )
     return fetch_constituents(
@@ -177,6 +184,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--embed-batch-size", type=int, default=DEFAULT_EMBED_BATCH_SIZE, help="Voyage batch size."
     )
+    parser.add_argument(
+        "--embed-min-interval",
+        type=float,
+        default=0.0,
+        help=(
+            "Minimum seconds between Voyage embedding requests. Set >0 to throttle a "
+            "capped free key (e.g. 20 keeps a small-batch run under the 3 req/min cap). "
+            "Default 0 = no throttle."
+        ),
+    )
     parser.add_argument("--skip-embeddings", action="store_true", help="Fetch/parse/chunk only.")
     parser.add_argument(
         "--execute",
@@ -194,6 +211,7 @@ def main() -> int:
         recent_8k_limit=args.recent_8k_limit,
         sec_delay=args.sec_delay,
         embed_batch_size=args.embed_batch_size,
+        embed_min_interval=args.embed_min_interval,
         limit=args.limit,
         skip_embeddings=args.skip_embeddings,
         execute=args.execute,
