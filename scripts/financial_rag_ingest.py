@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -420,6 +421,7 @@ def embed_chunks(
     chunks: list[DocumentChunk],
     counts: SmokeCounts,
     batch_size: int,
+    min_request_interval: float = 0.0,
 ) -> None:
     api_key = configured_secret("VOYAGE_API_KEY")
     if not api_key:
@@ -436,8 +438,18 @@ def embed_chunks(
     cache = EmbeddingCache(store=store, model=provider.model)
     uncached = [chunk for chunk in chunks if not cache.is_cached(chunk)]
     counts.embeddings_already_present = len(chunks) - len(uncached)
+    # Opt-in client-side throttle for capped free Voyage keys: a card-less account
+    # is limited to 3 requests/min + 10K tokens/min, so an unthrottled burst is
+    # rejected outright. Spacing requests keeps a small-batch run under that ceiling.
+    # Default 0.0 leaves paid-key behavior unchanged.
+    last_request_at: float | None = None
     for start in range(0, len(uncached), batch_size):
         batch = uncached[start : start + batch_size]
+        if min_request_interval > 0.0 and last_request_at is not None:
+            wait = min_request_interval - (time.monotonic() - last_request_at)
+            if wait > 0:
+                time.sleep(wait)
+        last_request_at = time.monotonic()
         vectors = provider.embed_texts([chunk.chunk_text for chunk in batch])
         for chunk, vector in zip(batch, vectors, strict=True):
             if cache.write(chunk, vector):

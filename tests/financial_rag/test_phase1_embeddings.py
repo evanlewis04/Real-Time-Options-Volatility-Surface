@@ -1,3 +1,6 @@
+import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -84,3 +87,104 @@ def test_embedding_cache_writes_once_with_source_metadata(tmp_path: Path) -> Non
     assert '"model": "fake-model"' in cached_text
     assert '"source_url": "https://www.sec.gov/Archives/doc.htm"' in cached_text
     assert '"embedding": [' in cached_text
+
+
+# --------------------------------------------------------------------------- #
+# Embedding throttle: opt-in pacing keeps a capped free key under its rate cap.
+# --------------------------------------------------------------------------- #
+
+
+def _make_chunk(idx: int) -> DocumentChunk:
+    return DocumentChunk(
+        chunk_id=f"chunk-{idx}",
+        document_id="doc-1",
+        ticker="NVDA",
+        cik="0001045810",
+        accession_number="0001045810-26-000051",
+        form_type="10-Q",
+        filing_date="2026-05-20",
+        source_url="https://www.sec.gov/Archives/doc.htm",
+        local_path="data/filings/raw/NVDA/doc.htm",
+        document_role="primary",
+        exhibit_type="",
+        chunk_text=f"text-{idx}",
+        start_offset=0,
+        end_offset=5,
+        token_count=1,
+        metadata={"parser_version": "test"},
+    )
+
+
+def _load_ingest_engine():
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "financial_rag_ingest", root / "scripts" / "financial_rag_ingest.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class _FakeProvider:
+    model = "fake-model"
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0, 1.0] for _ in texts]
+
+
+def _stub_embed_dependencies(engine, monkeypatch, sleeps: list[float]) -> None:
+    monkeypatch.setattr(engine, "configured_secret", lambda name: "test-key")
+    monkeypatch.setattr(engine, "VoyageEmbeddingProvider", lambda **kwargs: _FakeProvider())
+    # Freeze the clock so each post-first request must wait the full interval, and
+    # capture sleeps instead of actually blocking the test.
+    monkeypatch.setattr(
+        engine,
+        "time",
+        types.SimpleNamespace(monotonic=lambda: 0.0, sleep=lambda s: sleeps.append(s)),
+    )
+
+
+def test_embed_chunks_throttles_between_requests_when_interval_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A positive min_request_interval spaces requests (the free-key rate-cap path)."""
+    engine = _load_ingest_engine()
+    store = LocalRagStore(root=tmp_path)
+    sleeps: list[float] = []
+    _stub_embed_dependencies(engine, monkeypatch, sleeps)
+
+    counts = engine.SmokeCounts()
+    engine.embed_chunks(
+        store=store,
+        chunks=[_make_chunk(i) for i in range(3)],
+        counts=counts,
+        batch_size=1,
+        min_request_interval=20.0,
+    )
+
+    assert counts.embedded == 3
+    # 3 one-chunk requests -> 2 inter-request waits, each the full interval.
+    assert sleeps == [20.0, 20.0]
+
+
+def test_embed_chunks_does_not_throttle_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default interval 0.0 preserves the original unthrottled (paid-key) behavior."""
+    engine = _load_ingest_engine()
+    store = LocalRagStore(root=tmp_path)
+    sleeps: list[float] = []
+    _stub_embed_dependencies(engine, monkeypatch, sleeps)
+
+    counts = engine.SmokeCounts()
+    engine.embed_chunks(
+        store=store,
+        chunks=[_make_chunk(i) for i in range(3)],
+        counts=counts,
+        batch_size=1,
+    )
+
+    assert counts.embedded == 3
+    assert sleeps == []
