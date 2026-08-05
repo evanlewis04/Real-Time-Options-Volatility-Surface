@@ -95,13 +95,19 @@ class EmbeddingCache:
                 "chunk_end_offset": chunk.end_offset,
             },
         )
+        record_dict = record.to_dict()
         path = self.store.embedding_path(chunk.chunk_id)
-        result = self.store.write_json_once(path, record.to_dict())
-        self.store.upsert_manifest(
-            self.store.vector_cache_dir / "manifest.jsonl",
-            key="chunk_id",
-            record=record.to_dict(),
-        )
+        result = self.store.write_json_once(path, record_dict)
+        # Only newly-cached chunks touch the manifest, and via an O(1) append: the
+        # old wholesale `upsert_manifest` reread + rewrote this multi-hundred-MB
+        # file on every single chunk (O(n^2) over a full-corpus run, ~20s/chunk at
+        # scale — the true throughput wall, independent of the embedding API). The
+        # per-chunk file write is idempotent, so a cache hit adds no duplicate row.
+        if result.created:
+            self.store.append_manifest(
+                self.store.vector_cache_dir / "manifest.jsonl",
+                record_dict,
+            )
         return result.created
 
 

@@ -89,6 +89,32 @@ def test_embedding_cache_writes_once_with_source_metadata(tmp_path: Path) -> Non
     assert '"embedding": [' in cached_text
 
 
+def test_embedding_cache_appends_manifest_without_rewriting(tmp_path: Path) -> None:
+    """The embedding manifest must be appended, not rewritten wholesale, per chunk.
+
+    Regression: writing each embedding used to reread + re-serialize + rewrite the
+    entire vector-cache manifest (O(n^2) over a run, ~20s/chunk once the file grew
+    into the hundreds of MB — the real throughput wall behind the API rate cap).
+    New chunks now append one row; a cache hit adds none; pre-existing content is
+    left byte-for-byte intact (proving no wholesale rewrite).
+    """
+    store = LocalRagStore(root=tmp_path)
+    cache = EmbeddingCache(store=store, model="fake-model")
+    manifest_path = store.vector_cache_dir / "manifest.jsonl"
+    # A sentinel row that must survive untouched if we only ever append.
+    sentinel = '{"chunk_id": "pre-existing", "embedding": [9.9]}\n'
+    manifest_path.write_text(sentinel, encoding="utf-8")
+
+    chunk = _make_chunk(1)
+    assert cache.write(chunk, [0.1, 0.2]) is True  # new -> one appended row
+    assert cache.write(chunk, [0.3, 0.4]) is False  # cache hit -> no new row
+
+    lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == sentinel.rstrip("\n")  # original content preserved verbatim
+    assert len(lines) == 2  # exactly one row appended, no duplicate on the re-write
+    assert lines[1].count('"chunk_id": "chunk-1"') == 1
+
+
 # --------------------------------------------------------------------------- #
 # Embedding throttle: opt-in pacing keeps a capped free key under its rate cap.
 # --------------------------------------------------------------------------- #
