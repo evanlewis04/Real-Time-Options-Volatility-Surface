@@ -349,11 +349,8 @@ def fetch_raw_document(
         filed_at=target.filing.acceptance_datetime,
         period_end=target.filing.report_date,
     )
-    store.upsert_manifest(
-        store.raw_dir / "manifest.jsonl",
-        key="document_id",
-        record=metadata.to_dict(),
-    )
+    if created:
+        store.append_manifest(store.raw_dir / "manifest.jsonl", metadata.to_dict())
     return metadata, created
 
 
@@ -362,16 +359,13 @@ def parse_document(*, store: LocalRagStore, metadata: FilingMetadata) -> bool:
     raw_content = Path(metadata.local_path).read_bytes()
     text = extract_readable_text(raw_content)
     result = store.write_text_once(parsed_path, text)
-    parsed_record = {
-        **metadata.to_dict(),
-        "parsed_path": str(parsed_path.resolve()),
-        "character_count": len(text),
-    }
-    store.upsert_manifest(
-        store.parsed_dir / "manifest.jsonl",
-        key="document_id",
-        record=parsed_record,
-    )
+    if result.created:
+        parsed_record = {
+            **metadata.to_dict(),
+            "parsed_path": str(parsed_path.resolve()),
+            "character_count": len(text),
+        }
+        store.append_manifest(store.parsed_dir / "manifest.jsonl", parsed_record)
     return result.created
 
 
@@ -387,31 +381,37 @@ def chunk_parsed_document(
         store.chunks_path(metadata.document_id),
         [chunk.to_dict() for chunk in chunks],
     )
-    for chunk in chunks:
-        store.upsert_manifest(
-            store.chunks_dir / "manifest.jsonl",
-            key="chunk_id",
-            record={
-                "chunk_id": chunk.chunk_id,
-                "document_id": chunk.document_id,
-                "ticker": chunk.ticker,
-                "cik": chunk.cik,
-                "accession_number": chunk.accession_number,
-                "form_type": chunk.form_type,
-                "filing_date": chunk.filing_date,
-                "source_url": chunk.source_url,
-                "local_path": chunk.local_path,
-                "document_role": chunk.document_role,
-                "exhibit_type": chunk.exhibit_type,
-                "start_offset": chunk.start_offset,
-                "end_offset": chunk.end_offset,
-                "token_count": chunk.token_count,
-                "section_path": chunk.section_path,
-                "item_number": chunk.item_number,
-                "speaker_name": chunk.speaker_name,
-                "speaker_role": chunk.speaker_role,
-            },
-        )
+    # Append one manifest row per chunk in O(1), only when the document's chunk
+    # file was newly written (idempotent guard -> no duplicate rows on re-ingest).
+    # The old per-chunk `upsert_manifest` reread + rewrote the whole chunks manifest
+    # (tens of MB, growing) for every chunk -> O(n^2), the parse-phase twin of the
+    # embedding-manifest bug. Retrieval globs the chunk files and skips this
+    # manifest; it is a derived index (rebuildable via retrieval_repair).
+    if result.created:
+        for chunk in chunks:
+            store.append_manifest(
+                store.chunks_dir / "manifest.jsonl",
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "document_id": chunk.document_id,
+                    "ticker": chunk.ticker,
+                    "cik": chunk.cik,
+                    "accession_number": chunk.accession_number,
+                    "form_type": chunk.form_type,
+                    "filing_date": chunk.filing_date,
+                    "source_url": chunk.source_url,
+                    "local_path": chunk.local_path,
+                    "document_role": chunk.document_role,
+                    "exhibit_type": chunk.exhibit_type,
+                    "start_offset": chunk.start_offset,
+                    "end_offset": chunk.end_offset,
+                    "token_count": chunk.token_count,
+                    "section_path": chunk.section_path,
+                    "item_number": chunk.item_number,
+                    "speaker_name": chunk.speaker_name,
+                    "speaker_role": chunk.speaker_role,
+                },
+            )
     return chunks, result.created
 
 

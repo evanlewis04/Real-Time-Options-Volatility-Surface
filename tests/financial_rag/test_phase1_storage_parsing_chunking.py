@@ -34,6 +34,30 @@ def test_local_store_uses_ignored_phase1_paths_and_idempotent_manifests(tmp_path
     assert changed_second is False
 
 
+def test_append_manifest_appends_o1_without_rewriting_existing_rows(tmp_path: Path) -> None:
+    """append_manifest adds one row without rereading/rewriting the file.
+
+    This is the hot-path primitive behind the embedding- and chunk-manifest writes:
+    the old per-row `upsert_manifest` rewrote the whole (tens-to-hundreds of MB)
+    manifest each call, which is O(n^2) over an ingest run. append_manifest must
+    leave every pre-existing byte intact and only append.
+    """
+    store = LocalRagStore(root=tmp_path)
+    manifest_path = store.chunks_dir / "manifest.jsonl"
+    original = '{"chunk_id": "pre", "note": "keep me verbatim"}\n'
+    manifest_path.write_text(original, encoding="utf-8")
+
+    store.append_manifest(manifest_path, {"chunk_id": "new-1", "n": 1})
+    store.append_manifest(manifest_path, {"chunk_id": "new-2", "n": 2})
+
+    content = manifest_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    assert content.startswith(original)  # pre-existing bytes untouched
+    assert len(lines) == 3
+    assert lines[1] == '{"chunk_id": "new-1", "n": 1}'  # sorted-keys, one appended row
+    assert lines[2] == '{"chunk_id": "new-2", "n": 2}'
+
+
 def test_minimal_html_extraction_removes_scripts_and_normalizes_whitespace() -> None:
     html = """
     <html><head><style>.x { color: red; }</style><script>bad()</script></head>
