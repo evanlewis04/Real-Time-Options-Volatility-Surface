@@ -100,6 +100,21 @@ class LocalRagStore:
         )
         return True
 
+    def append_manifest(self, manifest_path: Path, record: dict[str, Any]) -> None:
+        """Append one JSONL manifest row in O(1), without reading the existing file.
+
+        `upsert_manifest` reads, re-serializes, and rewrites the whole manifest per
+        call — fine for the small raw/parsed/chunk manifests, but O(n^2) over a run
+        on the embedding manifest, which holds one row (with its full vector) per
+        embedded chunk and grows into the hundreds of MB. On that append-mostly hot
+        path the caller guards each append with the idempotent per-chunk file write,
+        so no duplicate key is introduced, and the manifest stays fully rebuildable
+        from the per-chunk files. Row order is not significant to any reader.
+        """
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        with manifest_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+
     def read_text(self, path: Path) -> str:
         return path.read_text(encoding="utf-8", errors="replace")
 
